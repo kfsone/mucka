@@ -11,7 +11,7 @@ namespace Mucka.Util.Tests;
 /// The join across the writers, which is the whole reason one database exists.
 ///
 /// <para>Every writer's acceptance of the encounter key is covered in isolation elsewhere. Nothing
-/// covered the thing those tests exist FOR: that a real SQL join on <c>encounter_started_at_ms</c>
+/// covered the thing those tests exist FOR: that a real SQL join on the encounter uid
 /// returns rows. That is not a redundant assertion - the bug this stage fixed was exactly a writer
 /// stamping its own <c>UtcNow</c>, which every isolated test still passed, because each one only ever
 /// compared a writer against itself.</para>
@@ -22,7 +22,8 @@ namespace Mucka.Util.Tests;
 /// </summary>
 public sealed class StoreJoinTests : IDisposable
 {
-    private const long Key = 1_787_000_000_000L;
+    private const long Key = 1_787_000_000_000L;   // an instant, for the rows that carry times
+    private const string Uid = "ffffffffffffffffffffffffffffffff";
     private static readonly DateTime T0 = new(2026, 5, 18, 12, 0, 0, DateTimeKind.Utc);
 
     private readonly string _directory =
@@ -53,8 +54,8 @@ public sealed class StoreJoinTests : IDisposable
         // The one stamp, to every writer - MuckaConnection.OnInCombatChanged's contract.
         tracker.InCombatChanged += inCombat =>
         {
-            ledger.OnInCombatChanged(inCombat, inCombat ? Key : null);
-            clog.OnInCombatChanged(inCombat, inCombat ? Key : null);
+            ledger.OnInCombatChanged(inCombat, inCombat ? Uid : null);
+            clog.OnInCombatChanged(inCombat, inCombat ? Uid : null);
         };
 
         // A real login row: the fact tables carry a foreign key to it, so a fabricated id is
@@ -79,7 +80,7 @@ public sealed class StoreJoinTests : IDisposable
             EndedAtMs = Key + 5_000,
             DurationMs = 5_000,
             PersonaSessionId = personaSession,
-            EncounterStartedAtMs = Key,
+            EncounterUid = Uid,
             NpcName = "rat0",
             NpcGroup = "rat",
             WeaponUsed = "axe0",
@@ -115,14 +116,14 @@ public sealed class StoreJoinTests : IDisposable
         // The query the whole stage is for: start from the encounter row the log writer produced and
         // reach the rows the combat writers produced, on nothing but the shared key.
         var joined = Query(DbPath, """
-            SELECT e.encounter_started_at_ms AS key,
-                   (SELECT COUNT(*) FROM fights f WHERE f.encounter_started_at_ms = e.encounter_started_at_ms) AS fights,
-                   (SELECT COUNT(*) FROM swings s WHERE s.encounter_started_at_ms = e.encounter_started_at_ms) AS swings
+            SELECT e.uid AS key,
+                   (SELECT COUNT(*) FROM fights f WHERE f.encounter_uid = e.uid) AS fights,
+                   (SELECT COUNT(*) FROM swings s WHERE s.encounter_uid = e.uid) AS swings
             FROM encounters e;
             """);
 
         var row = Assert.Single(joined);
-        Assert.Equal(Key, Convert.ToInt64(row["key"], CultureInfo.InvariantCulture));
+        Assert.Equal(Uid, (string)row["key"]!);
         Assert.True(Convert.ToInt64(row["fights"], CultureInfo.InvariantCulture) > 0,
             "the encounter joined to no fight: the writers disagree about the encounter key");
         Assert.True(Convert.ToInt64(row["swings"], CultureInfo.InvariantCulture) > 0,
@@ -139,15 +140,15 @@ public sealed class StoreJoinTests : IDisposable
 
         foreach (var (table, column) in new[]
                  {
-                     ("encounters", "encounter_started_at_ms"),
-                     ("fights", "encounter_started_at_ms"),
-                     ("swings", "encounter_started_at_ms"),
+                     ("encounters", "uid"),
+                     ("fights", "encounter_uid"),
+                     ("swings", "encounter_uid"),
                  })
         {
             var rows = Query(DbPath, $"SELECT DISTINCT {column} AS k FROM {table};");
             var only = Assert.Single(rows);
-            Assert.True(Key == Convert.ToInt64(only["k"], CultureInfo.InvariantCulture),
-                $"{table}.{column} is {only["k"]}, not the {Key} its caller supplied");
+            Assert.True(Uid == (string)only["k"]!,
+                $"{table}.{column} is {only["k"]}, not the {Uid} its caller supplied");
         }
     }
 }

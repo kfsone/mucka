@@ -71,9 +71,9 @@ public sealed class ClogWriter : IDisposable
     /// remarks).</summary>
     private sealed class OpenEncounter
     {
-        /// <summary>The encounter key - <c>encounter_started_at_ms</c>, as MuckaConnection stamped it,
+        /// <summary>The encounter key - <c>encounter_uid</c>, as MuckaConnection stamped it,
         /// which is what joins these rows to swings and fights.</summary>
-        public required long Key;
+        public required string Key;
         public bool Closing;
         public DateTime EndedUtc;
         /// <summary>Next ordinal for a tail line in this encounter.</summary>
@@ -140,10 +140,10 @@ public sealed class ClogWriter : IDisposable
     /// <summary>True while an encounter is being actively recorded (CombatEvents still arriving).
     /// False during tail-only draining - see <see cref="IsTailOnly"/> for that state.</summary>
     public bool IsRecording { get; private set; }
-    /// <summary>The actively-recording encounter's key (<c>encounter_started_at_ms</c>), or null when
+    /// <summary>The actively-recording encounter's key (<c>encounter_uid</c>), or null when
     /// none is live - even if a previous encounter's tail is still draining (see
     /// <see cref="IsTailOnly"/>).</summary>
-    public long? CurrentEncounterKey { get; private set; }
+    public string? CurrentEncounterKey { get; private set; }
 
     /// <summary>True while at least one encounter's tail is still draining (waiting for the next
     /// prompt to finalize) and no encounter is actively live. Drives the UI's "winding down"
@@ -281,7 +281,7 @@ public sealed class ClogWriter : IDisposable
     /// carry list, which is the figure the dexterity burden is actually keyed on. Null until a FEI
     /// list has completed, which is a real distinction from an empty pack.</para>
     /// </summary>
-    private EncounterStatsRow StatsRow(long key, long ts, string reason) => new()
+    private EncounterStatsRow StatsRow(string key, long ts, string reason) => new()
     {
         Key = key,
         TimestampMs = ts,
@@ -463,12 +463,12 @@ public sealed class ClogWriter : IDisposable
     }
 
     /// <summary>Wire directly to MudSession/MuckaConnection's InCombatChanged.
-    /// <paramref name="encounterStartedAtMs"/> is the shared encounter key - see
+    /// <paramref name="encounterUid"/> is the shared encounter key - see
     /// <see cref="Start"/>.</summary>
-    public void OnInCombatChanged(bool inCombat, long? encounterStartedAtMs = null)
+    public void OnInCombatChanged(bool inCombat, string? encounterUid = null)
     {
         if (inCombat)
-            Start(encounterStartedAtMs);
+            Start(encounterUid);
         else
             Stop();
     }
@@ -534,13 +534,13 @@ public sealed class ClogWriter : IDisposable
     }
 
     /// <summary>
-    /// Opens an encounter. <paramref name="encounterStartedAtMs"/> is the key MuckaConnection stamps
+    /// Opens an encounter. <paramref name="encounterUid"/> is the key MuckaConnection stamps
     /// ONCE and hands to every consumer; it is what joins these rows to <c>swings</c> and
     /// <c>fights</c>. A local reading is taken only when nobody supplied one, which is the unit-test
     /// and design-time path - the same fallback FightHistoryRecorder uses, and for the same reason: a
     /// row keyed to itself is still better than an unkeyed one.
     /// </summary>
-    private void Start(long? encounterStartedAtMs)
+    private void Start(string? encounterUid)
     {
         lock (_lock)
         {
@@ -549,14 +549,16 @@ public sealed class ClogWriter : IDisposable
             if (_open.Any(e => !e.Closing))
                 return;
 
-            var startedMs = encounterStartedAtMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            var entry = new OpenEncounter { Key = startedMs };
+            var uid = encounterUid ?? Guid.NewGuid().ToString("N");
+            var startedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var entry = new OpenEncounter { Key = uid };
             _open.Add(entry);
             IsRecording = true;
-            CurrentEncounterKey = startedMs;
+            CurrentEncounterKey = uid;
             UpdateTailOnlyLocked();
 
             _store.Enqueue(new EncounterRow(
+                uid,
                 startedMs,
                 _lastRoom,
                 _lastStats.Weather.ToString(),
@@ -565,11 +567,11 @@ public sealed class ClogWriter : IDisposable
 
             var ord = 0;
             foreach (var text in _recentLines)
-                _store.Enqueue(new EncounterLineRow(startedMs, "preroll", ord++, null, text));
+                _store.Enqueue(new EncounterLineRow(uid, "preroll", ord++, null, text));
 
             // The encounter's own first stats and contents rows, so its opening state is read back
             // exactly where every later reading is read from rather than out of a second shape.
-            _store.Enqueue(StatsRow(startedMs, startedMs, "start"));
+            _store.Enqueue(StatsRow(uid, startedMs, "start"));
             WriteContentsLocked(startedMs);
             // Those rows ARE this encounter's baseline for change detection, so the next stats row is
             // written only if something has actually moved since.

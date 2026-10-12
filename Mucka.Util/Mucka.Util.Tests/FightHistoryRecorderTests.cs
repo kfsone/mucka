@@ -155,8 +155,8 @@ public sealed class FightHistoryRecorderTests : IDisposable
 
         var rows = store.Snapshot();
         Assert.Equal(2, rows.Count);
-        Assert.NotNull(rows[0].EncounterStartedAtMs);
-        Assert.Equal(rows[0].EncounterStartedAtMs, rows[1].EncounterStartedAtMs);
+        Assert.NotNull(rows[0].EncounterUid);
+        Assert.Equal(rows[0].EncounterUid, rows[1].EncounterUid);
     }
 
     [Fact]
@@ -165,12 +165,12 @@ public sealed class FightHistoryRecorderTests : IDisposable
         var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
-        // The encounter's natural key is supplied by the caller (see OnInCombatChanged's remarks);
-        // the local DateTime.UtcNow reading is only the fallback for when nobody supplies one.
+        // The encounter uid is supplied by the caller (see OnInCombatChanged's remarks);
+        // a freshly minted uid is only the fallback for when nobody supplies one.
         // Two encounters that really are distinct are handed two distinct keys, which is what this
         // asserts - a sleep between them would instead be asserting the wall clock's granularity.
-        const long FirstEncounterMs = 1_700_000_000_000;
-        const long SecondEncounterMs = FirstEncounterMs + 5;
+        const string FirstEncounterMs = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        const string SecondEncounterMs = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
         recorder.OnInCombatChanged(true, FirstEncounterMs);
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
@@ -184,7 +184,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
 
         var rows = store.Snapshot();
         Assert.Equal(2, rows.Count);
-        Assert.NotEqual(rows[0].EncounterStartedAtMs, rows[1].EncounterStartedAtMs);
+        Assert.NotEqual(rows[0].EncounterUid, rows[1].EncounterUid);
     }
 
     [Fact]
@@ -316,7 +316,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
     {
         var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
-        const long encounterId = 1_786_800_000_000;
+        const string encounterId = "cccccccccccccccccccccccccccccccc";
 
         recorder.OnInCombatChanged(true, encounterId);
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
@@ -324,7 +324,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
         recorder.OnInCombatChanged(false);
 
         var row = Assert.Single(store.Snapshot());
-        Assert.Equal(encounterId, row.EncounterStartedAtMs);
+        Assert.Equal(encounterId, row.EncounterUid);
     }
 
     // -- re-engagement against a name whose fight already closed ------------------
@@ -456,13 +456,13 @@ public sealed class FightHistoryRecorderTests : IDisposable
         var store = MakeStore();
         var recorder = new FightHistoryRecorder(store);
 
-        recorder.OnInCombatChanged(true, 1_786_850_304_235);
+        recorder.OnInCombatChanged(true, "dddddddddddddddddddddddddddddddd");
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "banshee"));
         recorder.OnCombatEvent(Event(CombatEventKind.Hit, "banshee", rangeLow: 15, rangeHigh: 19, atSecond: 1));
         recorder.OnCombatEvent(Event(CombatEventKind.NpcFled, "banshee", atSecond: 2));
         recorder.OnInCombatChanged(false);
 
-        recorder.OnInCombatChanged(true, 1_786_850_360_619);
+        recorder.OnInCombatChanged(true, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
         recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "banshee", atSecond: 56));
         recorder.OnCombatEvent(Event(CombatEventKind.Hit, "banshee", rangeLow: 10, rangeHigh: 14, atSecond: 56));
         recorder.OnCombatEvent(Event(CombatEventKind.Kill, "banshee", atSecond: 57));
@@ -470,7 +470,7 @@ public sealed class FightHistoryRecorderTests : IDisposable
 
         var rows = store.Snapshot().OrderBy(r => r.StartedAtMs).ToList();
         Assert.Equal(2, rows.Count);
-        Assert.NotEqual(rows[0].EncounterStartedAtMs, rows[1].EncounterStartedAtMs);
+        Assert.NotEqual(rows[0].EncounterUid, rows[1].EncounterUid);
         Assert.Equal(rows[0].EndedAtMs, rows[1].PrevSameNameEndedMs);
     }
 

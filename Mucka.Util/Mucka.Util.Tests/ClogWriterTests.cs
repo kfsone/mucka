@@ -42,8 +42,8 @@ public sealed class ClogWriterTests : IDisposable
 
     // Encounter keys, supplied the way MuckaConnection supplies them: one value stamped per encounter
     // and handed to every writer. Fixed rather than read off a clock, since the tests assert on them.
-    private const long First = 1_787_000_000_000L;
-    private const long Second = 1_787_000_060_000L;
+    private const string First = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    private const string Second = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     private MuckaStore _db = null!;
 
@@ -107,10 +107,10 @@ public sealed class ClogWriterTests : IDisposable
             ["(Persona saved on +22 = 101,389).", "The rat17 has just passed on."],
             tail.Select(r => r["text"]));
         Assert.Equal([0L, 1L], tail.Select(r => r["ord"]));
-        Assert.All(tail, r => Assert.Equal(First, r["encounter_started_at_ms"]));
+        Assert.All(tail, r => Assert.Equal(First, r["encounter_uid"]));
 
         var encounter = Assert.Single(Rows("encounters"));
-        Assert.Equal(First, encounter["encounter_started_at_ms"]);
+        Assert.Equal(First, encounter["uid"]);
         Assert.NotNull(encounter["ended_at_ms"]);
         Assert.Equal(2, Rows("encounter_events").Count);
     }
@@ -149,16 +149,16 @@ public sealed class ClogWriterTests : IDisposable
         writer.OnInCombatChanged(false);   // rat21 ends too
         writer.OnLineReady(Line("*", isPartial: true));   // finalizes rat21's tail
 
-        Assert.Equal([First, Second], Rows("encounters").Select(r => r["encounter_started_at_ms"]));
+        Assert.Equal([First, Second], Rows("encounters").Select(r => r["uid"]));
 
         var events = Rows("encounter_events");
         Assert.Equal(
             [(First, "rat17"), (First, "rat17"), (Second, "rat21"), (Second, "rat21")],
-            events.Select(e => ((long)e["encounter_started_at_ms"]!, (string?)e["npc"])));
+            events.Select(e => ((string)e["encounter_uid"]!, (string?)e["npc"])));
 
         // rat17's tail lines are keyed to rat17 and to nothing else.
         var tail = Rows("encounter_lines", "phase = 'tail'");
-        Assert.All(tail, r => Assert.Equal(First, r["encounter_started_at_ms"]));
+        Assert.All(tail, r => Assert.Equal(First, r["encounter_uid"]));
         Assert.Equal(3, tail.Count);
         Assert.Equal("An evil, black rat (rat21) bares its razor-sharp incisors at you.", tail[2]["text"]);
     }
@@ -458,7 +458,7 @@ public sealed class ClogWriterTests : IDisposable
         Assert.Equal("thief", row["npc"]);
         Assert.Equal(1419L, row["value"]);
         Assert.Equal(0L, row["ambiguous"]);
-        Assert.Equal(First, row["encounter_started_at_ms"]);
+        Assert.Equal(First, row["encounter_uid"]);
     }
 
     /// <summary>

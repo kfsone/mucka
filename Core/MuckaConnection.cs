@@ -239,8 +239,11 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// a client that will not start.</para></summary>
     public async Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
     {
-        await Task.Run(() => PersonaSessionBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write), cancellationToken)
-                  .ConfigureAwait(false);
+        await Task.Run(() =>
+        {
+            AccountBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write);
+            PersonaSessionBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write);
+        }, cancellationToken).ConfigureAwait(false);
         await _fightHistory.LoadAsync(cancellationToken).ConfigureAwait(false);
         // Which species are "someone" and which "something" - the tracker attributes unseen blows
         // with it from the first fight, so it rides the same startup load.
@@ -297,7 +300,8 @@ public sealed class MuckaConnection : IAsyncDisposable
             MuckaPaths.GetDatabasePath(),
             string.IsNullOrWhiteSpace(host) ? "unknown" : host.Trim(),
             typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
-            ReportStoreFailure);
+            ReportStoreFailure,
+            accountId);
         _wireLog = new WireLogWriter(_store);
         _clog = new ClogWriter(_store);
         _fightHistory = new FightHistoryStore(_store, CrashLog.Write);
@@ -627,14 +631,16 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// The encounter currently open, as a unix-ms id, or null between encounters.
+    /// The encounter currently open, as a uid, or null between encounters.
     ///
-    /// <para>Stamped HERE and handed to every consumer, rather than each computing its own. It is the
-    /// join key between the fights and swings tables, and two consumers each calling UtcNow would
-    /// produce two values microseconds apart - a join that silently matched nothing, in a way no test
-    /// of either side alone would catch. One clock reading, one id.</para>
+    /// <para>Minted HERE and handed to every consumer, rather than each minting its own. It is what
+    /// joins the fights, swings and encounter tables, and two consumers each minting one would
+    /// produce two ids - a join that silently matched nothing, in a way no test of either side alone
+    /// would catch. A GUID rather than a clock reading, because two clients can reach the same
+    /// millisecond. Minted here, not by the store, because it is needed on the Feed thread at the
+    /// instant combat starts and the store's writer cannot be waited for.</para>
     /// </summary>
-    private long? _encounterId;
+    private string? _encounterId;
 
     /// <summary>
     /// Client-detected combat alerts: sounds we choose to play from a parsed line, as opposed to the
@@ -671,11 +677,10 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     private void OnSessionInCombatChanged(bool inCombat)
     {
-        // UtcNow rather than a combat event's own stamp: this fires synchronously from the same
-        // Feed-thread call that flips CombatTracker.InCombat, ahead of the FightStart event for the
-        // SAME line (Begin() raises InCombatChanged before Observe() calls Emit()), so the two are
-        // effectively the same instant anyway.
-        _encounterId = inCombat ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : _encounterId;
+        // Fires synchronously from the same Feed-thread call that flips CombatTracker.InCombat, ahead
+        // of the FightStart event for the SAME line (Begin() raises InCombatChanged before Observe()
+        // calls Emit()).
+        _encounterId = inCombat ? Guid.NewGuid().ToString("N") : _encounterId;
 
         _clog.OnInCombatChanged(inCombat, _encounterId);
         _fightRecorder.OnInCombatChanged(inCombat, _encounterId);
@@ -744,6 +749,10 @@ public sealed class MuckaConnection : IAsyncDisposable
         _swingLedger.OnPersonaSessionChanged(_personaSessionId);
         _fightRecorder.OnPersonaSessionChanged(_personaSessionId);
         _clog.OnPersonaSessionChanged(_personaSessionId);
+
+        // Reaching game mode proves no earlier run of this account is still playing, so any that
+        // never ended is ended now. Off the Feed thread: it reads the wire table.
+        _ = Task.Run(_store.CloseAbandonedRuns);
     }
 
     private void EndPersonaSession()

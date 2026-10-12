@@ -45,6 +45,7 @@ public class SchemaDdlLivesInMigrationsOnlyTests
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "FightHistoryStoreTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "WireLogTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "MuckaIIImportTests.cs"),
+        Path.Combine("Mucka.Util", "Mucka.Util.Tests", "RunTransferTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "MigrationScriptsAreFrozenTests.cs"),
         Path.Combine("mudsharp.Tests", "Fixtures", "SchemaDdlLivesInMigrationsOnlyTests.cs"),
     };

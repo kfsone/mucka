@@ -224,9 +224,11 @@ public static class PersonaSessionBackfill
             WHERE r.ended_ms IS NOT NULL
               AND p.mucka_run_id IS NOT $live
               AND COALESCE(r.client_version, '') NOT LIKE 'MuckaII %'
+              AND COALESCE(r.client_version, '') NOT LIKE '%' || $imported
             ORDER BY p.started_ms, p.id;
             """;
         command.Parameters.AddWithValue("$live", (object?)liveRunId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$imported", RunTransfer.ImportedMark);
         var windows = new List<Window>();
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -400,7 +402,7 @@ public static class PersonaSessionBackfill
         ("fights", "started_at_ms"),
         ("score_events", "ts"),
         ("npc_stamina_reads", "ts"),
-        ("encounters", "encounter_started_at_ms"),
+        ("encounters", "started_at_ms"),
     ];
 
     private static void AttributeRows(SqliteConnection connection, SqliteTransaction transaction,

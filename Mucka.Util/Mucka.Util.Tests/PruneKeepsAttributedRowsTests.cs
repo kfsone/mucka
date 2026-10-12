@@ -41,7 +41,7 @@ public sealed class PruneKeepsAttributedRowsTests
 
         try
         {
-            using (var connection = MuckaDb.Open(path))
+            using (var connection = OpenBeforeUids(path))
             {
                 Seed(connection);
                 Execute(connection, PruneScript);
@@ -89,7 +89,7 @@ public sealed class PruneKeepsAttributedRowsTests
 
         try
         {
-            using (var connection = MuckaDb.Open(path))
+            using (var connection = OpenBeforeUids(path))
             {
                 Execute(connection, $"""
                     INSERT INTO encounters (id, encounter_started_at_ms, persona_session_id)
@@ -131,7 +131,7 @@ public sealed class PruneKeepsAttributedRowsTests
 
         try
         {
-            using (var connection = MuckaDb.Open(path))
+            using (var connection = OpenBeforeUids(path))
             {
                 Execute(connection, $"""
                     INSERT INTO mucka_runs (id, started_ms) VALUES (1, {BeforeCut});
@@ -201,6 +201,19 @@ public sealed class PruneKeepsAttributedRowsTests
             INSERT INTO swings (ts, dir, hit, persona_session_id)
                  VALUES ({BeforeCut}, 'in', 1, 1), ({BeforeCut}, 'in', 1, NULL);
             """);
+    }
+
+    /// <summary>A database in the shape the prune ran against: every script before
+    /// <c>0006_uids.sql</c>, which dropped the column the prune addresses. Built by running the
+    /// scripts' text rather than by <see cref="MuckaDb.Open"/>, which would go on to 0006.</summary>
+    private static SqliteConnection OpenBeforeUids(string path)
+    {
+        var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+            { DataSource = path, Pooling = false }.ToString());
+        connection.Open();
+        foreach (var script in MigrationScripts.All.TakeWhile(s => s.Name != "0006_uids.sql"))
+            Execute(connection, script.Contents);
+        return connection;
     }
 
     private static void Execute(SqliteConnection connection, string sql)

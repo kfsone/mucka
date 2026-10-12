@@ -1623,6 +1623,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "IMPORT2", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("IMPORT2 ", StringComparison.OrdinalIgnoreCase))
                 ImportMuckaII(name.Length > 7 ? name[8..] : string.Empty);
+            else if (string.Equals(name, "EXPORT", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("EXPORT ", StringComparison.OrdinalIgnoreCase))
+                ExportDatabase(name.Length > 6 ? name[7..] : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
@@ -1749,6 +1752,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
         AddSystemLine("  $import2 [path]       import finished MuckaII runs (default ~/.muckaii/muckaii.db)", 14);
         AddSystemLine("  $import2 unclosed 2,4 also import those runs, which have no recorded end", 14);
+        AddSystemLine("  $EXPORT [path]        write a snapshot of mucka.db (default ~/.mucka/mucka-export.db)", 14);
+        AddSystemLine("                        merge it elsewhere by starting Mucka with: mucka -import <file>", 14);
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);
@@ -1898,41 +1903,72 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         var source = parsed.Value.Path;
         var unclosed = parsed.Value.Unclosed;
+        var destination = _conn.DatabasePath;
 
+        RunDatabaseJob("import2", $"importing from {source} ...", () =>
+        {
+            if (!File.Exists(source))
+                return ($"no such file: {source}", false);
+            var r = Mucka.Combat.MuckaIIImport.Run(destination, source, unclosed);
+            var message = $"{r.RunsImported} runs imported ({r.RunsAlreadyImported} already here), "
+                + $"{r.Sessions} logins, {r.ScoreEvents} score lines, {r.WireRows:N0} wire records";
+            if (r.RunsSkippedUnclosed.Count > 0)
+                message += $"; skipped unclosed runs {string.Join(",", r.RunsSkippedUnclosed)}";
+            if (r.ScoreEventsWithoutPersona > 0)
+                message += $"; {r.ScoreEventsWithoutPersona} score lines had no persona and will not graph";
+            return (message, true);
+        });
+    }
+
+    /// <summary>$EXPORT [path] - see <see cref="Mucka.Store.RunTransfer.Export"/>. The merge half is
+    /// <c>mucka -import</c> (<see cref="Mucka.Store.DatabaseImport"/>), which needs the database
+    /// closed and so cannot be a command in a running client.</summary>
+    private void ExportDatabase(string argument)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var parsed = Mucka.Commands.ImportCommandArgs.Parse(argument, home,
+            Path.Combine(MuckaPaths.GetDataDirectory(), "mucka-export.db"), out var error);
+        if (parsed is null || parsed.Value.Unclosed.Count > 0)
+        {
+            AddSystemLine($"[export] {error ?? "unclosed does not apply"}; usage: $EXPORT [path]", 9);
+            return;
+        }
+        var path = parsed.Value.Path;
+        var database = _conn.DatabasePath;
+
+        RunDatabaseJob("export", $"writing {path} ...", () =>
+        {
+            Mucka.Store.RunTransfer.Export(database, path);
+            return ($"wrote {path} ({new FileInfo(path).Length / (1024 * 1024):N0} MB); "
+                + "the run you are in is not finished in it and will be left out of an import", true);
+        });
+    }
+
+    /// <summary>Runs <paramref name="work"/> off the UI thread, one database job at a time, and reports
+    /// its message (or its exception) as a system line tagged <c>[label]</c>.</summary>
+    private void RunDatabaseJob(string label, string startMessage, Func<(string Message, bool Ok)> work)
+    {
         if (Interlocked.Exchange(ref _importing, 1) != 0)
         {
-            AddSystemLine("[import2] already running", 9);
+            AddSystemLine($"[{label}] another import or export is already running", 9);
             return;
         }
 
-        var destination = _conn.DatabasePath;
-        AddSystemLine($"[import2] importing from {source} ...", 14);
+        AddSystemLine($"[{label}] {startMessage}", 14);
         _ = Task.Run(() =>
         {
             string message;
             byte color = 14;
             try
             {
-                if (!File.Exists(source))
-                {
-                    message = $"[import2] no such file: {source}";
-                    color = 9;
-                }
-                else
-                {
-                    var r = Mucka.Combat.MuckaIIImport.Run(destination, source, unclosed);
-                    message = $"[import2] {r.RunsImported} runs imported ({r.RunsAlreadyImported} already here), "
-                        + $"{r.Sessions} logins, {r.ScoreEvents} score lines, {r.WireRows:N0} wire records";
-                    if (r.RunsSkippedUnclosed.Count > 0)
-                        message += $"; skipped unclosed runs {string.Join(",", r.RunsSkippedUnclosed)}";
-                    if (r.ScoreEventsWithoutPersona > 0)
-                        message += $"; {r.ScoreEventsWithoutPersona} score lines had no persona and will not graph";
-                }
+                var (text, ok) = work();
+                message = $"[{label}] {text}";
+                if (!ok) color = 9;
             }
             catch (Exception ex)
             {
-                CrashLog.Write("$import2", ex);
-                message = $"[import2] failed: {ex.Message}";
+                CrashLog.Write("$" + label, ex);
+                message = $"[{label}] failed: {ex.Message}";
                 color = 9;
             }
             finally

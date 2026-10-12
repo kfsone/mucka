@@ -62,7 +62,7 @@ public sealed class SwingLedgerTests : IDisposable
             // encounter and hands the same value to every consumer, so this does too - a fixed
             // sequence rather than a clock, since these tests assert on the value.
             _tracker.InCombatChanged += inCombat =>
-                _ledger.OnInCombatChanged(inCombat, inCombat ? ++_encounters * 1000L : null);
+                _ledger.OnInCombatChanged(inCombat, inCombat ? $"encounter-{++_encounters}" : null);
         }
 
         /// <summary>Opens a login, exactly as MuckaConnection does on game-mode entry: a real
@@ -193,7 +193,7 @@ public sealed class SwingLedgerTests : IDisposable
         using var session = new Session(_directory);
 
         Assert.Equal(
-            ["id", "ts", "dir", "encounter_started_at_ms", "sex",
+            ["id", "ts", "dir", "sex",
              "sta", "sta_before", "sta_max",
              "str", "str_raw", "str_max", "dex", "dex_raw", "dex_max",
              "score", "objects_carried", "weather",
@@ -203,10 +203,10 @@ public sealed class SwingLedgerTests : IDisposable
              "npc", "npc_group", "npc_weapon", "rung", "rung_phrase",
              "weapon", "hit", "dmg_low", "dmg_high", "dmg",
              // Last, not where the baseline would have declared it: SQLite appends an ALTER-added
-             // column, and persona_session_id arrives in migration 0003. Position is not a property
+             // column, and persona_session_id and encounter_uid arrive in migrations 0003 and 0006. Position is not a property
              // anything should depend on - nothing reads this table by ordinal - but pinning the
              // ORDER as well as the set is what makes an accidental re-creation of the table visible.
-             "persona_session_id"],
+             "persona_session_id", "encounter_uid"],
             session.Columns());
     }
 
@@ -747,8 +747,8 @@ public sealed class SwingLedgerTests : IDisposable
         Assert.False(Flag(rows[1], "encounter_open"));
 
         // Same encounter either way - that is the whole point of keeping the key past the close.
-        Assert.NotNull(rows[0]["encounter_started_at_ms"]);
-        Assert.Equal(rows[0]["encounter_started_at_ms"], rows[1]["encounter_started_at_ms"]);
+        Assert.NotNull(rows[0]["encounter_uid"]);
+        Assert.Equal(rows[0]["encounter_uid"], rows[1]["encounter_uid"]);
     }
 
     /// <summary>A score change outside any fight - a treasure deposit - is still recorded. A table
@@ -763,7 +763,7 @@ public sealed class SwingLedgerTests : IDisposable
         var row = Assert.Single(session.ScoreRows());
         Assert.Equal(26, Int(row, "delta"));
         Assert.False(Flag(row, "encounter_open"));
-        Assert.Null(row["encounter_started_at_ms"]);
+        Assert.Null(row["encounter_uid"]);
     }
 
     /// <summary>

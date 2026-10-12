@@ -27,12 +27,11 @@ public sealed record FightRecord
     /// have very different stats and gear.</para></summary>
     public long? PersonaSessionId { get; init; }
 
-    /// <summary>Unix-ms timestamp of the ENCOUNTER this fight belongs to (the instant
-    /// CombatTracker.InCombatChanged flipped true) - shared by every fight opened within the same
-    /// encounter, so a multi-NPC pack fight's rows can be regrouped by this value. Distinct from
-    /// StartedAtMs, which is this specific fight's own start (a joiner's fight starts later than
-    /// its encounter). Format v2+ only.</summary>
-    public long? EncounterStartedAtMs { get; init; }
+    /// <summary>The uid of the ENCOUNTER this fight belongs to, minted when
+    /// CombatTracker.InCombatChanged flipped true - shared by every fight opened within the same
+    /// encounter, so a multi-NPC pack fight's rows can be regrouped by this value. Unrelated to
+    /// StartedAtMs, which is this specific fight's own start.</summary>
+    public string? EncounterUid { get; init; }
 
     public string NpcName { get; init; } = string.Empty;
     public string NpcGroup { get; init; } = string.Empty;

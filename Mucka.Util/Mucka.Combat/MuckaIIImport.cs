@@ -36,7 +36,9 @@ public sealed record MuckaIIImportResult(
 ///
 /// <para>Idempotent: an imported run carries <see cref="Tag"/> in <c>client_version</c>, and a source
 /// run whose tag, start and host already exist here is skipped. The source's own run id is not the
-/// key, because recreating that database restarts its ids. The source is opened read-only and never
+/// key, because recreating that database restarts its ids. MuckaII gives a run no identity of its
+/// own, so start and host are the best key there is for this source; a run recorded by this client
+/// carries a uid instead. The source is opened read-only and never
 /// modified. Swings, fights and encounters are not imported.</para>
 ///
 /// <para>A run with no <c>ended_ms</c> is skipped unless its id is named in
@@ -174,10 +176,11 @@ public static class MuckaIIImport
         {
             command.Transaction = transaction;
             command.CommandText = """
-                INSERT INTO mucka_runs (started_ms, ended_ms, host, client_version)
-                VALUES ($started, $ended, $host, $version);
+                INSERT INTO mucka_runs (uid, started_ms, ended_ms, host, client_version)
+                VALUES ($uid, $started, $ended, $host, $version);
                 SELECT last_insert_rowid();
                 """;
+            command.Parameters.AddWithValue("$uid", Guid.NewGuid().ToString("N"));
             command.Parameters.AddWithValue("$started", startedMs);
             command.Parameters.AddWithValue("$ended", endedMs);
             command.Parameters.AddWithValue("$host", host);
@@ -218,7 +221,7 @@ public static class MuckaIIImport
             // the combat recorders, which are not replayed.
             command.CommandText = """
                 INSERT INTO score_events (
-                    ts, encounter_started_at_ms, encounter_open, persona_session_id, delta, total,
+                    ts, encounter_uid, encounter_open, persona_session_id, delta, total,
                     after_task_line, raw_text
                 ) VALUES ($ts, NULL, 0, $psid, $delta, $total, $after_task_line, $raw_text);
                 """;

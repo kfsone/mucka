@@ -151,9 +151,9 @@ The figures that bound the decision, measured 2026-09-14:
   drops anything, and clearing the wire log is `DELETE FROM wire` run by hand.
 
 What one file does NOT buy, stated so it is not claimed: nothing in the store joins `swings` to
-`fights`. All six views aggregate `swings` alone, and `encounter_started_at_ms` is a column and an
-index, not a join anyone runs. The join is *possible*, across those two tables and the seven
-encounter tables; that is the honest statement of the benefit.
+`fights`. All six views aggregate `swings` alone, and `encounter_uid` is a column and an index, not
+a join anyone runs. The join is *possible*, across those two tables and the seven encounter tables;
+that is the honest statement of the benefit.
 
 ## One owner
 
@@ -336,15 +336,16 @@ encounter_events            "event" - every classified CombatEvent
 creature_values             "creature_value" - the (creature, points) pairs
 ```
 
-Every one of them carries `encounter_started_at_ms`, which is the key `swings` and `fights` already
-carry. Column sets come straight from `ClogWriter`'s payloads: its stats block and its seven effect
-booleans for `encounter_stats`, its reset block for `encounters`, and `OnCombatEvent`'s payload for
+Every one of them except `encounters` carries `encounter_uid`, which is the `uid` of its encounter and
+the reference `swings`, `fights`, `score_events` and `npc_stamina_reads` carry too. Column sets come
+straight from `ClogWriter`'s payloads: its stats block and its seven effect booleans for
+`encounter_stats`, its reset block for `encounters`, and `OnCombatEvent`'s payload for
 `encounter_events`.
 
-The index on `encounters(encounter_started_at_ms)` is NOT unique. Two encounters can open in the same
-millisecond - a new fight starting the instant the previous one's last NPC dies is routine, not a rare
-race - and they then share the key, which is already true of `swings` and `fights`. A unique index
-would turn that ambiguity into a dropped row; a duplicate is at least visible.
+`encounters.uid` is unique (`ix_encounters_uid`), so a second copy of one encounter - the same
+history merged in twice - is refused instead of doubling its rows. The instant the encounter began is
+`encounters.started_at_ms`, an ordinary column: nothing joins on it, and `PersonaSessionBackfill`
+uses it as that table's time.
 
 Five shape decisions, each of which had a real alternative:
 
@@ -373,17 +374,45 @@ Five shape decisions, each of which had a real alternative:
   whole `StatusEffectState` carries eleven `string?` message fields
   (`MudSharp.Models.StatusEffectState`); a boolean flip is the whole of what a stats row needs.
 
-### The encounter key
+### Identity: uids, never instants
 
-`swings`, `fights` and all seven encounter tables are keyed on `encounter_started_at_ms`, which
-`MuckaConnection` derives once per encounter in `OnInCombatChanged` and passes to the fight
-recorder, the swing ledger and the clog writer alike. **A writer that stamps its own
-`DateTimeOffset.UtcNow` instead joins to nothing** - two clocks a few microseconds apart are two
-different keys. `ClogWriter` falls back to a local reading only on the unit-test and design-time
-path, the same shape `FightHistoryRecorder` uses.
+`MuckaConnection` mints one uid per encounter in `OnInCombatChanged` - a GUID rendered as 32 hex
+digits - and passes it to the fight recorder, the swing ledger and the clog writer alike. **A writer
+that mints its own joins to nothing**, for the same reason a clock reading did: two values for one
+encounter. `ClogWriter` and `FightHistoryRecorder` mint a fallback only on the unit-test and
+design-time path.
 
-Each table has its own `id INTEGER PRIMARY KEY`. Two encounters opening within one millisecond share
-an `encounter_started_at_ms`, which is true of `swings` and `fights` as well and is not resolved.
+The uid is minted by the client, not assigned by the store, because it is needed on the Feed thread
+at the instant combat starts and the store's single writer cannot be waited for. A row id would
+also be a local number, meaningless in the database a run is merged into.
+
+A run has a uid too (`mucka_runs.uid`, set by `MuckaStore`, `RunTransfer` and `MuckaIIImport`), and a
+run is identified by it. The one place a start time is still compared is the lookalike check in
+`RunTransfer` (below), which is a detection and never a key.
+
+**Nothing in the database is keyed on a timestamp.** Before `0006_uids.sql` an encounter was
+identified by the millisecond combat began and a run by `(started_ms, host)`; two clients can reach
+the same millisecond, and every row of one then belonged to both. `0006_uids.sql` records what the
+backfill could and could not tell apart: encounter-table rows carry no login, so where two logins
+shared a key all such rows went to the lower login id, and rows whose encounter was never written
+(before the encounter tables existed) were given a uid of their own per key so their grouping
+survives. Run over a snapshot of the operator's database it changed no row count, and the
+snapshot held no duplicate keys at all.
+
+What still uses time, and why nothing else is available there:
+
+- **A MuckaII run** (`MuckaIIImport`) is matched on tag, start and host, because MuckaII records no
+  identity for a run.
+- **Legacy rows with no login** are attributed by `PersonaSessionBackfill` to the login whose time
+  window contains them. They carry no key of any kind, so position in time is all there is.
+- **Fights are paired with their swings** by `PoolObservationBuilder.BuildAll` on (login, instance
+  name, time window) and not on the encounter uid, because a swing recorded before the client
+  noticed the encounter has no uid. The login keeps two clients' fights against the same name apart;
+  inside one login the clock is the only order the rows have.
+- **The lookalike check** in `RunTransfer`, above: a detection, never a key.
+
+A time used as a filter or an attribute (`ScoreHistory`'s since-date, `started_at_ms`,
+`fights.prev_same_name_ended_ms`) identifies nothing.
 
 ### Timestamps
 
@@ -403,6 +432,78 @@ ends `(unclosed)`. The run's received bytes are replayed through `MudSession` to
 `persona_sessions` and `score_events`, so those rows carry the wire record's timestamp rather than
 the import's, and they are tied to their login directly. `PersonaSessionBackfill` leaves imported
 runs out of its time-window attribution. Swings, fights and encounters are not imported.
+
+### Runs that never ended
+
+A killed client leaves a run with no `ended_ms`, and nothing in the row says whether its process is
+gone or only quiet. One fact settles it: an account is logged in once. When a login reaches game
+mode, `MuckaConnection` asks `MuckaStore.CloseAbandonedRuns` (off the Feed thread) to end every
+earlier run with the same `account_id` on the same host that never ended, and its logins, at the
+run's own last wire record - never at the new login's time, because the gap is the stretch nobody
+recorded. A run with no wire ends at its start.
+
+- **Only the same account and host.** Another account's open run may be alive, and so may this
+  account's on another host, however old. A run with no `account_id` is never touched, and a store
+  with no account id (a login typed by hand) closes nothing.
+- **Older runs get their account from the wire.** `AccountBackfill` runs at start-up and reads it out
+  of what the server printed back: what the client sent is in clear for some runs and asterisks for
+  others, but the server echoes the id after `Account ID:` and prints it in the `<id> logged in on pts/N.` banner. The banner is
+  read first and the echo is the fallback, within the first `AccountBackfill.LoginRecords` records of
+  a run, since one run is one connection. The id is stored and compared upper-case. A finished run
+  that names none is marked with the empty string and not read again; an unfinished one is never
+  marked, because it may be mid-login. EVIDENCE: over a copy of the operator's database, 291 of 297
+  runs were filled (three accounts, ids of one letter and eight digits), including 10 of the 15 that
+  never ended, in 2.7 s; the second pass filled none in 0.16 s.
+- **A run ended this way is an ordinary finished run**: `$EXPORT` carries it, `RunTransfer` imports
+  it, and `PersonaSessionBackfill` may attribute its logins.
+- **Scenario tests** in `CloseAbandonedRunsTests` pin the cases that decide it: a run killed after its
+  last record, another account's run left alone, two runs ended by their own account's next login, and
+  two accounts writing in the same millisecond told apart by account rather than time.
+
+### Moving the corpus between machines
+
+`$EXPORT [path]` in a running client writes a snapshot; `mucka -import <file>` merges one into the
+database at the next start (`RunTransfer`, `DatabaseImport`, `StartupImport`). The export path
+defaults to `mucka-export.db` in the data directory.
+
+- **Export is a whole-database snapshot** (`VACUUM INTO` over a read-only connection), not a
+  selection, and it refuses to overwrite a file that exists. Filtering is import's job, because
+  import cannot know where a file came from.
+- **Import is a start-up step, not a command.** A command inside a running client would write into
+  the live database under its live writer, and a write that waits past `busy_timeout` faults the
+  store for the rest of the session. `DatabaseImport` instead builds a new file beside the live
+  one: it takes the database out of WAL mode, copies it with `VACUUM INTO`, merges the export into
+  the copy, runs `integrity_check` and `foreign_key_check` on the result, and only then deletes
+  `mucka.old.db`, renames `mucka.db` to `mucka.old.db` and the new file to `mucka.db`. Windows
+  only; the result is shown in a message box and the client then starts normally.
+- **Every failure leaves the live database where it was.** Another Mucka holding the database open
+  (an exclusive open of the file fails), a failed check, a file from a newer release, or a live file
+  whose size or write time moved during the merge each abandon the new file. A failed second rename
+  puts the first back.
+- **Import merges finished runs.** One run is copied with its whole tree in one transaction: wire
+  records, logins, the five fact tables keyed to a login, those logins' encounters and every child
+  row. Row ids are renumbered and every foreign key to one rewritten (`mucka_run_id`,
+  `persona_session_id`, `encounter_contents_items.contents_id`). Encounter references are uids and
+  copy unchanged.
+- **The key is `mucka_runs.uid`**, so importing a file twice, or importing into A the export of a B
+  that holds A's runs, adds nothing.
+- **A lookalike is left out and reported.** A file older than the uid migration is migrated afresh,
+  and so numbered afresh, every time it is read, which would double its history. A run whose uid is
+  new but whose start, host and wire record count match a run already held is therefore skipped.
+  This is a detection, not a key: a run that merely resembles one here is skipped too.
+- **A run with no `ended_ms` is left out and reported.** The exporting client's own run is in every
+  snapshot, still open; copying it would freeze part of it, and its uid would then refuse the rest.
+- **Rows with no login stay behind and are counted.** They belong to no run, so there is nothing to
+  key them by.
+- **The file handed over is never modified.** Import copies it to a scratch path and migrates the
+  copy with `MuckaDb.Open`, so a file from an older release arrives in this release's shape. A file
+  whose journal names a script this build lacks came from a newer release and is refused; a SQLite
+  file with no journal is refused before `MuckaDb.Open` can build a schema into it.
+- **`some_kinds` is upserted**, the larger `learned_ms` winning.
+- **Imported runs carry `RunTransfer.ImportedMark` in `client_version`**, and
+  `PersonaSessionBackfill` builds no attribution window from them: their logins are exact, and a
+  window would claim this database's own unattributed rows from the same hours.
+- **A run is copied in one transaction**, so a failure part-way leaves none of it.
 
 ## Paths, and what the store is allowed to assume
 

@@ -45,12 +45,12 @@ public sealed class SwingLedger
     // The login every row written from here belongs to - persona_sessions.id. Null before the first
     // one opens, which is the honest reading rather than a guess.
     private long? _personaSessionId;
-    private long? _encounterStartedAtMs;
+    private string? _encounterUid;
     // The last encounter key this ledger saw, kept after the encounter closes. Only score_events uses
     // it, and only because a kill's award is printed after the line that closed the encounter - see
     // OnScoreSave.
-    private long? _lastEncounterStartedAtMs;
-    // Whether a fight is in progress. Tracked separately from _encounterStartedAtMs rather than read
+    private string? _lastEncounterUid;
+    // Whether a fight is in progress. Tracked separately from _encounterUid rather than read
     // off it, because the KEY is supplied by the caller and is allowed to be null (MuckaConnection
     // always passes one; nothing makes it mandatory, and the test harness does not). Deriving "are we
     // fighting" from "did someone give us an id" conflates two questions that are only usually the
@@ -211,7 +211,7 @@ public sealed class SwingLedger
         var result = new List<PoolFightRow>();
         using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT npc_name, started_at_ms, ended_at_ms, outcome "
+            "SELECT npc_name, started_at_ms, ended_at_ms, outcome, persona_session_id "
             + "FROM fights WHERE npc_name IS NOT NULL;";
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -224,7 +224,8 @@ public sealed class SwingLedger
                 // that finished the creature without the player's blow - must NOT read as a kill: the
                 // damage that ended it never crossed the wire, so the row can floor the pool and must
                 // never ceiling it. Pinned by SwingLedgerOutcomeTests.
-                string.Equals(reader.GetString(3), nameof(FightOutcome.Kill), StringComparison.Ordinal)));
+                string.Equals(reader.GetString(3), nameof(FightOutcome.Kill), StringComparison.Ordinal),
+                reader.IsDBNull(4) ? null : reader.GetInt64(4)));
         }
         return result;
     }
@@ -237,7 +238,7 @@ public sealed class SwingLedger
         var result = new List<PoolSwingRow>();
         using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT npc, ts, dir, hit, dmg_low, dmg_high, rung "
+            "SELECT npc, ts, dir, hit, dmg_low, dmg_high, rung, persona_session_id "
             + "FROM swings WHERE npc IS NOT NULL ORDER BY ts, id;";
         using var reader = command.ExecuteReader();
         while (reader.Read())
@@ -249,7 +250,8 @@ public sealed class SwingLedger
                 reader.GetInt64(3) != 0,
                 reader.IsDBNull(4) ? null : reader.GetDouble(4),
                 reader.IsDBNull(5) ? null : reader.GetDouble(5),
-                reader.IsDBNull(6) ? null : reader.GetInt32(6)));
+                reader.IsDBNull(6) ? null : reader.GetInt32(6),
+                reader.IsDBNull(7) ? null : reader.GetInt64(7)));
         }
         return result;
     }
@@ -294,8 +296,8 @@ public sealed class SwingLedger
     ///
     /// <para><b>The encounter key survives the close on purpose.</b> The award for a kill is printed
     /// on the line AFTER the kill, and the kill line is what closes the encounter, so by the time this
-    /// runs <see cref="_encounterStartedAtMs"/> has already been nulled for exactly the rows that most
-    /// need it. <c>_lastEncounterStartedAtMs</c> keeps the key and <c>encounter_open</c> records which
+    /// runs <see cref="_encounterUid"/> has already been nulled for exactly the rows that most
+    /// need it. <c>_lastEncounterUid</c> keeps the key and <c>encounter_open</c> records which
     /// of the two situations produced it - no time bound is applied here, deliberately, because "is
     /// this award close enough to that encounter to belong to it" is an analysis question and the
     /// timestamps are already in the table to answer it.</para>
@@ -307,7 +309,7 @@ public sealed class SwingLedger
             AppendLocked(new ScoreEventRow
             {
                 TimestampMs = new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds(),
-                EncounterStartedAtMs = _encounterStartedAtMs ?? _lastEncounterStartedAtMs,
+                EncounterUid = _encounterUid ?? _lastEncounterUid,
                 EncounterOpen = _encounterOpen,
                 PersonaSessionId = _personaSessionId,
                 Delta = save.Delta,
@@ -340,18 +342,18 @@ public sealed class SwingLedger
             _taskLineJustSeen = true;
     }
 
-    /// <param name="encounterStartedAtMs">The shared encounter id, stamped ONCE by MuckaConnection and
+    /// <param name="encounterUid">The shared encounter id, stamped ONCE by MuckaConnection and
     /// handed to every consumer. Not computed here: this row's join partner in the fights table
     /// carries the same value, and two consumers each reading their own clock would produce two ids
     /// microseconds apart that no join would ever match.</param>
-    public void OnInCombatChanged(bool inCombat, long? encounterStartedAtMs = null)
+    public void OnInCombatChanged(bool inCombat, string? encounterUid = null)
     {
         lock (_lock)
         {
             if (inCombat)
             {
-                _encounterStartedAtMs = encounterStartedAtMs;
-                _lastEncounterStartedAtMs = encounterStartedAtMs ?? _lastEncounterStartedAtMs;
+                _encounterUid = encounterUid;
+                _lastEncounterUid = encounterUid ?? _lastEncounterUid;
                 _encounterOpen = true;
                 // Arm the pending-weapon latch; the first event of the encounter resolves it (see
                 // _encounterJustOpened). "You are now using the axe0 to fight!" names no NPC so it
@@ -384,7 +386,7 @@ public sealed class SwingLedger
                 _encounterTaken.Clear();
                 _encounterDealt.Clear();
             }
-            _encounterStartedAtMs = null;
+            _encounterUid = null;
 
             // Mirrors FightHistoryRecorder.FlushLocked, down to the "only when something was actually
             // tracked" guard: an encounter that closed without naming a single NPC cannot have been a
@@ -455,7 +457,7 @@ public sealed class SwingLedger
                         {
                             TimestampMs = new DateTimeOffset(combatEvent.TimestampUtc, TimeSpan.Zero)
                                 .ToUnixTimeMilliseconds(),
-                            EncounterStartedAtMs = _encounterStartedAtMs,
+                            EncounterUid = _encounterUid,
                             PersonaSessionId = _personaSessionId,
                             NpcName = combatEvent.NpcName,
                             NpcGroup = NpcGroups.Normalize(combatEvent.NpcName),
@@ -531,7 +533,7 @@ public sealed class SwingLedger
         {
             TimestampMs = timestampMs,
             Direction = direction,
-            EncounterStartedAtMs = _encounterStartedAtMs,
+            EncounterUid = _encounterUid,
             PersonaSessionId = _personaSessionId,
             Sex = _lastStats.Sex,
 

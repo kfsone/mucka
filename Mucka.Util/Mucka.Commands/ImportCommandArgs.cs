@@ -4,8 +4,9 @@ namespace Mucka.Commands;
 
 /// <summary>
 /// The argument of <c>$import2 [path] [unclosed id[,id...]]</c>: where the MuckaII database is, and
-/// which of its runs with no recorded end the operator vouches are finished. Pure text, so it is
-/// tested without the view model.
+/// which of its runs with no recorded end the operator vouches are finished. <c>$EXPORT</c> takes
+/// the same text for its path and accepts no <c>unclosed</c> tail. Pure text, so it is tested without
+/// the view model.
 /// </summary>
 public readonly record struct ImportCommandArgs(string Path, IReadOnlySet<long> Unclosed)
 {

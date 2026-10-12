@@ -166,6 +166,31 @@ public sealed class PoolObservationBuilderTests
     }
 
     [Fact]
+    public void TwoLoginsFightingTheSameNameInOverlappingWindowsEachGetOnlyTheirOwnSwings()
+    {
+        // Every world has a rat0, and a corpus merged from two machines holds fights against it at the
+        // same moments. Without the login in the match, each fight would be handed the other's blows.
+        var fights = new[]
+        {
+            new PoolFightRow("rat0", 0, 1000, EndedInKill: true, PersonaSessionId: 1),
+            new PoolFightRow("rat0", 0, 1000, EndedInKill: false, PersonaSessionId: 2),
+        };
+        var swings = new[]
+        {
+            new PoolSwingRow("rat0", 10, IsOutgoing: true, Hit: true, 10, 14, null, PersonaSessionId: 1),
+            new PoolSwingRow("rat0", 20, IsOutgoing: true, Hit: true, 20, 24, null, PersonaSessionId: 2),
+            new PoolSwingRow("rat0", 30, IsOutgoing: true, Hit: true, 30, 34, null, PersonaSessionId: 2),
+        };
+
+        var built = PoolObservationBuilder.BuildAll(fights, swings);
+
+        Assert.Equal(2, built.Count);
+        Assert.Equal([new DamageBracket(10, 14)], built.Single(o => o.EndedInKill).Blows);
+        Assert.Equal([new DamageBracket(20, 24), new DamageBracket(30, 34)],
+            built.Single(o => !o.EndedInKill).Blows);
+    }
+
+    [Fact]
     public void SwingsAgainstOtherCreaturesAreNotFoldedIn()
     {
         var fights = new[] { new PoolFightRow("rat0", 0, 1000, EndedInKill: true) };

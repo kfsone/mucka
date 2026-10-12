@@ -156,7 +156,7 @@ public sealed class StaminaReadLedgerTests : IDisposable
         var reads = session.Reads();
 
         Assert.Single(reads);
-        Assert.Null(reads[0]["encounter_started_at_ms"]);
+        Assert.Null(reads[0]["encounter_uid"]);
         Assert.Equal("ogre", reads[0]["npc"]);
     }
 

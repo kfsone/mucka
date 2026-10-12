@@ -15,7 +15,7 @@ public sealed record ScoreEventRow : IStoreRow
 
     /// <summary>The open encounter, or the one that had just closed - <see cref="EncounterOpen"/>
     /// says which. Null only when this session has not seen a fight yet.</summary>
-    public long? EncounterStartedAtMs { get; init; }
+    public string? EncounterUid { get; init; }
 
     /// <summary>Whether a fight was still in progress when the line arrived. False for every kill
     /// award that finished a room, because the kill line closes the encounter and the award is
@@ -43,7 +43,7 @@ public sealed record ScoreEventRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO score_events (
-            ts, encounter_started_at_ms, encounter_open, persona_session_id, delta, total, after_task_line, raw_text
+            ts, encounter_uid, encounter_open, persona_session_id, delta, total, after_task_line, raw_text
         ) VALUES (
             $ts, $encounter, $encounter_open, $psid, $delta, $total, $after_task_line, $raw_text
         );
@@ -53,7 +53,7 @@ public sealed record ScoreEventRow : IStoreRow
     {
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$ts", TimestampMs);
-        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterUid));
         command.Parameters.AddWithValue("$encounter_open", EncounterOpen ? 1 : 0);
         command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.Parameters.AddWithValue("$delta", StoreWrite.Value(Delta));
@@ -75,7 +75,7 @@ public sealed record ScoreEventRow : IStoreRow
 public sealed record NpcStaminaReadRow : IStoreRow
 {
     public long TimestampMs { get; init; }
-    public long? EncounterStartedAtMs { get; init; }
+    public string? EncounterUid { get; init; }
     public long? PersonaSessionId { get; init; }
 
     /// <summary>Instance name as the game gave it ("water-snake5").</summary>
@@ -96,7 +96,7 @@ public sealed record NpcStaminaReadRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO npc_stamina_reads (
-            ts, encounter_started_at_ms, persona_session_id, npc, npc_group, pool_key,
+            ts, encounter_uid, persona_session_id, npc, npc_group, pool_key,
             printed_low, printed_high, raw_text
         ) VALUES (
             $ts, $encounter, $psid, $npc, $npc_group, $pool_key,
@@ -108,7 +108,7 @@ public sealed record NpcStaminaReadRow : IStoreRow
     {
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$ts", TimestampMs);
-        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterUid));
         command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.Parameters.AddWithValue("$npc", NpcName);
         command.Parameters.AddWithValue("$npc_group", NpcGroup);
@@ -154,12 +154,11 @@ public sealed record SwingRow : IStoreRow
 
     public string Direction { get; init; } = DirectionOut;
 
-    /// <summary>The encounter this swing belongs to, as the shared encounter id (see
-    /// MuckaConnection, which stamps ONE id and hands it to every consumer). Joins to
-    /// <c>fights.encounter_started_at_ms</c>, which is the whole reason it is stamped centrally
-    /// rather than computed here: two consumers each calling UtcNow would produce two ids a few
-    /// microseconds apart and the join would silently match nothing.</summary>
-    public long? EncounterStartedAtMs { get; init; }
+    /// <summary>The uid of the encounter this swing belongs to (see MuckaConnection, which mints ONE
+    /// uid and hands it to every consumer). Joins to <c>fights.encounter_uid</c>, which is the whole
+    /// reason it is minted centrally rather than here: two consumers each minting one would produce
+    /// two uids and the join would silently match nothing.</summary>
+    public string? EncounterUid { get; init; }
 
     /// <summary>Persona sex, as the <c>score</c> sheet words it. <see cref="GameStatsSnapshot.Sex"/>
     /// parses it straight off the sheet.</summary>
@@ -287,7 +286,7 @@ public sealed record SwingRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO swings (
-            ts, dir, encounter_started_at_ms, persona_session_id, sex,
+            ts, dir, encounter_uid, persona_session_id, sex,
             sta, sta_before, sta_max,
             str, str_raw, str_max, dex, dex_raw, dex_max,
             score, objects_carried, weather,
@@ -314,7 +313,7 @@ public sealed record SwingRow : IStoreRow
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$ts", TimestampMs);
         command.Parameters.AddWithValue("$dir", Direction);
-        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$encounter", StoreWrite.Value(EncounterUid));
         command.Parameters.AddWithValue("$psid", StoreWrite.Value(PersonaSessionId));
         command.Parameters.AddWithValue("$sex", StoreWrite.Value(Sex));
         command.Parameters.AddWithValue("$sta", StoreWrite.Value(Stamina));

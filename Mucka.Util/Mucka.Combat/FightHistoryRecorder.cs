@@ -57,7 +57,7 @@ public sealed class FightHistoryRecorder : IDisposable
     // in OnInCombatChanged(true); cleared to null once flushed so a stray late-arriving fight after
     // FlushLocked (should not happen, but see BuildRecord's own defensiveness elsewhere) cannot be
     // mis-stamped with the PREVIOUS encounter's id.
-    private long? _encounterStartedAtMs;
+    private string? _encounterUid;
 
     // Context captured at ENCOUNTER start and stamped onto every fight in it. A joiner inherits the
     // opening context because we never re-probe stats mid-encounter - see FightRecord's remarks.
@@ -108,11 +108,11 @@ public sealed class FightHistoryRecorder : IDisposable
             _personaSessionId = personaSessionId;
     }
 
-    /// <param name="encounterStartedAtMs">The shared encounter id, stamped once by MuckaConnection and
+    /// <param name="encounterUid">The shared encounter id, stamped once by MuckaConnection and
     /// handed to every consumer - see there. Not computed here any more: the swings table carries the
     /// same value as its join key, and two consumers each reading their own clock would produce two
     /// ids microseconds apart that no join would match.</param>
-    public void OnInCombatChanged(bool inCombat, long? encounterStartedAtMs = null)
+    public void OnInCombatChanged(bool inCombat, string? encounterUid = null)
     {
         lock (_lock)
         {
@@ -122,12 +122,11 @@ public sealed class FightHistoryRecorder : IDisposable
                 _encounterStats = _lastStats;
                 _encounterEffects = _lastEffects;
                 _encounterRoom = _lastRoom;
-                // The encounter's own natural key (see FightRecord.EncounterStartedAtMs's remarks),
-                // supplied by the caller so this row and the swings table agree on it exactly. Falls
-                // back to a local reading only when nobody supplied one, which is the unit-test and
-                // design-time path - a row keyed to itself is still better than an unkeyed one.
-                _encounterStartedAtMs = encounterStartedAtMs
-                    ?? new DateTimeOffset(DateTime.UtcNow, TimeSpan.Zero).ToUnixTimeMilliseconds();
+                // The encounter's uid (see FightRecord.EncounterUid's remarks), supplied by the
+                // caller so this row and the swings table agree on it exactly. A fresh one is minted
+                // only when nobody supplied one, which is the unit-test and design-time path - a row
+                // keyed to itself is still better than an unkeyed one.
+                _encounterUid = encounterUid ?? Guid.NewGuid().ToString("N");
                 _fights.Clear();
                 _fightOrder.Clear();
                 // Adopt a weapon equipped moments before the client noticed the fight. Same problem
@@ -370,7 +369,7 @@ public sealed class FightHistoryRecorder : IDisposable
         // Clear the encounter key too: FightForLocked must never stamp a stray late fight (should
         // not happen post-clear, but leaving a stale value around risks a silent mis-attribution to
         // the encounter that just closed if it ever did) with the PREVIOUS encounter's id.
-        _encounterStartedAtMs = null;
+        _encounterUid = null;
     }
 
     private FightRecord BuildRecord(FightAccumulator fight, DateTime encounterEndUtc)
@@ -385,7 +384,7 @@ public sealed class FightHistoryRecorder : IDisposable
         return new FightRecord
         {
             PersonaSessionId = _personaSessionId,
-            EncounterStartedAtMs = _encounterStartedAtMs,
+            EncounterUid = _encounterUid,
             StartedAtMs = new DateTimeOffset(fight.StartedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             EndedAtMs = new DateTimeOffset(endedUtc, TimeSpan.Zero).ToUnixTimeMilliseconds(),
             DurationMs = (long)duration.TotalMilliseconds,
@@ -498,7 +497,7 @@ public sealed class FightHistoryRecorder : IDisposable
 
     private FightAccumulator? StartFightLocked(string npcName, CombatEvent combatEvent)
     {
-        // A fight may only be BORN inside an open encounter. _encounterStartedAtMs is set when the
+        // A fight may only be BORN inside an open encounter. _encounterUid is set when the
         // encounter opens and nulled when it flushes, so this reads "no encounter is open" - and a
         // named event arriving then is a trailing acknowledgment of something already recorded (MUD2
         // stacks several end messages, and one can land after another has closed the fight). Creating
@@ -511,7 +510,7 @@ public sealed class FightHistoryRecorder : IDisposable
         // open. Nothing legitimate is dropped here, and the weapon-tracking fields in the FightStart
         // case are deliberately outside this guard (a weapon equipped moments before the client noticed the
         // fight still has to be carried in - see OnInCombatChanged).
-        if (_encounterStartedAtMs is null)
+        if (_encounterUid is null)
             return null;
 
         // What this engagement continues, if anything. Two routes, because a creature that keeps

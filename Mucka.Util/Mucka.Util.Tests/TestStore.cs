@@ -24,18 +24,19 @@ internal static class TestStore
 
     /// <summary>Opens a store, failing the test at once - with the store's own exception - if the open
     /// faulted.</summary>
-    public static MuckaStore Open(string path, string host = "test", string? clientVersion = null)
+    public static MuckaStore Open(string path, string host = "test", string? clientVersion = null,
+        string? accountId = null)
     {
         var faults = new List<string>();
         Exception? first = null;
-        var store = new MuckaStore(path, host, clientVersion, (context, ex) =>
+        var store = new MuckaStore(path, host, clientVersion, onError: (context, ex) =>
         {
             lock (faults)
             {
                 first ??= ex;
                 faults.Add(context + " :: " + ex.GetType().Name + ": " + ex.Message);
             }
-        });
+        }, accountId: accountId);
         if (store.IsFaulted)
             throw new InvalidOperationException(
                 $"MuckaStore faulted opening {path}: {string.Join(" | ", faults)}", first);

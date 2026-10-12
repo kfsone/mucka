@@ -11,6 +11,10 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
+#if WINDOWS
+        // First thing, before anything can open the database.
+        StartupImport.RunIfRequested();
+#endif
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()

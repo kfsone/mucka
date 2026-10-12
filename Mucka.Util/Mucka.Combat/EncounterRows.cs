@@ -8,20 +8,21 @@ namespace Mucka.Combat;
 /// reference to state the Feed thread can still mutate, which is why the contents row copies its
 /// item list rather than pointing at the writer's live arrays.
 ///
-/// <para><c>Key</c> is <c>encounter_started_at_ms</c> throughout: the one value MuckaConnection stamps
-/// per encounter and hands to every writer, and what joins these to <c>swings</c> and
-/// <c>fights</c>.</para>
+/// <para><c>Key</c> is the encounter's uid throughout: minted once by MuckaConnection per encounter
+/// and handed to every writer, it is <c>encounters.uid</c> and the <c>encounter_uid</c> of every row
+/// that belongs to the encounter. It is a GUID, not a time: see <c>0006_uids.sql</c>.</para>
 /// </summary>
 internal sealed record EncounterRow(
-    long Key, string? Room, string? Weather, int? TimeToReset, long? PersonaSessionId) : IStoreRow
+    string Key, long StartedAtMs, string? Room, string? Weather, int? TimeToReset,
+    long? PersonaSessionId) : IStoreRow
 {
     // No estimate of when the reset will land. Every one of those was arithmetic on TimeToReset, and
     // wizards move it - see 0003_persona_sessions.sql. The countdown itself stays, raw, as a reading.
     private const string Sql = """
         INSERT INTO encounters (
-            encounter_started_at_ms, room, weather, time_to_reset, persona_session_id
+            uid, started_at_ms, room, weather, time_to_reset, persona_session_id
         ) VALUES (
-            $key, $room, $weather, $ttr, $psid
+            $key, $started, $room, $weather, $ttr, $psid
         );
         """;
 
@@ -29,6 +30,7 @@ internal sealed record EncounterRow(
     {
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$key", Key);
+        command.Parameters.AddWithValue("$started", StartedAtMs);
         command.Parameters.AddWithValue("$room", StoreWrite.Value(Room));
         command.Parameters.AddWithValue("$weather", StoreWrite.Value(Weather));
         command.Parameters.AddWithValue("$ttr", StoreWrite.Value(TimeToReset));
@@ -39,10 +41,10 @@ internal sealed record EncounterRow(
 
 /// <summary>Stamps an encounter's end. An UPDATE rather than a column written at insert time,
 /// because the end is only known once the tail has drained to the next prompt.</summary>
-internal sealed record EncounterEndRow(long Key, long EndedAtMs) : IStoreRow
+internal sealed record EncounterEndRow(string Key, long EndedAtMs) : IStoreRow
 {
     private const string Sql =
-        "UPDATE encounters SET ended_at_ms = $ended WHERE encounter_started_at_ms = $key;";
+        "UPDATE encounters SET ended_at_ms = $ended WHERE uid = $key;";
 
     public void Write(StoreWrite write)
     {
@@ -57,10 +59,10 @@ internal sealed record EncounterEndRow(long Key, long EndedAtMs) : IStoreRow
 /// <paramref name="TimestampMs"/> is null for the pre-roll, which was buffered before the encounter
 /// existed and carries no stamp of its own.</summary>
 internal sealed record EncounterLineRow(
-    long Key, string Phase, int Ord, long? TimestampMs, string Text) : IStoreRow
+    string Key, string Phase, int Ord, long? TimestampMs, string Text) : IStoreRow
 {
     private const string Sql = """
-        INSERT INTO encounter_lines (encounter_started_at_ms, phase, ord, ts, text)
+        INSERT INTO encounter_lines (encounter_uid, phase, ord, ts, text)
         VALUES ($key, $phase, $ord, $ts, $text);
         """;
 
@@ -80,7 +82,7 @@ internal sealed record EncounterLineRow(
 /// one and why they are snapshots rather than deltas.</summary>
 internal sealed record EncounterStatsRow : IStoreRow
 {
-    public required long Key { get; init; }
+    public required string Key { get; init; }
     public required long TimestampMs { get; init; }
     public required string Reason { get; init; }
 
@@ -113,7 +115,7 @@ internal sealed record EncounterStatsRow : IStoreRow
 
     private const string Sql = """
         INSERT INTO encounter_stats (
-            encounter_started_at_ms, ts, reason,
+            encounter_uid, ts, reason,
             stamina, max_stamina, strength, raw_strength, max_strength,
             dexterity, raw_dexterity, max_dexterity, magic, max_magic,
             objects_carried, max_objects_carried, carried_count,
@@ -173,11 +175,11 @@ internal readonly record struct EncounterContentsItem(string Name, bool IsCreatu
 /// <summary>One room-contents snapshot: the parent row plus its items. The only row type here that
 /// writes two tables, which is why the child needs the parent's rowid.</summary>
 internal sealed record EncounterContentsRow(
-    long Key, long TimestampMs, string? Room, int CarriedCount,
+    string Key, long TimestampMs, string? Room, int CarriedCount,
     EncounterContentsItem[] Items) : IStoreRow
 {
     private const string ParentSql = """
-        INSERT INTO encounter_contents (encounter_started_at_ms, ts, room, carried_count)
+        INSERT INTO encounter_contents (encounter_uid, ts, room, carried_count)
         VALUES ($key, $ts, $room, $carried);
         """;
 
@@ -212,13 +214,13 @@ internal sealed record EncounterContentsRow(
 
 /// <summary>One classified CombatEvent - see the <c>encounter_events</c> table.</summary>
 internal sealed record EncounterEventRow(
-    long Key, long TimestampMs, string Kind, string? Actor, string? Npc, string? Weapon,
+    string Key, long TimestampMs, string Kind, string? Actor, string? Npc, string? Weapon,
     string? Container, int? RangeLow, int? RangeHigh, int? HealthRung, string? HealthPhrase,
     string? RawText) : IStoreRow
 {
     private const string Sql = """
         INSERT INTO encounter_events (
-            encounter_started_at_ms, ts, kind, actor, npc, weapon, container,
+            encounter_uid, ts, kind, actor, npc, weapon, container,
             range_low, range_high, health_rung, health_phrase, raw_text
         ) VALUES (
             $key, $ts, $kind, $actor, $npc, $weapon, $container,
@@ -248,10 +250,10 @@ internal sealed record EncounterEventRow(
 /// <summary>One resolved <c>value &lt;name&gt;</c> probe - see the <c>creature_values</c> table for
 /// what <paramref name="Ambiguous"/> means.</summary>
 internal sealed record CreatureValueRow(
-    long Key, long TimestampMs, string Npc, int Value, bool Ambiguous) : IStoreRow
+    string Key, long TimestampMs, string Npc, int Value, bool Ambiguous) : IStoreRow
 {
     private const string Sql = """
-        INSERT INTO creature_values (encounter_started_at_ms, ts, npc, value, ambiguous)
+        INSERT INTO creature_values (encounter_uid, ts, npc, value, ambiguous)
         VALUES ($key, $ts, $npc, $value, $ambiguous);
         """;
 

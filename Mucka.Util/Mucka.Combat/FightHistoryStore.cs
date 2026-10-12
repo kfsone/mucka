@@ -190,7 +190,7 @@ public sealed class FightHistoryStore
     }
 
     internal const string Columns =
-        "persona_session_id, encounter_started_at_ms, started_at_ms, ended_at_ms, duration_ms, " +
+        "persona_session_id, encounter_uid, started_at_ms, ended_at_ms, duration_ms, " +
         "npc_name, npc_group, weapon_used, outcome, " +
         "you_hits, you_misses, they_hits, they_misses, approx_damage_done, approx_damage_taken, " +
         "narrative_mode, room, weather, strength, raw_strength, dexterity, raw_dexterity, " +
@@ -203,7 +203,7 @@ public sealed class FightHistoryStore
     private static FightRecord ReadRecord(SqliteDataReader reader) => new()
     {
         PersonaSessionId = Long(reader, 0),
-        EncounterStartedAtMs = Long(reader, 1),
+        EncounterUid = Str(reader, 1),
         StartedAtMs = reader.GetInt64(2),
         EndedAtMs = reader.GetInt64(3),
         DurationMs = reader.GetInt64(4),
@@ -273,7 +273,7 @@ internal sealed record FightRow(FightRecord Record) : IStoreRow
         var record = Record;
         var command = write.Prepared(Sql);
         command.Parameters.AddWithValue("$psid", Value(record.PersonaSessionId));
-        command.Parameters.AddWithValue("$encounter", Value(record.EncounterStartedAtMs));
+        command.Parameters.AddWithValue("$encounter", Value(record.EncounterUid));
         command.Parameters.AddWithValue("$started", record.StartedAtMs);
         command.Parameters.AddWithValue("$ended", record.EndedAtMs);
         command.Parameters.AddWithValue("$duration", record.DurationMs);

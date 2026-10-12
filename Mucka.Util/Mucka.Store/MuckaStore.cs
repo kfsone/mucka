@@ -40,6 +40,8 @@ public sealed class MuckaStore : IDisposable
         Channel.CreateUnbounded<IStoreRow>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
     private readonly string _path;
+    private readonly string _host;
+    private readonly string? _accountId;
     private readonly SqliteConnection? _connection;
     private readonly StoreWrite? _write;
     private readonly Task? _writerTask;
@@ -62,17 +64,19 @@ public sealed class MuckaStore : IDisposable
     /// <see cref="Enqueue"/> is a no-op for the rest of the session.</para>
     /// </summary>
     public MuckaStore(string path, string host, string? clientVersion = null,
-        Action<string, Exception>? onError = null)
+        Action<string, Exception>? onError = null, string? accountId = null)
     {
         _path = path;
         _onError = onError;
+        _host = host;
+        _accountId = AccountBackfill.Normalize(accountId);
 
         SqliteConnection? connection = null;
         try
         {
             connection = MuckaDb.Open(path);
             SessionId = InsertSession(connection, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                host, clientVersion);
+                host, clientVersion, _accountId);
         }
         catch (Exception ex)
         {
@@ -148,6 +152,85 @@ public sealed class MuckaStore : IDisposable
         UpdatePersonaSession(personaSessionId,
             "UPDATE persona_sessions SET ended_ms = $ended, ended_note = $value WHERE id = $id;",
             note, "MuckaStore.EndPersonaSession", endedMs);
+    }
+
+    /// <summary>
+    /// Ends every earlier run of this store's account on this host that never ended, and its logins,
+    /// at the last wire record the run holds. Called when a login reaches game mode.
+    ///
+    /// <para>What makes it safe is that an account is logged in once: a new login of an account that is
+    /// reaching game mode means no earlier run of that account is still playing, whatever its
+    /// <c>ended_ms</c> says. Anything else is left alone, however old - another account's run may be
+    /// alive, and so may one of this account on another host. A store with no account id (a login typed
+    /// by hand) closes nothing.</para>
+    ///
+    /// <para>The end is the run's own last wire record, never the new login's time: the gap between the
+    /// two is exactly the stretch nobody recorded. A run with no wire at all ends at its start.</para>
+    ///
+    /// <para>Its own short-lived connection, in two steps: the last-record scan of <c>wire</c>, which has
+    /// no index on its run, reads without holding the write lock, and only the small UPDATEs write.
+    /// Returns how many runs were ended. Must not run on the Feed thread.</para>
+    /// </summary>
+    public int CloseAbandonedRuns()
+    {
+        if (_disposed || _faulted || _accountId is null) return 0;
+        try
+        {
+            using var connection = new SqliteConnection(MuckaDb.ConnectionString(_path));
+            connection.Open();
+            Execute(connection, "PRAGMA busy_timeout=5000;");
+
+            var abandoned = new List<(long Id, long StartedMs)>();
+            using (var find = connection.CreateCommand())
+            {
+                find.CommandText = """
+                    SELECT id, started_ms FROM mucka_runs
+                    WHERE ended_ms IS NULL AND id <> $self AND account_id = $account AND host IS $host;
+                    """;
+                find.Parameters.AddWithValue("$self", SessionId);
+                find.Parameters.AddWithValue("$account", _accountId);
+                find.Parameters.AddWithValue("$host", _host);
+                using var reader = find.ExecuteReader();
+                while (reader.Read())
+                    abandoned.Add((reader.GetInt64(0), reader.GetInt64(1)));
+            }
+            if (abandoned.Count == 0) return 0;
+
+            var lastRecord = new Dictionary<long, long>();
+            using (var scan = connection.CreateCommand())
+            {
+                scan.CommandText = "SELECT mucka_run_id, MAX(ts_ms) FROM wire GROUP BY mucka_run_id;";
+                using var reader = scan.ExecuteReader();
+                while (reader.Read())
+                    lastRecord[reader.GetInt64(0)] = reader.GetInt64(1);
+            }
+
+            using var transaction = connection.BeginTransaction();
+            foreach (var (id, startedMs) in abandoned)
+            {
+                var endedMs = lastRecord.TryGetValue(id, out var last) ? Math.Max(last, startedMs) : startedMs;
+                // Only a run that is still open: a second client closing the same run first is not
+                // overwritten.
+                using var close = connection.CreateCommand();
+                close.Transaction = transaction;
+                close.CommandText = """
+                    UPDATE persona_sessions SET ended_ms = $ended
+                    WHERE mucka_run_id = $id AND ended_ms IS NULL
+                      AND EXISTS (SELECT 1 FROM mucka_runs WHERE id = $id AND ended_ms IS NULL);
+                    UPDATE mucka_runs SET ended_ms = $ended WHERE id = $id AND ended_ms IS NULL;
+                    """;
+                close.Parameters.AddWithValue("$ended", endedMs);
+                close.Parameters.AddWithValue("$id", id);
+                close.ExecuteNonQuery();
+            }
+            transaction.Commit();
+            return abandoned.Count;
+        }
+        catch (Exception ex)
+        {
+            _onError?.Invoke("MuckaStore.CloseAbandonedRuns (earlier runs stay open)", ex);
+            return 0;
+        }
     }
 
     private void UpdatePersonaSession(long id, string sql, string? value, string what, long? endedMs = null)
@@ -294,12 +377,15 @@ public sealed class MuckaStore : IDisposable
     }
 
     private static long InsertSession(SqliteConnection connection, long startedMs, string host,
-        string? clientVersion)
+        string? clientVersion, string? accountId)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
-            "INSERT INTO mucka_runs (started_ms, host, client_version) VALUES ($started, $host, $version); " +
+            "INSERT INTO mucka_runs (uid, started_ms, host, client_version, account_id) " +
+            "VALUES ($uid, $started, $host, $version, $account); " +
             "SELECT last_insert_rowid();";
+        command.Parameters.AddWithValue("$account", (object?)accountId ?? DBNull.Value);
+        command.Parameters.AddWithValue("$uid", Guid.NewGuid().ToString("N"));
         command.Parameters.AddWithValue("$started", startedMs);
         command.Parameters.AddWithValue("$host", host);
         command.Parameters.AddWithValue("$version", (object?)clientVersion ?? DBNull.Value);

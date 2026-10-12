@@ -6,6 +6,7 @@ namespace Mucka.Core;
 ///   mucka -profile &lt;name&gt;
 ///   mucka [-host &lt;host&gt;] [-port &lt;port&gt;] [-user &lt;name&gt;] [-account &lt;id&gt;] [-password &lt;pwd&gt;]
 ///   mucka [-record]      - arm the session transcript on entering the game (also the in-game rec chip)
+///   mucka -import &lt;file&gt; - merge a $EXPORT file into the database before anything opens it (Windows only)
 /// Warning:
 ///   -password exposes credentials via process listings, shell history, and crash reports.
 ///   Prefer a saved profile or the interactive password prompt when possible.
@@ -42,6 +43,10 @@ public sealed class CommandLineArgs
 #if WINDOWS
     /// <summary>If set, trace/log output is written to this file (Windows only).</summary>
     public string? LogPath { get; private set; }
+
+    /// <summary>If set, an export file to merge into the database at start-up - see
+    /// <see cref="StartupImport"/> (Windows only).</summary>
+    public string? ImportPath { get; private set; }
 #endif
 
     /// <summary>Whether startup arguments request a direct connection instead of showing the profile page.</summary>
@@ -75,6 +80,7 @@ public sealed class CommandLineArgs
                 "record" => true,
 #if WINDOWS
                 "logs" => true,
+                "import" => true,
 #endif
                 _ => false
             };
@@ -136,6 +142,10 @@ public sealed class CommandLineArgs
                 case "logs":
                     if (TakeValue() is { } logPath)
                         result.LogPath = logPath;
+                    break;
+                case "import":
+                    if (TakeValue() is { } importPath)
+                        result.ImportPath = importPath;
                     break;
 #endif
                 default:

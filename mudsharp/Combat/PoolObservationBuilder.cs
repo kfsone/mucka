@@ -17,7 +17,8 @@ public readonly record struct PoolSwingRow(
     bool Hit,
     double? DamageLow,
     double? DamageHigh,
-    int? Rung);
+    int? Rung,
+    long? PersonaSessionId = null);
 
 /// <summary>One row of the fight rollup, reduced to what a pool observation needs.</summary>
 /// <param name="EndedInKill">Only a kill by the player's own blow. A creature that dropped dead of
@@ -26,7 +27,8 @@ public readonly record struct PoolFightRow(
     string NpcName,
     long StartedAtMs,
     long EndedAtMs,
-    bool EndedInKill);
+    bool EndedInKill,
+    long? PersonaSessionId = null);
 
 /// <summary>
 /// Assembles <see cref="PoolFightObservation"/>s from the two stored streams: the per-fight rollup,
@@ -93,12 +95,15 @@ public static class PoolObservationBuilder
 
     /// <summary>
     /// Every observation the corpus supports, matching each fight to the swings that fall inside its
-    /// own time window against the same instance name.
+    /// own time window against the same instance name, in the same login.
     ///
-    /// <para>Matched on (name, time window) rather than on the encounter id, because a swing recorded
-    /// before the client noticed the encounter carries no encounter id at all and would be dropped by
-    /// a join. The window's end is INCLUSIVE - the killing blow's stamp is the fight's end
-    /// stamp.</para>
+    /// <para>Matched on (login, name, time window) rather than on the encounter uid, because a swing
+    /// recorded before the client noticed the encounter carries no encounter uid at all and would be
+    /// dropped by a join. The login is what keeps two clients apart: instance names repeat (every
+    /// world has a rat0) and a corpus merged from two machines holds fights against the same name in
+    /// overlapping windows. Inside one login the clock is the only order the rows have, so the window
+    /// is a position within a login, not an identity. The window's end is INCLUSIVE - the killing
+    /// blow's stamp is the fight's end stamp.</para>
     ///
     /// <para>Neither input needs sorting; both are sorted here.</para>
     /// </summary>
@@ -106,24 +111,30 @@ public static class PoolObservationBuilder
         IEnumerable<PoolFightRow> fights,
         IEnumerable<PoolSwingRow> swings)
     {
-        var byName = new Dictionary<string, List<PoolSwingRow>>(StringComparer.OrdinalIgnoreCase);
+        // Rows with no login (older than the login table) share the key 0; real ids start at 1.
+        var byLogin = new Dictionary<long, Dictionary<string, List<PoolSwingRow>>>();
         foreach (var swing in swings)
         {
             if (string.IsNullOrWhiteSpace(swing.NpcName))
                 continue;
+            var login = swing.PersonaSessionId ?? 0;
+            if (!byLogin.TryGetValue(login, out var byName))
+                byLogin[login] = byName = new Dictionary<string, List<PoolSwingRow>>(StringComparer.OrdinalIgnoreCase);
             if (!byName.TryGetValue(swing.NpcName, out var list))
                 byName[swing.NpcName] = list = [];
             list.Add(swing);
         }
 
-        foreach (var list in byName.Values)
-            list.Sort((a, b) => a.TimestampMs.CompareTo(b.TimestampMs));
+        foreach (var byName in byLogin.Values)
+            foreach (var list in byName.Values)
+                list.Sort((a, b) => a.TimestampMs.CompareTo(b.TimestampMs));
 
         var result = new List<PoolFightObservation>();
         foreach (var fight in fights)
         {
             if (string.IsNullOrWhiteSpace(fight.NpcName)
-                || !byName.TryGetValue(fight.NpcName, out var list))
+                || !byLogin.TryGetValue(fight.PersonaSessionId ?? 0, out var loginSwings)
+                || !loginSwings.TryGetValue(fight.NpcName, out var list))
                 continue;
 
             var window = new List<PoolSwingRow>();
