@@ -15,21 +15,50 @@ namespace Mucka.Rendering;
 // transform are left alone (apart from opacity as the rest state), because UIKit reads them back
 // when it lays the view out - a layer left with a transform makes the next layout size it wrongly.
 
-/// <summary>MAUI puts some views inside a wrapper view that paints a background of its own. Fading or
-/// moving only the inner view leaves that wrapper's fill showing, so the layers below act on the
-/// outermost view that is still this element.</summary>
-internal static class MacLayerHost
+/// <summary>The view an animation acts on. A handler whose element needs a container (the Combat Rail's
+/// BoxView and Border elements do) puts its platform view inside a Microsoft.Maui.Platform.WrapperView
+/// that paints a background of its own - 0.78 grey in the rail's view-tree dump - so an animation on
+/// the inner view alone leaves that fill showing. The wrapper can appear after the handler does, so
+/// every animation class calls <see cref="Refresh"/> first: it re-resolves the container-or-platform
+/// view, and when that has changed the class drops its animation from the old view (opacity 1) and
+/// carries on with the new one. One animation therefore always starts and stops on the same view.</summary>
+internal sealed class MacHostRef
 {
-    public static UIView Of(UIView view) => view.Superview is Microsoft.Maui.Platform.WrapperView wrapper ? wrapper : view;
+    private readonly Microsoft.Maui.IElementHandler? _handler;
+    private UIView _view;
 
-    /// <summary>The inner view is left fully opaque once a wrapper carries the opacity.</summary>
-    public static UIView Prepare(UIView view)
+    public MacHostRef(Microsoft.Maui.IElementHandler? handler, UIView fallback)
     {
-        var host = Of(view);
-        if (!ReferenceEquals(host, view) && view.Layer.Opacity != 1f)
-            view.Layer.Opacity = 1f;
-        return host;
+        _handler = handler;
+        _view = MacAnimatedView.Of(handler) ?? fallback;
     }
+
+    public UIView View => _view;
+
+    /// <summary>True, with the view it replaces, when the container appeared or went away since the last call.</summary>
+    public bool Refresh(out UIView old)
+    {
+        old = _view;
+        var now = MacAnimatedView.Of(_handler);
+        if (now is null || ReferenceEquals(now, _view))
+            return false;
+        _view = now;
+        return true;
+    }
+
+    /// <summary>Removes the named animations from <paramref name="view"/> and leaves it fully opaque.</summary>
+    public static void Neutralise(UIView view, params string[] keys)
+    {
+        foreach (var key in keys)
+            view.Layer.RemoveAnimation(key);
+        view.Layer.Opacity = 1f;
+    }
+}
+
+internal static class MacAnimatedView
+{
+    public static UIView? Of(Microsoft.Maui.IElementHandler? handler)
+        => handler is Microsoft.Maui.IPlatformViewHandler platform ? platform.ContainerView ?? platform.PlatformView : null;
 }
 
 /// <summary>A layer's opacity swinging between two values on a loop: the panel glow and its trim.</summary>
@@ -40,18 +69,18 @@ internal sealed class MacPulseLayer
     /// <summary>The opacity it swings between, peak to trough and back, and its period.</summary>
     public readonly record struct Pulse(float Peak, float Trough, double PeriodMilliseconds);
 
-    private readonly UIView _view;
+    private readonly MacHostRef _host;
     private Pulse? _running;
 
-    private MacPulseLayer(UIView view)
+    private MacPulseLayer(MacHostRef host)
     {
-        _view = view;
+        _host = host;
         // The rest state. An untouched view is fully opaque, which would paint a solid panel the
         // moment the rail opens with no fight anywhere.
-        MacLayerHost.Prepare(view).Layer.Opacity = 0f;
+        _host.View.Layer.Opacity = 0f;
     }
 
-    public static MacPulseLayer Attach(UIView view) => new(view);
+    public static MacPulseLayer Attach(Microsoft.Maui.IElementHandler? handler, UIView fallback) => new(new MacHostRef(handler, fallback));
 
     /// <summary>Pulses, or stops for null. Restarts only when the pulse changes: it is republished on
     /// every refresh, and a restart would snap it back to its first value each time.</summary>
@@ -62,7 +91,7 @@ internal sealed class MacPulseLayer
             Stop();
             return;
         }
-        if (_running == p)
+        if (!Sync() && _running == p)
             return;
         _running = p;
         Apply(p);
@@ -72,14 +101,25 @@ internal sealed class MacPulseLayer
     /// app is hidden or minimised, and the guard above would then never start it again.</summary>
     public void Reassert()
     {
+        Sync();
         if (_running is { } p)
             Apply(p);
     }
 
+    /// <summary>True when the host view changed: the old one is neutral and the new one at rest.</summary>
+    private bool Sync()
+    {
+        if (!_host.Refresh(out var old))
+            return false;
+        MacHostRef.Neutralise(old, Key);
+        _host.View.Layer.Opacity = 0f;
+        return true;
+    }
+
     private void Apply(Pulse p)
     {
-        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
-        MacLayerHost.Prepare(_view).Layer.Opacity = p.Peak;
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = p.Peak;
         var swing = CABasicAnimation.FromKeyPath("opacity");
         swing.From = NSNumber.FromFloat(p.Peak);
         swing.To = NSNumber.FromFloat(p.Trough);
@@ -87,14 +127,23 @@ internal sealed class MacPulseLayer
         swing.AutoReverses = true;
         swing.RepeatCount = float.MaxValue;
         swing.TimingFunction = CAMediaTimingFunction.FromName(CAMediaTimingFunction.Linear);
-        MacLayerHost.Prepare(_view).Layer.AddAnimation(swing, Key);
+        _host.View.Layer.AddAnimation(swing, Key);
     }
 
     public void Stop()
     {
         _running = null;
-        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
-        MacLayerHost.Prepare(_view).Layer.Opacity = 0f;
+        Sync();
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 0f;
+    }
+
+    /// <summary>Gives the view up: no animation, fully opaque.</summary>
+    public void Release()
+    {
+        _running = null;
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 1f;
     }
 }
 
@@ -104,22 +153,22 @@ internal sealed class MacFleePulse
 {
     private const string Key = "mucka.fleepulse";
 
-    private readonly UIView _view;
+    private readonly MacHostRef _host;
     private double? _trough;
 
-    private MacFleePulse(UIView view)
+    private MacFleePulse(MacHostRef host)
     {
-        _view = view;
-        MacLayerHost.Prepare(view).Layer.Opacity = 0f;
+        _host = host;
+        _host.View.Layer.Opacity = 0f;
     }
 
-    public static MacFleePulse Attach(UIView view) => new(view);
+    public static MacFleePulse Attach(Microsoft.Maui.IElementHandler? handler, UIView fallback) => new(new MacHostRef(handler, fallback));
 
     /// <summary>Starts a pulse dipping to <paramref name="trough"/>, or leaves the running one alone
     /// if it is already this one - restarting on every republish would read as no pulse at all.</summary>
     public void Pulse(double trough)
     {
-        if (_trough == trough)
+        if (!Sync() && _trough == trough)
             return;
         _trough = trough;
         Apply(trough);
@@ -128,14 +177,25 @@ internal sealed class MacFleePulse
     /// <summary>Starts the running pulse again; see <see cref="MacPulseLayer.Reassert"/>.</summary>
     public void Reassert()
     {
+        Sync();
         if (_trough is { } trough)
             Apply(trough);
     }
 
+    /// <summary>True when the host view changed: the old one is neutral and the new one at rest.</summary>
+    private bool Sync()
+    {
+        if (!_host.Refresh(out var old))
+            return false;
+        MacHostRef.Neutralise(old, Key);
+        _host.View.Layer.Opacity = 0f;
+        return true;
+    }
+
     private void Apply(double trough)
     {
-        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
-        MacLayerHost.Prepare(_view).Layer.Opacity = 1f;
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 1f;
         var dip = CABasicAnimation.FromKeyPath("opacity");
         dip.From = NSNumber.FromFloat(1f);
         dip.To = NSNumber.FromDouble(trough);
@@ -143,15 +203,24 @@ internal sealed class MacFleePulse
         dip.AutoReverses = true;
         dip.RepeatCount = float.MaxValue;
         dip.TimingFunction = CAMediaTimingFunction.FromName(CAMediaTimingFunction.Linear);
-        MacLayerHost.Prepare(_view).Layer.AddAnimation(dip, Key);
+        _host.View.Layer.AddAnimation(dip, Key);
     }
 
     /// <summary>Stops and hides: the pill's quiet states are drawn by the canvas alone.</summary>
     public void Stop()
     {
         _trough = null;
-        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
-        MacLayerHost.Prepare(_view).Layer.Opacity = 0f;
+        Sync();
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 0f;
+    }
+
+    /// <summary>Gives the view up: no animation, fully opaque.</summary>
+    public void Release()
+    {
+        _trough = null;
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 1f;
     }
 }
 
@@ -167,16 +236,16 @@ internal sealed class MacTickSweep
     /// element (CombatTickSweep in GamePage.xaml).</summary>
     private const float RunningOpacity = 0.20f;
 
-    private readonly UIView _view;
+    private readonly MacHostRef _host;
 
-    private MacTickSweep(UIView view)
+    private MacTickSweep(MacHostRef host)
     {
-        _view = view;
+        _host = host;
         // Hidden at rest: an untouched full-width bar would read as "swing imminent" before any fight.
         Rest();
     }
 
-    public static MacTickSweep Attach(UIView view) => new(view);
+    public static MacTickSweep Attach(Microsoft.Maui.IElementHandler? handler, UIView fallback) => new(new MacHostRef(handler, fallback));
 
     /// <summary>Begins draining from wherever this tick has got to, empty on the boundary, then
     /// sweeps full to empty every tick. Both are timed on the render server's clock, so the handoff
@@ -184,8 +253,9 @@ internal sealed class MacTickSweep
     public void Restart(DateTime anchorUtc)
     {
         var remaining = CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+        Sync();
         Clear();
-        MacLayerHost.Prepare(_view).Layer.Opacity = RunningOpacity;
+        _host.View.Layer.Opacity = RunningOpacity;
 
         var now = CAAnimation.CurrentMediaTime();
         // Less than a couple of frames left: hold empty and begin cleanly on the boundary instead.
@@ -194,17 +264,18 @@ internal sealed class MacTickSweep
         var partial = Sweep(startFraction, remaining / 1000.0);
         partial.FillMode = CAFillMode.Forwards;   // holds empty until the loop takes over
         partial.RemovedOnCompletion = false;
-        MacLayerHost.Prepare(_view).Layer.AddAnimation(partial, PartialKey);
+        _host.View.Layer.AddAnimation(partial, PartialKey);
 
         var loop = Sweep(1.0, TickMilliseconds / 1000.0);
         loop.BeginTime = now + remaining / 1000.0;
         loop.RepeatCount = float.MaxValue;
-        MacLayerHost.Prepare(_view).Layer.AddAnimation(loop, LoopKey);
+        _host.View.Layer.AddAnimation(loop, LoopKey);
     }
 
     /// <summary>Stops and empties the bar.</summary>
     public void Stop()
     {
+        Sync();
         Clear();
         Rest();
     }
@@ -213,8 +284,8 @@ internal sealed class MacTickSweep
     /// pinned: a scale about the centre plus the shift that keeps the left edge where it is.</summary>
     private CAAnimationGroup Sweep(double fromFraction, double seconds)
     {
-        var width = (double)MacLayerHost.Prepare(_view).Bounds.Width;
-        var centreX = (double)MacLayerHost.Prepare(_view).Layer.Position.X;
+        var width = (double)_host.View.Bounds.Width;
+        var centreX = (double)_host.View.Layer.Position.X;
 
         var scale = CABasicAnimation.FromKeyPath("transform.scale.x");
         scale.From = NSNumber.FromDouble(fromFraction);
@@ -235,10 +306,25 @@ internal sealed class MacTickSweep
 
     private void Clear()
     {
-        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(PartialKey);
-        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(LoopKey);
+        _host.View.Layer.RemoveAnimation(PartialKey);
+        _host.View.Layer.RemoveAnimation(LoopKey);
     }
 
-    private void Rest() => MacLayerHost.Prepare(_view).Layer.Opacity = 0f;
+    private void Rest() => _host.View.Layer.Opacity = 0f;
+
+    private void Sync()
+    {
+        if (!_host.Refresh(out var old))
+            return;
+        MacHostRef.Neutralise(old, PartialKey, LoopKey);
+        Rest();
+    }
+
+    /// <summary>Gives the view up: no animation, fully opaque.</summary>
+    public void Release()
+    {
+        Clear();
+        _host.View.Layer.Opacity = 1f;
+    }
 }
 #endif

@@ -123,22 +123,22 @@ public partial class GamePage
 
     private void AttachMacGlow()
     {
-        _macGlow?.Stop();
+        _macGlow?.Release();
         _macGlow = null;
-        if (CombatPanelGlow.Handler?.PlatformView is UIView view)
+        if (MacAnimatedView.Of(CombatPanelGlow.Handler) is { } view)
         {
-            _macGlow = MacPulseLayer.Attach(view);
+            _macGlow = MacPulseLayer.Attach(CombatPanelGlow.Handler, view);
             ApplyMacPanelGlow();   // a level already published must reach a fresh layer
         }
     }
 
     private void AttachMacTrim()
     {
-        _macTrim?.Stop();
+        _macTrim?.Release();
         _macTrim = null;
-        if (CombatPanelTrim.Handler?.PlatformView is UIView view)
+        if (MacAnimatedView.Of(CombatPanelTrim.Handler) is { } view)
         {
-            _macTrim = MacPulseLayer.Attach(view);
+            _macTrim = MacPulseLayer.Attach(CombatPanelTrim.Handler, view);
             ApplyMacPanelGlow();
         }
     }
@@ -184,16 +184,16 @@ public partial class GamePage
 
     private void AttachMacTickSweep()
     {
-        _macSweep?.Stop();
+        _macSweep?.Release();
         _macSweep = null;
 
         var (left, right, bottom, height) = CombatRailView.TickTrackDp(RailContentWidthDp, RailShowStats);
         CombatTickSweep.Margin = new Thickness(left, 0, right, bottom);
         CombatTickSweep.HeightRequest = height;
 
-        if (CombatTickSweep.Handler?.PlatformView is UIView view)
+        if (MacAnimatedView.Of(CombatTickSweep.Handler) is { } view)
         {
-            _macSweep = MacTickSweep.Attach(view);
+            _macSweep = MacTickSweep.Attach(CombatTickSweep.Handler, view);
             _macSweepRunning = false;
             UpdateMacTickSweep();   // the panel can be opened mid-fight
             // The bar's geometry is read when it starts, and this element has no size until it has been
@@ -277,7 +277,7 @@ public partial class GamePage
 
     private void AttachMacFleePill()
     {
-        _macFlee?.Stop();
+        _macFlee?.Release();
         _macFlee = null;
         _macPillStatus = null;
 
@@ -293,7 +293,7 @@ public partial class GamePage
         {
             // Decoration only: CombatFleePillHit owns every click in this rectangle.
             pill.UserInteractionEnabled = false;
-            _macFlee = MacFleePulse.Attach(pill);
+            _macFlee = MacFleePulse.Attach(CombatFleePill.Handler, pill);
             UpdateMacFleePill();
         }
     }

@@ -115,7 +115,7 @@ public partial class GamePage
 
     private void OnMacFloatHandlerChanged(int slot)
     {
-        _macFloats[slot]?.Rest();
+        _macFloats[slot]?.Release();
         _macFloats[slot] = null;
         _macFloatText[slot] = null;
 
@@ -126,7 +126,7 @@ public partial class GamePage
         text.TextAlignment = UITextAlignment.Left;
         text.TextColor = MacFloatMiss;
         _macFloatText[slot] = text;
-        _macFloats[slot] = MacRailFloat.Attach(text);
+        _macFloats[slot] = MacRailFloat.Attach(_macFloatLabels[slot].Handler, text);
     }
 
     private void OnMacRailSizeChanged(object? sender, EventArgs e)

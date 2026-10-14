@@ -19,23 +19,24 @@ internal sealed class MacRailFloat
     private const double OvertravelDp = 4.0;
     private const string Key = "mucka.float";
 
-    private readonly UIView _view;
+    private readonly MacHostRef _host;
     private int _generation;
 
-    private MacRailFloat(UIView view)
+    private MacRailFloat(MacHostRef host)
     {
-        _view = view;
+        _host = host;
         Rest();
     }
 
-    public static MacRailFloat Attach(UIView view) => new(view);
+    public static MacRailFloat Attach(Microsoft.Maui.IElementHandler? handler, UIView fallback) => new(new MacHostRef(handler, fallback));
 
     /// <summary>Plays one float from (<paramref name="xDp"/>, <paramref name="yDp"/>), calling
     /// <paramref name="onCompleted"/> when it ends. A float cancelled part-way never calls it.</summary>
     public void Play(double xDp, double yDp, TimeSpan duration, Action onCompleted)
     {
+        Sync();
         var generation = ++_generation;
-        var layer = _view.Layer;
+        var layer = _host.View.Layer;
         layer.RemoveAnimation(Key);
 
         // Rises on a decelerating curve, starting below the origin and ending above the nominal
@@ -72,12 +73,29 @@ internal sealed class MacRailFloat
         layer.AddAnimation(group, Key);
     }
 
+    /// <summary>Gives the view up: no animation, fully opaque.</summary>
+    public void Release()
+    {
+        _generation++;
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 1f;
+    }
+
+    private void Sync()
+    {
+        if (!_host.Refresh(out var old))
+            return;
+        MacHostRef.Neutralise(old, Key);
+        _host.View.Layer.Opacity = 0f;
+    }
+
     /// <summary>Cancels any float in flight and hides the view.</summary>
     public void Rest()
     {
+        Sync();
         _generation++;
-        _view.Layer.RemoveAnimation(Key);
-        _view.Layer.Opacity = 0f;
+        _host.View.Layer.RemoveAnimation(Key);
+        _host.View.Layer.Opacity = 0f;
     }
 }
 

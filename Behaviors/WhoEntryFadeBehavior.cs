@@ -22,6 +22,9 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
 #if DESKTOP
     private Label? _label;
     private WhoEntry? _entry;
+#if MACCATALYST
+    private UIKit.UIView? _macHost;
+#endif
 #if WINDOWS
     private Microsoft.UI.Composition.Visual? _visual;
 #endif
@@ -47,6 +50,10 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
         label.Unloaded -= OnUnloaded;
         label.BindingContextChanged -= OnBindingContextChanged;
         HookEntry(null);
+#if MACCATALYST
+        if (_macHost is not null) MacLayerFade.Release(_macHost);
+        _macHost = null;
+#endif
 #if WINDOWS
         _visual = null;
 #endif
@@ -89,7 +96,12 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
     private void FadeTo(float target, bool fromZero)
     {
 #if MACCATALYST
-        if (_label?.Handler?.PlatformView is not UIKit.UIView ui) return;
+        if (Mucka.Rendering.MacAnimatedView.Of(_label?.Handler) is not { } ui) return;
+        if (!ReferenceEquals(_macHost, ui))
+        {
+            if (_macHost is not null) MacLayerFade.Release(_macHost);
+            _macHost = ui;
+        }
         MacLayerFade.Animate(ui, fromZero ? 0f : ui.Layer.PresentationLayer?.Opacity ?? ui.Layer.Opacity, target,
             (target <= 0f ? FadeOutMs : FadeInMs) / 1000.0);
 #else
