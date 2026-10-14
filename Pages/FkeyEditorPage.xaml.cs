@@ -5,6 +5,9 @@ namespace Mucka.Pages;
 public partial class FkeyEditorPage : ContentPage
 {
     private readonly FkeyEditorViewModel _vm;
+#if MACCATALYST
+    private MacEscape.Registration? _macEscape;
+#endif
 
 #if DESKTOP
     // The picker's file-type list, built once: every ".ini" import rebuilt the same two strings.
@@ -54,6 +57,9 @@ public partial class FkeyEditorPage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
+#elif MACCATALYST
+        MacEscape.Detach(_macEscape);
+        _macEscape = MacEscape.Attach(this, () => _vm.CancelCommand.Execute(null));
 #endif
     }
 
@@ -70,6 +76,9 @@ public partial class FkeyEditorPage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
+#elif MACCATALYST
+        MacEscape.Detach(_macEscape);
+        _macEscape = null;
 #endif
     }
 

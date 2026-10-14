@@ -9,12 +9,15 @@ namespace Mucka.Pages;
 /// read without being in a game. It reads the same database; with no Mucka run of its own, every
 /// session and run left open in it is one whose client exited without closing it.
 ///
-/// <para>Closes on the panel's x, on Escape (Windows), or on the system back button.</para>
+/// <para>Closes on the panel's x, on Escape (Windows and Mac), or on the system back button.</para>
 /// </summary>
 internal sealed class ScorePage : ContentPage
 {
     private readonly ScoreGraphViewModel _graph;
     private bool _closed;
+#if MACCATALYST
+    private MacEscape.Registration? _macEscape;
+#endif
 
     /// <param name="host">The profile's server, which the panel ticks; the character shown first is
     /// the one played there most recently.</param>
@@ -49,6 +52,9 @@ internal sealed class ScorePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
+#elif MACCATALYST
+        MacEscape.Detach(_macEscape);
+        _macEscape = MacEscape.Attach(this, () => _graph.TryClose());
 #endif
     }
 
@@ -60,6 +66,9 @@ internal sealed class ScorePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
+#elif MACCATALYST
+        MacEscape.Detach(_macEscape);
+        _macEscape = null;
 #endif
     }
 

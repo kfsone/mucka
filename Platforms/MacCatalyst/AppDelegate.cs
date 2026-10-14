@@ -27,4 +27,7 @@ public class AppDelegate : MauiUIApplicationDelegate
 
 	[Export(MacHotkeys.Action)]
 	public void OnHotkey(UIKeyCommand command) => MacHotkeys.Fire(command);
+
+	[Export(MacEscape.Action)]
+	public void OnEscapePage(UIKeyCommand command) => MacEscape.Fire();
 }
