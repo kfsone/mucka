@@ -28,7 +28,11 @@ public static class ProfileStore
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[ProfileStore] SecureStorage.GetAsync failed for '{profileName}': {ex}");
+#if MACCATALYST
+            CrashLog.Warn("ProfileStore", $"password lookup failed for '{profileName}': {ex}");
+#else
+            CrashLog.Warn("ProfileStore", $"SecureStorage.GetAsync failed for '{profileName}': {ex}");
+#endif
             throw;
         }
     }

@@ -101,9 +101,8 @@ internal static class SoundService
     /// the next did not.</para>
     ///
     /// <para>Here the source is assigned ONCE per asset and replayed by seeking back to zero, so the
-    /// only remaining latency is the audio path itself - small, and far more consistent. Intended for
-    /// a handful of short, frequently repeated assets; each one holds its own player for the life of
-    /// the process, so do not use it for the general catalogue.</para>
+    /// only remaining latency is the audio path itself - small, and far more consistent. Each asset
+    /// holds its own player for the life of the process.</para>
     ///
     /// <para>Concurrency: safe to call from any thread. A single asset cannot overlap itself - seeking
     /// to zero restarts it - which is what you want for a click.</para>
@@ -117,7 +116,7 @@ internal static class SoundService
         player.Volume = Math.Clamp(volumePercent ?? s_volumePercent, 0, 100) / 100.0;
         try
         {
-            // Rewind rather than re-source. Position is only settable once the session knows the
+            // Position is only settable once the session knows the
             // duration; if it is not ready yet, Play() from wherever it sits still sounds, and the
             // next click will be exact.
             if (player.PlaybackSession.CanSeek)
@@ -129,19 +128,30 @@ internal static class SoundService
             System.Diagnostics.Debug.WriteLine($"[SoundService] PlayPrepared failed for '{assetName}': {ex.Message}");
         }
 #elif MACCATALYST
-        var player = GetPreparedMacPlayer(assetName);
+        // Never opens a file on the caller's thread: an asset that is not ready yet is opened on the
+        // thread pool and this click is skipped, as on Windows.
+        if (!TryGetReadyMacPlayer(assetName, out var player))
+        {
+            PrepareSound(assetName);
+            return;
+        }
         if (player is null)
         {
             Play(assetName, volumePercent);
             return;
         }
-        lock (s_preparedMac)
+        try
         {
-            player.Volume = Math.Clamp(volumePercent ?? s_volumePercent, 0, 100) / 100f;
-            // Rewound rather than re-opened: the file is opened once, so the only latency left is the
-            // audio path itself. A click cannot overlap itself, which is what a click wants.
-            player.CurrentTime = 0;
-            player.Play();
+            lock (s_preparedMac)
+            {
+                player.Volume = Math.Clamp(volumePercent ?? s_volumePercent, 0, 100) / 100f;
+                player.CurrentTime = 0;
+                player.Play();
+            }
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Warn("SoundService", $"PlayPrepared failed for '{assetName}': {ex}");
         }
 #else
         Play(assetName, volumePercent);
@@ -149,25 +159,43 @@ internal static class SoundService
     }
 
 #if MACCATALYST
-    private static readonly Dictionary<string, AVFoundation.AVAudioPlayer> s_preparedMac = new();
+    // Null value: the file is missing or cannot be opened; cached so it is not retried on every click.
+    private static readonly Dictionary<string, AVFoundation.AVAudioPlayer?> s_preparedMac = new();
 
-    /// <summary>The kept-open player for <paramref name="assetName"/>, opened and primed on first use.
-    /// Null when the file is missing or cannot be opened.</summary>
-    private static AVFoundation.AVAudioPlayer? GetPreparedMacPlayer(string assetName)
+    /// <summary>True when <paramref name="assetName"/> has been prepared; the player is null when its
+    /// file is missing or cannot be opened. Takes the lock only for the dictionary lookup.</summary>
+    private static bool TryGetReadyMacPlayer(string assetName, out AVFoundation.AVAudioPlayer? player)
     {
         lock (s_preparedMac)
+            return s_preparedMac.TryGetValue(assetName, out player);
+    }
+
+    /// <summary>Opens and primes the kept-open player for <paramref name="assetName"/>. Does file I/O,
+    /// so it runs on the thread pool; the lock is held only to read and write the dictionary.</summary>
+    private static void GetPreparedMacPlayer(string assetName)
+    {
+        if (TryGetReadyMacPlayer(assetName, out _))
+            return;
+        AVFoundation.AVAudioPlayer? player = null;
+        var path = AssetPath(ResolveAssetName(assetName));
+        if (File.Exists(path))
         {
-            if (s_preparedMac.TryGetValue(assetName, out var existing))
-                return existing;
-            var path = AssetPath(ResolveAssetName(assetName));
-            if (!File.Exists(path))
-                return null;
-            var player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out _);
+            player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out var error);
             if (player is null)
-                return null;
-            player.PrepareToPlay();
+                CrashLog.Warn("SoundService", $"AVAudioPlayer failed for {path}: {error?.LocalizedDescription}");
+            else
+                player.PrepareToPlay();
+        }
+        else
+            CrashLog.Warn("SoundService", $"missing asset {path}");
+        lock (s_preparedMac)
+        {
+            if (s_preparedMac.ContainsKey(assetName))
+            {
+                player?.Dispose();
+                return;
+            }
             s_preparedMac[assetName] = player;
-            return player;
         }
     }
 #endif
@@ -209,7 +237,9 @@ internal static class SoundService
 #if WINDOWS
         _ = Task.Run(() => GetPreparedPlayer(assetName));
 #elif MACCATALYST
-        _ = Task.Run(() => GetPreparedMacPlayer(assetName));
+        _ = Task.Run(() => GetPreparedMacPlayer(assetName)).ContinueWith(
+            t => CrashLog.Warn("SoundService", $"Prepare failed for '{assetName}': {t.Exception!.GetBaseException()}"),
+            TaskContinuationOptions.OnlyOnFaulted);
 #endif
     }
 
@@ -231,10 +261,7 @@ internal static class SoundService
         try { await PlayCoreAsync(assetName, volumePercent).ConfigureAwait(false); }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[SoundService] Play failed for '{assetName}': {ex.Message}");
-#if MACCATALYST
-            Console.Error.WriteLine($"[SoundService] Play failed for '{assetName}': {ex}");
-#endif
+            CrashLog.Warn("SoundService", $"Play failed for '{assetName}': {ex}");
         }
         finally
         {
@@ -461,7 +488,7 @@ internal static class SoundService
         var path = AssetPath(assetName);
         if (!File.Exists(path))
         {
-            Console.Error.WriteLine($"[SoundService] missing asset {path}");
+            CrashLog.Warn("SoundService", $"missing asset {path}");
             return Task.CompletedTask;
         }
 
@@ -469,7 +496,7 @@ internal static class SoundService
         var player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out var error);
         if (player is null)
         {
-            Console.Error.WriteLine($"[SoundService] AVAudioPlayer failed for {path}: {error?.LocalizedDescription}");
+            CrashLog.Warn("SoundService", $"AVAudioPlayer failed for {path}: {error?.LocalizedDescription}");
             return Task.CompletedTask;
         }
 
@@ -487,10 +514,14 @@ internal static class SoundService
         player.FinishedPlaying += (_, _) => Finish();
         // Backstop: a player that never reports finishing would otherwise hold the caller - and, for a
         // tell alert, the flag that stops overlapping tells - for good.
-        _ = Task.Delay(TimeSpan.FromSeconds(Math.Max(1.0, player.Duration) + 2.0)).ContinueWith(_ => Finish());
+        _ = Task.Delay(TimeSpan.FromSeconds(Math.Max(1.0, player.Duration) + 2.0)).ContinueWith(_ =>
+        {
+            try { Finish(); }
+            catch (Exception ex) { CrashLog.Warn("SoundService", $"Finish failed for {path}: {ex}"); }
+        });
         if (!player.Play())
         {
-            Console.Error.WriteLine($"[SoundService] Play() returned false for {path}");
+            CrashLog.Warn("SoundService", $"Play() returned false for {path}");
             Finish();
         }
         return tcs.Task;

@@ -424,7 +424,7 @@ public static class SettingsStore
         try
         {
             var path = ResolvePath();
-            var ini = IniFile.Load(path);
+            var ini = await LoadIniAsync(persist: false).ConfigureAwait(false);
             var removed = false;
             foreach (var name in profileNames)
             {

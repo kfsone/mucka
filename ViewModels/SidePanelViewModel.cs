@@ -339,8 +339,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool NoCombatData => !_hasCombatData;
 
     /// <summary>Whether the Combat Rail is available on this platform at all. Desktop only: the
-    /// panel's supporting logic (window resize, tick sweep, metronome, pulse wiring) was built for a
-    /// desktop window that can grow to make room for it, not a phone-sized screen. Drives both the overflow-menu entry's visibility and
+    /// panel's supporting logic (window resize, tick sweep, metronome, pulse wiring) needs a desktop
+    /// window that can grow to make room for it. Drives both the overflow-menu entry's visibility and
     /// <see cref="IsCombatPanelVisible"/>'s own setter, so there is one place that decides this
     /// rather than the menu and the panel disagreeing.</summary>
     [SuppressMessage("Performance", "CA1822:Mark members as static",

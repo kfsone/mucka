@@ -432,7 +432,9 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         int effectiveColumns = 0)
     {
 #if MACCATALYST
-        _ = LoadStorePasswordsSecurelyAsync();
+        _ = LoadStorePasswordsSecurelyAsync().ContinueWith(
+            t => CrashLog.Write("LoadStorePasswordsSecurely", t.Exception!.GetBaseException()),
+            TaskContinuationOptions.OnlyOnFaulted);
 #endif
         _original = settings;
         _onApply  = onApply;
