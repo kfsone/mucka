@@ -1,4 +1,5 @@
 #if MACCATALYST
+using Foundation;
 using UIKit;
 
 namespace Mucka.Pages;
@@ -32,7 +33,10 @@ public partial class GamePage
     private void OnMacInputHandlerChanged(object? sender, EventArgs e)
     {
         if (_macInputField is not null)
+        {
             _macInputField.ShouldReturn = null!;
+            _macInputField.ShouldChangeCharacters = null!;
+        }
         _macInputField = InputEntry.Handler?.PlatformView as UITextField;
         if (_macInputField is not { } tf)
             return;
@@ -47,6 +51,10 @@ public partial class GamePage
         tf.SmartInsertDeleteType = UITextSmartInsertDeleteType.No;
         tf.AutocorrectionType = UITextAutocorrectionType.No;
         tf.AutocapitalizationType = UITextAutocapitalizationType.None;
+        tf.SpellCheckingType = UITextSpellCheckingType.No;
+        if (OperatingSystem.IsMacCatalystVersionAtLeast(17))
+            tf.InlinePredictionType = UITextInlinePredictionType.No;
+        tf.ShouldChangeCharacters = KeepTypedCharacters;
         tf.Text = _vm.InputText;
         // Synchronous, on the key itself: the field must be read and emptied before the next
         // keystroke is processed. False so UIKit does not also resign or insert a newline.
@@ -59,6 +67,30 @@ public partial class GamePage
         _macCommandInput ??= new Mucka.Input.CommandInput(
             new MacCommandInputSurface(() => _macInputField, FocusInput), _vm.InputGate);
     }
+
+    // Commands go out as typed. Typing "..." has been seen to arrive as a single ellipsis, which
+    // breaks runs of dots in a movement or a command; any substitution of that kind is written back
+    // as the plain characters instead.
+    private static bool KeepTypedCharacters(UITextField field, NSRange range, string replacement)
+    {
+        if (replacement.AsSpan().IndexOfAny(SubstitutedCharacters) < 0)
+            return true;
+
+        var plain = replacement
+            .Replace("\u2026", "...", StringComparison.Ordinal)
+            .Replace('\u2013', '-').Replace('\u2014', '-')
+            .Replace('\u2018', '\'').Replace('\u2019', '\'')
+            .Replace('\u201C', '"').Replace('\u201D', '"');
+        var current = new NSString(field.Text ?? string.Empty);
+        field.Text = current.Replace(range, new NSString(plain));
+        var caret = field.GetPosition(field.BeginningOfDocument, (nint)(range.Location + plain.Length));
+        if (caret is not null)
+            field.SelectedTextRange = field.GetTextRange(caret, caret);
+        return false;
+    }
+
+    private static readonly System.Buffers.SearchValues<char> SubstitutedCharacters =
+        System.Buffers.SearchValues.Create(['\u2026', '\u2013', '\u2014', '\u2018', '\u2019', '\u201C', '\u201D']);
 
     private void OnMacSendClicked(object? sender, EventArgs e) => AcceptMacInputLine();
 

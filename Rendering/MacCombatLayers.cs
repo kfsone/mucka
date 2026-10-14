@@ -15,6 +15,23 @@ namespace Mucka.Rendering;
 // transform are left alone (apart from opacity as the rest state), because UIKit reads them back
 // when it lays the view out - a layer left with a transform makes the next layout size it wrongly.
 
+/// <summary>MAUI puts some views inside a wrapper view that paints a background of its own. Fading or
+/// moving only the inner view leaves that wrapper's fill showing, so the layers below act on the
+/// outermost view that is still this element.</summary>
+internal static class MacLayerHost
+{
+    public static UIView Of(UIView view) => view.Superview is Microsoft.Maui.Platform.WrapperView wrapper ? wrapper : view;
+
+    /// <summary>The inner view is left fully opaque once a wrapper carries the opacity.</summary>
+    public static UIView Prepare(UIView view)
+    {
+        var host = Of(view);
+        if (!ReferenceEquals(host, view) && view.Layer.Opacity != 1f)
+            view.Layer.Opacity = 1f;
+        return host;
+    }
+}
+
 /// <summary>A layer's opacity swinging between two values on a loop: the panel glow and its trim.</summary>
 internal sealed class MacPulseLayer
 {
@@ -31,7 +48,7 @@ internal sealed class MacPulseLayer
         _view = view;
         // The rest state. An untouched view is fully opaque, which would paint a solid panel the
         // moment the rail opens with no fight anywhere.
-        view.Layer.Opacity = 0f;
+        MacLayerHost.Prepare(view).Layer.Opacity = 0f;
     }
 
     public static MacPulseLayer Attach(UIView view) => new(view);
@@ -61,8 +78,8 @@ internal sealed class MacPulseLayer
 
     private void Apply(Pulse p)
     {
-        _view.Layer.RemoveAnimation(Key);
-        _view.Layer.Opacity = p.Peak;
+        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
+        MacLayerHost.Prepare(_view).Layer.Opacity = p.Peak;
         var swing = CABasicAnimation.FromKeyPath("opacity");
         swing.From = NSNumber.FromFloat(p.Peak);
         swing.To = NSNumber.FromFloat(p.Trough);
@@ -70,14 +87,14 @@ internal sealed class MacPulseLayer
         swing.AutoReverses = true;
         swing.RepeatCount = float.MaxValue;
         swing.TimingFunction = CAMediaTimingFunction.FromName(CAMediaTimingFunction.Linear);
-        _view.Layer.AddAnimation(swing, Key);
+        MacLayerHost.Prepare(_view).Layer.AddAnimation(swing, Key);
     }
 
     public void Stop()
     {
         _running = null;
-        _view.Layer.RemoveAnimation(Key);
-        _view.Layer.Opacity = 0f;
+        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
+        MacLayerHost.Prepare(_view).Layer.Opacity = 0f;
     }
 }
 
@@ -93,7 +110,7 @@ internal sealed class MacFleePulse
     private MacFleePulse(UIView view)
     {
         _view = view;
-        view.Layer.Opacity = 0f;
+        MacLayerHost.Prepare(view).Layer.Opacity = 0f;
     }
 
     public static MacFleePulse Attach(UIView view) => new(view);
@@ -117,8 +134,8 @@ internal sealed class MacFleePulse
 
     private void Apply(double trough)
     {
-        _view.Layer.RemoveAnimation(Key);
-        _view.Layer.Opacity = 1f;
+        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
+        MacLayerHost.Prepare(_view).Layer.Opacity = 1f;
         var dip = CABasicAnimation.FromKeyPath("opacity");
         dip.From = NSNumber.FromFloat(1f);
         dip.To = NSNumber.FromDouble(trough);
@@ -126,15 +143,15 @@ internal sealed class MacFleePulse
         dip.AutoReverses = true;
         dip.RepeatCount = float.MaxValue;
         dip.TimingFunction = CAMediaTimingFunction.FromName(CAMediaTimingFunction.Linear);
-        _view.Layer.AddAnimation(dip, Key);
+        MacLayerHost.Prepare(_view).Layer.AddAnimation(dip, Key);
     }
 
     /// <summary>Stops and hides: the pill's quiet states are drawn by the canvas alone.</summary>
     public void Stop()
     {
         _trough = null;
-        _view.Layer.RemoveAnimation(Key);
-        _view.Layer.Opacity = 0f;
+        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(Key);
+        MacLayerHost.Prepare(_view).Layer.Opacity = 0f;
     }
 }
 
@@ -168,7 +185,7 @@ internal sealed class MacTickSweep
     {
         var remaining = CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
         Clear();
-        _view.Layer.Opacity = RunningOpacity;
+        MacLayerHost.Prepare(_view).Layer.Opacity = RunningOpacity;
 
         var now = CAAnimation.CurrentMediaTime();
         // Less than a couple of frames left: hold empty and begin cleanly on the boundary instead.
@@ -177,12 +194,12 @@ internal sealed class MacTickSweep
         var partial = Sweep(startFraction, remaining / 1000.0);
         partial.FillMode = CAFillMode.Forwards;   // holds empty until the loop takes over
         partial.RemovedOnCompletion = false;
-        _view.Layer.AddAnimation(partial, PartialKey);
+        MacLayerHost.Prepare(_view).Layer.AddAnimation(partial, PartialKey);
 
         var loop = Sweep(1.0, TickMilliseconds / 1000.0);
         loop.BeginTime = now + remaining / 1000.0;
         loop.RepeatCount = float.MaxValue;
-        _view.Layer.AddAnimation(loop, LoopKey);
+        MacLayerHost.Prepare(_view).Layer.AddAnimation(loop, LoopKey);
     }
 
     /// <summary>Stops and empties the bar.</summary>
@@ -196,8 +213,8 @@ internal sealed class MacTickSweep
     /// pinned: a scale about the centre plus the shift that keeps the left edge where it is.</summary>
     private CAAnimationGroup Sweep(double fromFraction, double seconds)
     {
-        var width = (double)_view.Bounds.Width;
-        var centreX = (double)_view.Layer.Position.X;
+        var width = (double)MacLayerHost.Prepare(_view).Bounds.Width;
+        var centreX = (double)MacLayerHost.Prepare(_view).Layer.Position.X;
 
         var scale = CABasicAnimation.FromKeyPath("transform.scale.x");
         scale.From = NSNumber.FromDouble(fromFraction);
@@ -218,10 +235,10 @@ internal sealed class MacTickSweep
 
     private void Clear()
     {
-        _view.Layer.RemoveAnimation(PartialKey);
-        _view.Layer.RemoveAnimation(LoopKey);
+        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(PartialKey);
+        MacLayerHost.Prepare(_view).Layer.RemoveAnimation(LoopKey);
     }
 
-    private void Rest() => _view.Layer.Opacity = 0f;
+    private void Rest() => MacLayerHost.Prepare(_view).Layer.Opacity = 0f;
 }
 #endif

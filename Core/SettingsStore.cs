@@ -415,6 +415,30 @@ public static class SettingsStore
         finally { s_gate.Release(); }
     }
 
+    /// <summary>Removes the plain text password of each named profile that has one, saving the file
+    /// once, and only when something was removed.</summary>
+    public static async Task RemovePlainPasswordsAsync(IReadOnlyCollection<string> profileNames)
+    {
+        if (profileNames.Count == 0) return;
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini = IniFile.Load(path);
+            var removed = false;
+            foreach (var name in profileNames)
+            {
+                var section = ProfileSectionPrefix + name;
+                if (string.IsNullOrEmpty(ini.Get(section, ProfilePasswordKey))) continue;
+                ini.Remove(section, ProfilePasswordKey);
+                removed = true;
+            }
+            if (removed)
+                await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally { s_gate.Release(); }
+    }
+
     /// <summary>Writes (or, for an empty password, removes) the profile's plain text password.</summary>
     public static async Task SetPlainPasswordAsync(string profileName, string? password)
     {

@@ -86,18 +86,28 @@ public static class ProfileStore
         await SettingsStore.SetSecurePasswordsAsync(secure).ConfigureAwait(false);
         if (!moveFromOld) return;
 
-        var names = (await SettingsStore.LoadProfilesAsync().ConfigureAwait(false))
-            .Where(p => p.RememberPassword).Select(p => p.Name).ToList();
         if (secure)
-            await Mucka.Commands.PasswordMigration.MoveAsync(names,
+        {
+            // Every profile is checked, not only those remembering a password: none may be left in the
+            // file. Each password is in the keychain before it is queued for removal, and the file is
+            // written once at the end.
+            var migrated = new List<string>();
+            var all = (await SettingsStore.LoadProfilesAsync().ConfigureAwait(false)).Select(p => p.Name).ToList();
+            await Mucka.Commands.PasswordMigration.MoveAsync(all,
                 SettingsStore.GetPlainPasswordAsync,
                 (n, pw) => Task.Run(() => MacKeychain.Set($"pwd:{n}", pw)),
-                n => SettingsStore.SetPlainPasswordAsync(n, null)).ConfigureAwait(false);
+                n => { migrated.Add(n); return Task.CompletedTask; }).ConfigureAwait(false);
+            await SettingsStore.RemovePlainPasswordsAsync(migrated).ConfigureAwait(false);
+        }
         else
+        {
+            var names = (await SettingsStore.LoadProfilesAsync().ConfigureAwait(false))
+                .Where(p => p.RememberPassword).Select(p => p.Name).ToList();
             await Mucka.Commands.PasswordMigration.MoveAsync(names,
                 n => Task.Run(() => MacKeychain.Get($"pwd:{n}")),
                 SettingsStore.SetPlainPasswordAsync,
                 n => Task.Run(() => MacKeychain.Remove($"pwd:{n}"))).ConfigureAwait(false);
+        }
     }
 #endif
 }
