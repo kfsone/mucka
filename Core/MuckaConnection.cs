@@ -302,7 +302,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
             ReportStoreFailure,
             accountId);
-        _wireLog = new WireLogWriter(_store);
+        _wireLog = new WireLogWriter(_store) { AnnotationMirror = message => CrashLog.Info("an", message) };
         _clog = new ClogWriter(_store);
         _fightHistory = new FightHistoryStore(_store, CrashLog.Write);
         _swingLedger = new SwingLedger(_store, CrashLog.Write);
@@ -904,7 +904,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     // Reset-projection incident (unanswered sample, lock contradiction, auto-reset anchor) -> capture
-    // log, when the per-profile toggle is on. Annotate() no-ops unless a capture is active.
+    // log, when the per-profile toggle is on.
     private void OnResetDiagnostic(string note)
     {
         if (LogResetDiagnostics)
@@ -912,7 +912,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     // Reset-projection diagnostics: append each folded reading to the capture log when the per-profile
-    // toggle is on. Annotate() is a no-op unless a capture is active, so the flag is the only extra gate.
+    // toggle is on.
     private void OnResetObservation(ResetObservation o)
     {
         if (!LogResetDiagnostics) return;

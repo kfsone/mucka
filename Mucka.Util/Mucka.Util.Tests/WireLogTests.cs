@@ -97,6 +97,23 @@ public sealed class WireLogTests : IDisposable
     // -- The row is the record --------------------------------------------------
 
     [Fact]
+    public void An_annotation_is_mirrored_and_a_throwing_mirror_does_not_stop_the_write()
+    {
+        var mirrored = new List<string>();
+        using (var store = NewStore())
+        using (var writer = new WireLogWriter(store) { AnnotationMirror = mirrored.Add })
+        {
+            writer.Annotate("one");
+            writer.RecordTx([1]);
+        }
+        Assert.Equal(["one"], mirrored);
+
+        using (var store = NewStore())
+        using (var writer = new WireLogWriter(store) { AnnotationMirror = _ => throw new InvalidOperationException() })
+            writer.Annotate("two");
+    }
+
+    [Fact]
     public void A_row_holds_the_payload_and_nothing_else()
     {
         // The whole storage rule in one assertion: `data` is the bytes that went past, byte for byte,

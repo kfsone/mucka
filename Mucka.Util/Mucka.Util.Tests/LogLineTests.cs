@@ -21,3 +21,31 @@ public class LogLineTests
         Assert.EndsWith("ERROR [Ctx] System.Exception: boom |    at A.B() |    at C.D()", line);
     }
 }
+
+public class ConsoleLogSinkTests
+{
+    private sealed class ThrowingWriter : StringWriter
+    {
+        public override void WriteLine(string? value) => throw new IOException("closed");
+    }
+
+    [Fact]
+    public async Task WritesQueuedLinesInOrder()
+    {
+        var target = new StringWriter();
+        var sink = new ConsoleLogSink(() => target);
+        sink.Enqueue("a");
+        sink.Enqueue("b");
+        await sink.CompleteAsync();
+        Assert.Equal("a" + Environment.NewLine + "b" + Environment.NewLine, target.ToString());
+    }
+
+    [Fact]
+    public async Task UnwritableTargetNeitherThrowsNorBlocks()
+    {
+        var sink = new ConsoleLogSink(() => new ThrowingWriter());
+        sink.Enqueue("a");
+        await sink.CompleteAsync();
+        sink.Enqueue("b");
+    }
+}
