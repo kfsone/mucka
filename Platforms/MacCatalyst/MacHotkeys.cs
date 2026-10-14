@@ -17,6 +17,12 @@ internal static class MacHotkeys
     /// <summary>Receives a hotkey id (see <see cref="Build"/>) while the game page is showing.</summary>
     public static Action<string>? Handler { get; set; }
 
+    /// <summary>True while the terminal holds a selection that Copy should take.</summary>
+    public static Func<bool>? CanCopyTerminal { get; set; }
+
+    /// <summary>Copies the terminal's selection to the pasteboard.</summary>
+    public static Action? CopyTerminal { get; set; }
+
     internal const string Action = "muckaHotkey:";
 
     /// <summary>True while the game page is showing and nothing is presented over it. A key command

@@ -46,6 +46,7 @@ public partial class GamePage
         FitMacWindow(snapToColumns: _vm.MaxColumns > 0);
         SetUpMacCombatPanel();
         SetUpMacScroll();
+        SetUpMacSelect();
         SetUpMacInput();
     }
 

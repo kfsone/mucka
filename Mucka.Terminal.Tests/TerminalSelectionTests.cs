@@ -103,4 +103,34 @@ public class TerminalSelectionTests
         // The old behaviour, kept for any caller that has no wrap information.
         Assert.Equal("aaaa\nbbbb\ncc\nnext", TerminalSelection.Extract(Wrapped, (0, 0), (3, 4)));
     }
+
+    [Theory]
+    [InlineData("hello world", 2, 0, 5)]
+    [InlineData("hello world", 5, 5, 6)]
+    [InlineData("hello world", 10, 6, 11)]
+    [InlineData("a_b-c", 1, 0, 3)]
+    [InlineData("say \"hi\"!", 4, 4, 5)]
+    public void WordBounds_RunOfTheSameClass(string text, int col, int start, int end)
+        => Assert.Equal((start, end), TerminalSelection.WordBounds(text, col));
+
+    [Fact]
+    public void WordBounds_PastTheEnd_IsNull()
+    {
+        Assert.Null(TerminalSelection.WordBounds("abc", 3));
+        Assert.Null(TerminalSelection.WordBounds("", 0));
+    }
+
+    [Fact]
+    public void LineRows_SpansSoftWrappedRows()
+    {
+        bool[] continues = [false, true, true, false, true];
+        Assert.Equal((0, 2), TerminalSelection.LineRows(continues, 5, 1));
+        Assert.Equal((0, 2), TerminalSelection.LineRows(continues, 5, 2));
+        Assert.Equal((3, 4), TerminalSelection.LineRows(continues, 5, 3));
+        Assert.Equal((1, 1), TerminalSelection.LineRows(null, 5, 1));
+    }
+
+    [Fact]
+    public void LineRows_NoRows_IsZeroZero()
+        => Assert.Equal((0, 0), TerminalSelection.LineRows(null, 0, 3));
 }

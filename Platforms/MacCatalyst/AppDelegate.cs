@@ -25,6 +25,20 @@ public class AppDelegate : MauiUIApplicationDelegate
 			key.Attributes = MacHotkeys.IsActive() ? 0 : UIMenuElementAttributes.Disabled;
 	}
 
+	// Copy walks the responder chain from the command box: the text field takes it when it has a
+	// selection, and declines otherwise, which lets it arrive here.
+	public override void Copy(NSObject? sender)
+	{
+		if (MacHotkeys.CanCopyTerminal?.Invoke() == true)
+			MacHotkeys.CopyTerminal?.Invoke();
+		else
+			base.Copy(sender);
+	}
+
+	public override bool CanPerform(ObjCRuntime.Selector action, NSObject? withSender)
+		=> (action.Name == "copy:" && MacHotkeys.CanCopyTerminal?.Invoke() == true)
+			|| base.CanPerform(action, withSender);
+
 	[Export(MacHotkeys.Action)]
 	public void OnHotkey(UIKeyCommand command) => MacHotkeys.Fire(command);
 

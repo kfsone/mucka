@@ -47,6 +47,33 @@ public static class TerminalSelection
         return sb.ToString();
     }
 
+    /// <summary>The half-open column range [Start, End) of the word under <paramref name="col"/>: the
+    /// run of letters, digits and underscores, or failing that the run of whitespace or of other
+    /// punctuation the column sits in. Null when the column is past the end of the text.</summary>
+    public static (int Start, int End)? WordBounds(string text, int col)
+    {
+        if (col < 0 || col >= text.Length) return null;
+        int kind = CharKind(text[col]);
+        int s = col, e = col + 1;
+        while (s > 0 && CharKind(text[s - 1]) == kind) s--;
+        while (e < text.Length && CharKind(text[e]) == kind) e++;
+        return (s, e);
+    }
+
+    private static int CharKind(char c)
+        => char.IsWhiteSpace(c) ? 0 : (char.IsLetterOrDigit(c) || c == '_') ? 1 : 2;
+
+    /// <summary>The first and last visual row of the logical line that <paramref name="row"/> belongs
+    /// to, following the soft-wrap flags of <see cref="LineWrapper"/> (null = every row is its own
+    /// line). With <paramref name="rowCount"/> of 0 or less the result is (0, 0).</summary>
+    public static (int First, int Last) LineRows(IReadOnlyList<bool>? continuesPrevious, int rowCount, int row)
+    {
+        int first = Math.Clamp(row, 0, Math.Max(0, rowCount - 1)), last = first;
+        while (first > 0 && Continues(continuesPrevious, first)) first--;
+        while (last + 1 < rowCount && Continues(continuesPrevious, last + 1)) last++;
+        return (first, last);
+    }
+
     private static bool Continues(IReadOnlyList<bool>? flags, int row)
         => flags is not null && row >= 0 && row < flags.Count && flags[row];
 
