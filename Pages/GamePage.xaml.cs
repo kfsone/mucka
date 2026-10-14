@@ -650,14 +650,13 @@ public partial class GamePage : ContentPage
 #endif
         // AsTask() consumes the ValueTask exactly once, which fire-and-forget needs: a discarded
         // ValueTask can be recycled by a pooling implementation while it is still in flight.
-#if MACCATALYST
-        // The connection's teardown ends in a store drain to disk; Task.Run keeps its synchronous
-        // stretch off the UI thread while the old page is still on screen.
-        var disposing = _vm;
-        _ = Task.Run(() => disposing.DisposeAsync().AsTask());
-#else
-        _ = _vm.DisposeAsync().AsTask();
-#endif
+        _ = ObserveDisposeAsync(_vm.DisposeAsync().AsTask());
+    }
+
+    private static async Task ObserveDisposeAsync(Task disposing)
+    {
+        try { await disposing; }
+        catch (Exception ex) { CrashLog.Write("GameViewModel.DisposeAsync", ex); }
     }
 
     // 1 s tick: anti-idle keep-alive plus the projected reset countdown. Output draining is
