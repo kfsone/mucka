@@ -27,7 +27,7 @@
                 Padding="12,6">
             <Label x:Name="TitleLabel"
                    TextColor="#cccccc"
-                   FontSize="14"
+                   FontSize="{core:ScaledFont 14}"
                    FontAttributes="Bold"
                    VerticalOptions="Center"/>
         </Border>
@@ -42,7 +42,7 @@
                    Aspect="AspectFit"/>
             <Label x:Name="VersionLabel"
                    TextColor="#555555"
-                   FontSize="11"
+                   FontSize="{core:ScaledFont 11}"
                    HorizontalOptions="Center"
                    Padding="0,0,0,2"/>
         </VerticalStackLayout>
@@ -58,7 +58,7 @@
             <CollectionView.Header>
                 <Label Text="Saved profiles"
                        TextColor="#555555"
-                       FontSize="12"
+                       FontSize="{core:ScaledFont 12}"
                        Padding="12,4,12,4" />
             </CollectionView.Header>
             <CollectionView.ItemTemplate>
@@ -78,7 +78,7 @@
                                TextColor="#cccccc" />
                         <Label Text="{Binding Host}"
                                TextColor="#555555"
-                               FontSize="11" />
+                               FontSize="{core:ScaledFont 11}" />
                     </VerticalStackLayout>
                 </DataTemplate>
             </CollectionView.ItemTemplate>
@@ -244,7 +244,7 @@
                         <Label Grid.Column="1"
                                Text="blank = auto; 20&#x2013;160"
                                TextColor="#555555"
-                               FontSize="11"
+                               FontSize="{core:ScaledFont 11}"
                                VerticalOptions="Center"/>
                     </Grid>
 
@@ -269,7 +269,7 @@
                         <Label Grid.Column="1"
                                Text="seconds (0=off)"
                                TextColor="#555555"
-                               FontSize="11"
+                               FontSize="{core:ScaledFont 11}"
                                VerticalOptions="Center"/>
                     </Grid>
                 </Grid>
@@ -308,7 +308,7 @@
                         CornerRadius="4"
                         HeightRequest="36"
                         HorizontalOptions="Fill"
-                        FontSize="13"
+                        FontSize="{core:ScaledFont 13}"
                         Padding="12,0"/>
 
                 <!-- Advanced section -->
@@ -329,7 +329,7 @@
                         <Label Grid.Column="2"
                                Text="&#x24D8;"
                                TextColor="#1f6feb"
-                               FontSize="16"
+                               FontSize="{core:ScaledFont 16}"
                                VerticalOptions="Center">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>

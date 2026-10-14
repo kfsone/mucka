@@ -265,6 +265,7 @@ public static class SettingsStore
             {
                 // Display tab settings always go to the global [settings] section.
                 ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString(CultureInfo.InvariantCulture));
+                ini.Set("settings", Mucka.Ui.UiFontScale.IniKey, Mucka.Ui.UiFontScale.Format(settings.UiFontStep));
                 ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "showonline",         settings.ShowOnline    ? "yes" : "no");

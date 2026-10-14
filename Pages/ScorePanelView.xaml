@@ -3,6 +3,7 @@
      same thing. BindingContext is a ScoreGraphViewModel. -->
 <ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:core="clr-namespace:Mucka.Core"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:render="clr-namespace:Mucka.Rendering"
              x:Class="Mucka.Pages.ScorePanelView"
@@ -30,9 +31,9 @@
             <Label x:Name="CharactersControl" VerticalOptions="Center" Margin="0,3,18,3">
                 <Label.FormattedText>
                     <FormattedString>
-                        <Span Text="Characters  " TextColor="#7d8590" FontSize="11"/>
-                        <Span Text="{Binding CharactersSummary}" TextColor="#e6edf3" FontSize="12"/>
-                        <Span Text=" &#x25BE;" TextColor="#7d8590" FontSize="11"/>
+                        <Span Text="Characters  " TextColor="#7d8590" FontSize="{core:ScaledFont 11}"/>
+                        <Span Text="{Binding CharactersSummary}" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}"/>
+                        <Span Text=" &#x25BE;" TextColor="#7d8590" FontSize="{core:ScaledFont 11}"/>
                     </FormattedString>
                 </Label.FormattedText>
                 <Label.GestureRecognizers>
@@ -42,9 +43,9 @@
             <Label x:Name="ServersControl" VerticalOptions="Center" Margin="0,3,18,3">
                 <Label.FormattedText>
                     <FormattedString>
-                        <Span Text="Server  " TextColor="#7d8590" FontSize="11"/>
-                        <Span Text="{Binding ServersSummary}" TextColor="#e6edf3" FontSize="12"/>
-                        <Span Text=" &#x25BE;" TextColor="#7d8590" FontSize="11"/>
+                        <Span Text="Server  " TextColor="#7d8590" FontSize="{core:ScaledFont 11}"/>
+                        <Span Text="{Binding ServersSummary}" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}"/>
+                        <Span Text=" &#x25BE;" TextColor="#7d8590" FontSize="{core:ScaledFont 11}"/>
                     </FormattedString>
                 </Label.FormattedText>
                 <Label.GestureRecognizers>
@@ -54,9 +55,9 @@
             <Label x:Name="ScaleControl" VerticalOptions="Center" Margin="0,3,18,3">
                 <Label.FormattedText>
                     <FormattedString>
-                        <Span Text="Scale  " TextColor="#7d8590" FontSize="11"/>
-                        <Span Text="{Binding ScaleSummary}" TextColor="#e6edf3" FontSize="12"/>
-                        <Span Text=" &#x25BE;" TextColor="#7d8590" FontSize="11"/>
+                        <Span Text="Scale  " TextColor="#7d8590" FontSize="{core:ScaledFont 11}"/>
+                        <Span Text="{Binding ScaleSummary}" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}"/>
+                        <Span Text=" &#x25BE;" TextColor="#7d8590" FontSize="{core:ScaledFont 11}"/>
                     </FormattedString>
                 </Label.FormattedText>
                 <Label.GestureRecognizers>
@@ -68,17 +69,17 @@
                     <HorizontalStackLayout.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleSqueezeCommand}"/>
                     </HorizontalStackLayout.GestureRecognizers>
-                    <Label Text="{Binding SqueezeBox}" TextColor="#58a6ff" FontSize="13"
+                    <Label Text="{Binding SqueezeBox}" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}"
                            VerticalOptions="Center"/>
-                    <Label Text="Squeeze" TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
+                    <Label Text="Squeeze" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                 </HorizontalStackLayout>
                 <HorizontalStackLayout Spacing="5">
                     <HorizontalStackLayout.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding ToggleZeroCommand}"/>
                     </HorizontalStackLayout.GestureRecognizers>
-                    <Label Text="{Binding ZeroBox}" TextColor="#58a6ff" FontSize="13"
+                    <Label Text="{Binding ZeroBox}" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}"
                            VerticalOptions="Center"/>
-                    <Label Text="Zero" TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
+                    <Label Text="Zero" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                 </HorizontalStackLayout>
             </HorizontalStackLayout>
             <!-- While a dragged-out span is shown, the round arrow beside the days goes back to them. -->
@@ -90,8 +91,8 @@
                         VerticalOptions="Center"/>
                 <HorizontalStackLayout Grid.Column="1" VerticalOptions="Center">
                     <Label Text="{Binding DaysLabel}" MinimumWidthRequest="50"
-                           TextColor="#e6edf3" FontSize="12" VerticalOptions="Center"/>
-                    <Label Text="&#x21BB;" TextColor="#58a6ff" FontSize="14" Padding="8,2"
+                           TextColor="#e6edf3" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
+                    <Label Text="&#x21BB;" TextColor="#58a6ff" FontSize="{core:ScaledFont 14}" Padding="8,2"
                            IsVisible="{Binding IsSpanShown}" VerticalOptions="Center">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding ResetSpanCommand}"/>
@@ -100,7 +101,7 @@
                 </HorizontalStackLayout>
             </Grid>
             </FlexLayout>
-            <Label Grid.Column="1" Text="&#x2715;" TextColor="#7d8590" FontSize="12"
+            <Label Grid.Column="1" Text="&#x2715;" TextColor="#7d8590" FontSize="{core:ScaledFont 12}"
                    Padding="6,3,0,3" VerticalOptions="Start">
                 <Label.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding CloseCommand}"/>
@@ -113,7 +114,7 @@
                                    SelectSpanCommand="{Binding SelectSpanCommand}"/>
             <Label Grid.Row="1"
                    Text="{Binding Status}" IsVisible="{Binding HasStatus}"
-                   TextColor="#888888" FontSize="12"
+                   TextColor="#888888" FontSize="{core:ScaledFont 12}"
                    HorizontalOptions="Center" VerticalOptions="Center"/>
 
             <BoxView Grid.Row="1" Color="Transparent"
@@ -139,9 +140,9 @@
                                     <HorizontalStackLayout.GestureRecognizers>
                                         <TapGestureRecognizer Command="{Binding ToggleCommand}"/>
                                     </HorizontalStackLayout.GestureRecognizers>
-                                    <Label Text="{Binding Box}" TextColor="#58a6ff" FontSize="14"
+                                    <Label Text="{Binding Box}" TextColor="#58a6ff" FontSize="{core:ScaledFont 14}"
                                            VerticalOptions="Center"/>
-                                    <Label Text="{Binding Label}" TextColor="#c9d1d9" FontSize="12"
+                                    <Label Text="{Binding Label}" TextColor="#c9d1d9" FontSize="{core:ScaledFont 12}"
                                            VerticalOptions="Center"/>
                                 </HorizontalStackLayout>
                             </DataTemplate>
@@ -164,9 +165,9 @@
                                     <HorizontalStackLayout.GestureRecognizers>
                                         <TapGestureRecognizer Command="{Binding ToggleCommand}"/>
                                     </HorizontalStackLayout.GestureRecognizers>
-                                    <Label Text="{Binding Box}" TextColor="#58a6ff" FontSize="14"
+                                    <Label Text="{Binding Box}" TextColor="#58a6ff" FontSize="{core:ScaledFont 14}"
                                            VerticalOptions="Center"/>
-                                    <Label Text="{Binding Label}" TextColor="#c9d1d9" FontSize="12"
+                                    <Label Text="{Binding Label}" TextColor="#c9d1d9" FontSize="{core:ScaledFont 12}"
                                            VerticalOptions="Center"/>
                                 </HorizontalStackLayout>
                             </DataTemplate>
@@ -188,9 +189,9 @@
                                 <HorizontalStackLayout.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding SelectCommand}"/>
                                 </HorizontalStackLayout.GestureRecognizers>
-                                <Label Text="{Binding Radio}" TextColor="#58a6ff" FontSize="12"
+                                <Label Text="{Binding Radio}" TextColor="#58a6ff" FontSize="{core:ScaledFont 12}"
                                        VerticalOptions="Center"/>
-                                <Label Text="{Binding Label}" TextColor="#c9d1d9" FontSize="12"
+                                <Label Text="{Binding Label}" TextColor="#c9d1d9" FontSize="{core:ScaledFont 12}"
                                        VerticalOptions="Center"/>
                             </HorizontalStackLayout>
                         </DataTemplate>
@@ -205,16 +206,16 @@
                  most), so the table fits a phone; the header and the rows share one set of columns. -->
             <VerticalStackLayout x:Name="SummaryTable" Grid.Row="2" HorizontalOptions="End" Spacing="0">
                 <Grid ColumnDefinitions="1.6*,*,*,*,20,*,*,20,*" RowDefinitions="17,1" HeightRequest="18">
-                    <Label Grid.Column="1" Text="START" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
-                    <Label Grid.Column="2" Text="LOW" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
-                    <Label Grid.Column="3" Text="HIGH" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
+                    <Label Grid.Column="1" Text="START" TextColor="#6e7681" FontSize="{core:ScaledFont 9.5}" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
+                    <Label Grid.Column="2" Text="LOW" TextColor="#6e7681" FontSize="{core:ScaledFont 9.5}" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
+                    <Label Grid.Column="3" Text="HIGH" TextColor="#6e7681" FontSize="{core:ScaledFont 9.5}" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
                     <Line Grid.Column="4" Grid.RowSpan="2" X1="0" Y1="0" X2="0" Y2="18" HorizontalOptions="Center"
                           Stroke="#6e7681" StrokeThickness="1" StrokeDashArray="1,2" Opacity="0.6"/>
-                    <Label Grid.Column="5" Text="GAINED" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
-                    <Label Grid.Column="6" Text="LOST" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
+                    <Label Grid.Column="5" Text="GAINED" TextColor="#6e7681" FontSize="{core:ScaledFont 9.5}" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
+                    <Label Grid.Column="6" Text="LOST" TextColor="#6e7681" FontSize="{core:ScaledFont 9.5}" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
                     <Line Grid.Column="7" Grid.RowSpan="2" X1="0" Y1="0" X2="0" Y2="18" HorizontalOptions="Center"
                           Stroke="#6e7681" StrokeThickness="1" StrokeDashArray="1,2" Opacity="0.6"/>
-                    <Label Grid.Column="8" Text="NET" TextColor="#6e7681" FontSize="9.5" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
+                    <Label Grid.Column="8" Text="NET" TextColor="#6e7681" FontSize="{core:ScaledFont 9.5}" CharacterSpacing="0.8" HorizontalTextAlignment="End"/>
                     <BoxView Grid.Row="1" Grid.ColumnSpan="4" Color="#21262d"/>
                     <BoxView Grid.Row="1" Grid.Column="5" Grid.ColumnSpan="2" Color="#21262d"/>
                     <BoxView Grid.Row="1" Grid.Column="8" Color="#21262d"/>
@@ -224,18 +225,18 @@
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ScoreStatRow">
                                 <Grid ColumnDefinitions="1.6*,*,*,*,20,*,*,20,*" HeightRequest="18">
-                                    <Label Text="{Binding Label}" TextColor="{Binding Color}" FontSize="12"
+                                    <Label Text="{Binding Label}" TextColor="{Binding Color}" FontSize="{core:ScaledFont 12}"
                                            FontAttributes="Bold" LineBreakMode="TailTruncation" VerticalOptions="Center"/>
-                                    <Label Grid.Column="1" Text="{Binding Start}" TextColor="#e6edf3" FontSize="12" HorizontalTextAlignment="End" VerticalOptions="Center"/>
-                                    <Label Grid.Column="2" Text="{Binding Low}" TextColor="#e6edf3" FontSize="12" HorizontalTextAlignment="End" VerticalOptions="Center"/>
-                                    <Label Grid.Column="3" Text="{Binding High}" TextColor="#e6edf3" FontSize="12" HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                    <Label Grid.Column="1" Text="{Binding Start}" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}" HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                    <Label Grid.Column="2" Text="{Binding Low}" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}" HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                    <Label Grid.Column="3" Text="{Binding High}" TextColor="#e6edf3" FontSize="{core:ScaledFont 12}" HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                     <Line Grid.Column="4" X1="0" Y1="0" X2="0" Y2="18" HorizontalOptions="Center"
                                           Stroke="#6e7681" StrokeThickness="1" StrokeDashArray="1,2" Opacity="0.6"/>
-                                    <Label Grid.Column="5" Text="{Binding Gained}" TextColor="#56d364" FontSize="12" HorizontalTextAlignment="End" VerticalOptions="Center"/>
-                                    <Label Grid.Column="6" Text="{Binding Lost}" TextColor="#ff7b72" FontSize="12" HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                    <Label Grid.Column="5" Text="{Binding Gained}" TextColor="#56d364" FontSize="{core:ScaledFont 12}" HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                                    <Label Grid.Column="6" Text="{Binding Lost}" TextColor="#ff7b72" FontSize="{core:ScaledFont 12}" HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                     <Line Grid.Column="7" X1="0" Y1="0" X2="0" Y2="18" HorizontalOptions="Center"
                                           Stroke="#6e7681" StrokeThickness="1" StrokeDashArray="1,2" Opacity="0.6"/>
-                                    <Label Grid.Column="8" Text="{Binding Net}" TextColor="{Binding NetColor}" FontSize="12"
+                                    <Label Grid.Column="8" Text="{Binding Net}" TextColor="{Binding NetColor}" FontSize="{core:ScaledFont 12}"
                                            FontAttributes="Bold" HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                 </Grid>
                             </DataTemplate>
@@ -246,7 +247,7 @@
 
             <!-- Resize grip in the bottom-right corner. The panel stays centred, so a drag
                  grows it on both sides; it is clamped to the room its host gives it. -->
-            <Label x:Name="ResizeGrip" Grid.Row="2" Text="&#x25E2;" TextColor="#484f58" FontSize="10"
+            <Label x:Name="ResizeGrip" Grid.Row="2" Text="&#x25E2;" TextColor="#484f58" FontSize="{core:ScaledFont 10}"
                    HorizontalOptions="End" VerticalOptions="End" TranslationX="9" TranslationY="7"
                    Padding="6,6,0,0">
                 <Label.GestureRecognizers>
