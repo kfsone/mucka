@@ -68,9 +68,6 @@ public class Profile
     public bool ShowCombatStats { get; set; } = true;
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
 
-    /// <summary>True when the settings came from a per-profile [settings:Name] ini section
-    /// rather than the global [settings]. Derived from mucka.ini at load; not persisted here.</summary>
-    public bool SettingsPerProfile { get; set; }
     /// <summary>True when the fkeys came from a per-profile [fkeys:Name] ini section
     /// rather than the global [fkeys]. Derived from mucka.ini at load; not persisted here.</summary>
     public bool FkeysPerProfile { get; set; }

@@ -1,4 +1,4 @@
-namespace Mucka.Core;
+namespace Mucka.Settings;
 
 /// <summary>
 /// Line-preserving INI document. The file is held as raw lines and only the specific

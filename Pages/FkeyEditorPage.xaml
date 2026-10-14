@@ -164,18 +164,6 @@
             <ScrollView IsVisible="{Binding IsSettingsTabActive}">
                 <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
 
-                    <!-- Save scope: unchecked = global [settings]; checked = this profile's section -->
-                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding SettingsToProfileOnly, Mode=TwoWay}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="Save to profile only (otherwise these settings are shared by all profiles)"
-                               TextColor="#888888" FontSize="{core:ScaledFont 12}"
-                               VerticalOptions="Center"/>
-                    </Grid>
-
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">

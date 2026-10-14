@@ -22,11 +22,9 @@ public sealed record ClientSettings
     /// <summary>Debug-only: log reset-timer (TTR) diagnostics into the session recording.
     /// Persisted to mucka.ini; only surfaced/honoured in Debug builds while recording.</summary>
     public bool LogResetDiagnostics { get; init; }
-    /// <summary>Save the settings values to the per-profile [settings:Name] ini section
-    /// instead of the global [settings]. Mirrors the "Save to profile only" checkbox.</summary>
-    public bool SettingsPerProfile { get; init; }
     /// <summary>Save the fkeys to the per-profile [fkeys:Name] ini section instead of the
-    /// global [fkeys]. Mirrors the Hotkeys page's "Save to profile only" checkbox.</summary>
+    /// global [fkeys]. Mirrors the Hotkeys page's "Save to profile only" checkbox. The only
+    /// per-profile setting.</summary>
     public bool FkeysPerProfile { get; init; }
     /// <summary>Per-sound enablement and group fallbacks (the Sounds tab's tree).
     /// Treated as frozen once snapshotted - see <see cref="SoundSettings"/>.</summary>

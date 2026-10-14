@@ -24,7 +24,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _muteBeepSession;
     private bool _muteBeepPermanently;
     private bool _logResetDiagnostics;
-    private bool _settingsToProfileOnly;
     private bool _fkeysToProfileOnly;
     private bool _soundsEnabled;
     // -- Display tab (always global) -------------------------------------------
@@ -237,13 +236,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _syncingBell = true;
         try { _bellGroup.Enabled = !(_muteBeepSession || _muteBeepPermanently); }
         finally { _syncingBell = false; }
-    }
-
-    /// <summary>Settings page's "Save to profile only": save to [settings:Name] instead of [settings].</summary>
-    public bool SettingsToProfileOnly
-    {
-        get => _settingsToProfileOnly;
-        set => Set(ref _settingsToProfileOnly, value);
     }
 
     /// <summary>Hotkeys page's "Save to profile only": save to [fkeys:Name] instead of [fkeys].</summary>
@@ -459,7 +451,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _muteBeepSession     = settings.MuteBeepSession;
         _muteBeepPermanently = settings.MuteBeepPermanently;
         _logResetDiagnostics = settings.LogResetDiagnostics;
-        _settingsToProfileOnly = settings.SettingsPerProfile;
         _fkeysToProfileOnly    = settings.FkeysPerProfile;
         _soundsEnabled         = settings.Sounds.MasterEnabled;
         // Display tab
@@ -607,7 +598,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         MuteBeepSession     = _muteBeepSession,
         MuteBeepPermanently = _muteBeepPermanently,
         LogResetDiagnostics = _logResetDiagnostics,
-        SettingsPerProfile  = _settingsToProfileOnly,
         FkeysPerProfile     = _fkeysToProfileOnly,
         Sounds              = CollectSounds(),
         DefaultFontSize     = DisplayFontSizeDisplay,
