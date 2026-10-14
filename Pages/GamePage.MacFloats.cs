@@ -126,7 +126,7 @@ public partial class GamePage
         text.TextAlignment = UITextAlignment.Left;
         text.TextColor = MacFloatMiss;
         _macFloatText[slot] = text;
-        _macFloats[slot] = MacRailFloat.Attach(MacAnimatedView.Of(_macFloatLabels[slot].Handler) ?? text);
+        _macFloats[slot] = MacRailFloat.Attach(_macFloatLabels[slot].Handler, text);
     }
 
     private void OnMacRailSizeChanged(object? sender, EventArgs e)

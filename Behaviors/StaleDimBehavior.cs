@@ -50,6 +50,10 @@ public sealed class StaleDimBehavior : Behavior<View>
         view.Loaded   -= OnLoaded;
         view.Unloaded -= OnUnloaded;
         Unsubscribe();
+#if MACCATALYST
+        if (_macHost is not null) MacLayerFade.Release(_macHost);
+        _macHost = null;
+#endif
         _view = null;
 #endif
         base.OnDetachingFrom(view);

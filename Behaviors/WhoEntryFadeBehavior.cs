@@ -50,6 +50,10 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
         label.Unloaded -= OnUnloaded;
         label.BindingContextChanged -= OnBindingContextChanged;
         HookEntry(null);
+#if MACCATALYST
+        if (_macHost is not null) MacLayerFade.Release(_macHost);
+        _macHost = null;
+#endif
 #if WINDOWS
         _visual = null;
 #endif
