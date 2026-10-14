@@ -34,11 +34,13 @@ public partial class GamePage
 
     private void SetUpMacCombatLayers()
     {
-        CombatPanelGlow.HandlerChanged += (_, _) => AttachMacGlow();
-        CombatPanelTrim.HandlerChanged += (_, _) => AttachMacTrim();
-        CombatTickSweep.HandlerChanged += (_, _) => AttachMacTickSweep();
-        CombatFleePill.HandlerChanged += (_, _) => AttachMacFleePill();
-        CombatFleePillHit.HandlerChanged += (_, _) => AttachMacFleePillHit();
+        // Removed first so a second set-up cannot attach a layer twice.
+        UnhookMacCombatHandlers();
+        CombatPanelGlow.HandlerChanged += OnMacGlowHandlerChanged;
+        CombatPanelTrim.HandlerChanged += OnMacTrimHandlerChanged;
+        CombatTickSweep.HandlerChanged += OnMacTickSweepHandlerChanged;
+        CombatFleePill.HandlerChanged += OnMacFleePillHandlerChanged;
+        CombatFleePillHit.HandlerChanged += OnMacFleePillHitHandlerChanged;
         AttachMacGlow();
         AttachMacTrim();
         AttachMacTickSweep();
@@ -51,10 +53,28 @@ public partial class GamePage
         SetUpMacRailEffects();
     }
 
+    private void OnMacGlowHandlerChanged(object? s, EventArgs e) => AttachMacGlow();
+    private void OnMacTrimHandlerChanged(object? s, EventArgs e) => AttachMacTrim();
+    private void OnMacTickSweepHandlerChanged(object? s, EventArgs e) => AttachMacTickSweep();
+    private void OnMacFleePillHandlerChanged(object? s, EventArgs e) => AttachMacFleePill();
+    private void OnMacFleePillHitHandlerChanged(object? s, EventArgs e) => AttachMacFleePillHit();
+
+    private void UnhookMacCombatHandlers()
+    {
+        CombatPanelGlow.HandlerChanged -= OnMacGlowHandlerChanged;
+        CombatPanelTrim.HandlerChanged -= OnMacTrimHandlerChanged;
+        CombatTickSweep.HandlerChanged -= OnMacTickSweepHandlerChanged;
+        CombatFleePill.HandlerChanged -= OnMacFleePillHandlerChanged;
+        CombatFleePillHit.HandlerChanged -= OnMacFleePillHitHandlerChanged;
+        _vm.SidePanel.PropertyChanged -= OnMacCombatPropertyChanged;
+    }
+
     /// <summary>Called when the player leaves the game for good. Not tied to the page's Unloaded event:
     /// a modal raises that too.</summary>
     private void TearDownMacCombat()
     {
+        TearDownMacWindow();
+        UnhookMacCombatHandlers();
         StopMacCombatLayers();
         _macMetronome.Dispose();
         TearDownMacFloats();

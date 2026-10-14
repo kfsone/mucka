@@ -17,29 +17,18 @@ public partial class GamePage
     /// keeps its minimum and width in step with the panel and the column count.</summary>
     private void SetUpMacWindow()
     {
-        _vm.SidePanel.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(SidePanelViewModel.IsPanelExpanded))
-            {
-                BeginMacResizeSettle();
-                FitMacWindow();
-            }
-        };
-        _vm.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName == nameof(GameViewModel.MaxColumns))
-                FitMacWindow(snapToColumns: true);
-        };
+        // Hooked once per set-up and unhooked in TearDownMacWindow: the Window outlives every page, so
+        // a handler left on it keeps the whole page (view model, terminal) reachable.
+        if (_macWindowHooked) TearDownMacWindow();
+        _macWindowHooked = true;
+        _vm.SidePanel.PropertyChanged += OnMacWindowSidePanelChanged;
+        _vm.PropertyChanged += OnMacWindowVmChanged;
         // The pane is laid out after the page's own size is allocated, and moves when the panel does.
-        Terminal.SizeChanged += (_, _) => RecalculateColumns(Width);
+        Terminal.SizeChanged += OnMacTerminalSizeChanged;
         if (Window is { } owner)
         {
-            // The window has reached what was asked for; from here its real width is the truth.
-            owner.SizeChanged += (_, _) =>
-            {
-                if (_macCommandedWidth is { } asked && Math.Abs(CurrentMacWidthActual(owner) - asked) < 1.5)
-                    _macCommandedWidth = null;
-            };
+            _macSizeWindow = owner;
+            owner.SizeChanged += OnMacWindowSizeChanged;
         }
         // A fixed column count sizes the window to fit, as the Windows build does at launch; auto
         // keeps whatever width the player has the window at.
@@ -48,6 +37,50 @@ public partial class GamePage
         SetUpMacScroll();
         SetUpMacSelect();
         SetUpMacInput();
+    }
+
+    private bool _macWindowHooked;
+    private Window? _macSizeWindow;
+
+    private void OnMacWindowSidePanelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(SidePanelViewModel.IsPanelExpanded))
+        {
+            BeginMacResizeSettle();
+            FitMacWindow();
+        }
+    }
+
+    private void OnMacWindowVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(GameViewModel.MaxColumns))
+            FitMacWindow(snapToColumns: true);
+    }
+
+    private void OnMacTerminalSizeChanged(object? sender, EventArgs e) => RecalculateColumns(Width);
+
+    // The window has reached what was asked for; from here its real width is the truth.
+    private void OnMacWindowSizeChanged(object? sender, EventArgs e)
+    {
+        if (sender is Window owner && _macCommandedWidth is { } asked
+            && Math.Abs(CurrentMacWidthActual(owner) - asked) < 1.5)
+            _macCommandedWidth = null;
+    }
+
+    /// <summary>Detaches everything SetUpMacWindow hung on objects that outlive the page: the app's
+    /// Window and the view models.</summary>
+    private void TearDownMacWindow()
+    {
+        _macWindowHooked = false;
+        _macSettleToken++;
+        _macResizeSettling = false;
+        if (_macSizeWindow is { } w) w.SizeChanged -= OnMacWindowSizeChanged;
+        _macSizeWindow = null;
+        _vm.SidePanel.PropertyChanged -= OnMacWindowSidePanelChanged;
+        _vm.PropertyChanged -= OnMacWindowVmChanged;
+        Terminal.SizeChanged -= OnMacTerminalSizeChanged;
+        _vm.SidePanel.CombatStatsChanged -= OnMacCombatStatsChanged;
+        _vm.SidePanel.PropertyChanged -= OnMacCombatVisibilityChanged;
     }
 
     /// <summary>The window's width as it really is. MAUI's <c>Window.Width</c> can hold the last width
@@ -149,26 +182,30 @@ public partial class GamePage
 
         ApplyMacCombatPanelWidth();
         SetUpMacCombatLayers();
-        _vm.SidePanel.CombatStatsChanged += showStats =>
-        {
-            ApplyMacCombatPanelWidth();
-            if (_vm.SidePanel.IsCombatPanelVisible)
-            {
-                BeginMacResizeSettle();
-                ResizeMacWindowForCombatPanel(showing: false);
-                ResizeMacWindowForCombatPanel(showing: true);
-            }
-            _ = _vm.PersistCombatStatsAsync();
-        };
-        _vm.SidePanel.PropertyChanged += (_, e) =>
-        {
-            if (e.PropertyName != nameof(SidePanelViewModel.IsCombatPanelVisible)) return;
-            ResizeMacWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
-            _ = _vm.PersistCombatRailVisibilityAsync();
-        };
+        _vm.SidePanel.CombatStatsChanged += OnMacCombatStatsChanged;
+        _vm.SidePanel.PropertyChanged += OnMacCombatVisibilityChanged;
         // A persisted "rail shown" is already true here and raises no change event.
         if (_vm.SidePanel.IsCombatPanelVisible)
             ResizeMacWindowForCombatPanel(showing: true);
+    }
+
+    private void OnMacCombatStatsChanged(bool showStats)
+    {
+        ApplyMacCombatPanelWidth();
+        if (_vm.SidePanel.IsCombatPanelVisible)
+        {
+            BeginMacResizeSettle();
+            ResizeMacWindowForCombatPanel(showing: false);
+            ResizeMacWindowForCombatPanel(showing: true);
+        }
+        _ = _vm.PersistCombatStatsAsync();
+    }
+
+    private void OnMacCombatVisibilityChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName != nameof(SidePanelViewModel.IsCombatPanelVisible)) return;
+        ResizeMacWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible);
+        _ = _vm.PersistCombatRailVisibilityAsync();
     }
 
     private void ApplyMacCombatPanelWidth()

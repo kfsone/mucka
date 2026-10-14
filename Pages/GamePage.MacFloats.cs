@@ -38,6 +38,7 @@ public partial class GamePage
     {
         SetUpMacMarquees();
         SetUpMacFloats();
+        _vm.SidePanel.PropertyChanged -= OnMacRailEffectsPropertyChanged;
         _vm.SidePanel.PropertyChanged += OnMacRailEffectsPropertyChanged;
     }
 
@@ -90,13 +91,16 @@ public partial class GamePage
         for (var i = 0; i < _macFloatLabels.Length; i++)
             OnMacFloatHandlerChanged(i);
 
+        CombatPanelCanvas.SizeChanged -= OnMacRailSizeChanged;
         CombatPanelCanvas.SizeChanged += OnMacRailSizeChanged;
         OnMacRailSizeChanged(CombatPanelCanvas, EventArgs.Empty);
+        _vm.SidePanel.CombatFloatRaised -= OnMacFloatRaised;
         _vm.SidePanel.CombatFloatRaised += OnMacFloatRaised;
     }
 
     private void TearDownMacFloats()
     {
+        _vm.SidePanel.PropertyChanged -= OnMacRailEffectsPropertyChanged;
         _vm.SidePanel.CombatFloatRaised -= OnMacFloatRaised;
         CombatPanelCanvas.SizeChanged -= OnMacRailSizeChanged;
         _macFloatBudget.Clear();
