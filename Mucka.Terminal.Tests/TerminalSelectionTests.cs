@@ -129,4 +129,8 @@ public class TerminalSelectionTests
         Assert.Equal((3, 4), TerminalSelection.LineRows(continues, 5, 3));
         Assert.Equal((1, 1), TerminalSelection.LineRows(null, 5, 1));
     }
+
+    [Fact]
+    public void LineRows_NoRows_IsZeroZero()
+        => Assert.Equal((0, 0), TerminalSelection.LineRows(null, 0, 3));
 }

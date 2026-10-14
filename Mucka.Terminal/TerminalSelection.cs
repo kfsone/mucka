@@ -65,7 +65,7 @@ public static class TerminalSelection
 
     /// <summary>The first and last visual row of the logical line that <paramref name="row"/> belongs
     /// to, following the soft-wrap flags of <see cref="LineWrapper"/> (null = every row is its own
-    /// line).</summary>
+    /// line). With <paramref name="rowCount"/> of 0 or less the result is (0, 0).</summary>
     public static (int First, int Last) LineRows(IReadOnlyList<bool>? continuesPrevious, int rowCount, int row)
     {
         int first = Math.Clamp(row, 0, Math.Max(0, rowCount - 1)), last = first;

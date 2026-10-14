@@ -11,10 +11,15 @@ public partial class GamePage
 {
     private readonly List<UIGestureRecognizer> _macSelectGestures = [];
     private UIView? _macSelectView;
+    private bool _macSelectHooked;
 
     private void SetUpMacSelect()
     {
-        Terminal.HandlerChanged += (_, _) => InstallMacSelect();
+        if (!_macSelectHooked)
+        {
+            _macSelectHooked = true;
+            Terminal.HandlerChanged += (_, _) => InstallMacSelect();
+        }
         InstallMacSelect();
     }
 
