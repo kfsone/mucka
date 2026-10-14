@@ -129,7 +129,7 @@ internal static class SoundService
         }
 #elif MACCATALYST
         // Never opens a file on the caller's thread: an asset that is not ready yet is opened on the
-        // thread pool and this click is skipped, as on Windows.
+        // thread pool and this click is skipped.
         if (!TryGetReadyMacPlayer(assetName, out var player))
         {
             PrepareSound(assetName);
@@ -177,17 +177,25 @@ internal static class SoundService
         if (TryGetReadyMacPlayer(assetName, out _))
             return;
         AVFoundation.AVAudioPlayer? player = null;
-        var path = AssetPath(ResolveAssetName(assetName));
-        if (File.Exists(path))
+        try
         {
-            player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out var error);
-            if (player is null)
-                CrashLog.Warn("SoundService", $"AVAudioPlayer failed for {path}: {error?.LocalizedDescription}");
+            var path = AssetPath(ResolveAssetName(assetName));
+            if (File.Exists(path))
+            {
+                player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out var error);
+                if (player is null)
+                    CrashLog.Warn("SoundService", $"AVAudioPlayer failed for {path}: {error?.LocalizedDescription}");
+                else
+                    player.PrepareToPlay();
+            }
             else
-                player.PrepareToPlay();
+                CrashLog.Warn("SoundService", $"missing asset {path}");
         }
-        else
-            CrashLog.Warn("SoundService", $"missing asset {path}");
+        catch (Exception ex)
+        {
+            player = null;
+            CrashLog.Warn("SoundService", $"Prepare failed for '{assetName}': {ex}");
+        }
         lock (s_preparedMac)
         {
             if (s_preparedMac.ContainsKey(assetName))
@@ -226,12 +234,11 @@ internal static class SoundService
     }
 
     /// <summary>Opens a sound for <see cref="PlayPrepared"/> ahead of time, so the first click of a
-    /// fight does not pay the open cost. Idempotent and a no-op off Windows. <c>GetPreparedPlayer</c>
+    /// fight does not pay the open cost. Idempotent and a no-op except on Windows and Mac. <c>GetPreparedPlayer</c>
     /// (Windows-only, so not a resolvable cref from a cross-platform doc comment) does a synchronous
     /// <c>File.Exists</c> plus WinRT <c>MediaPlayer</c>/<c>MediaSource</c> construction, so it is
-    /// dispatched to the thread pool here rather than run on whatever thread calls this (Invariant
-    /// #1) - callers include page setup on the UI thread, since the metronome is enabled by
-    /// default.</summary>
+    /// dispatched to the thread pool here rather than run on whatever thread calls this; callers
+    /// include page setup on the UI thread.</summary>
     public static void PrepareSound(string assetName)
     {
 #if WINDOWS

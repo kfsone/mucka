@@ -96,8 +96,21 @@ public sealed class WireLogTests : IDisposable
 
     // -- The row is the record --------------------------------------------------
 
+    private List<string> StoredAnnotations()
+    {
+        var found = new List<string>();
+        using var connection = MuckaDb.OpenRead(DbPath);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT data FROM wire WHERE direction = $d ORDER BY seq;";
+        command.Parameters.AddWithValue("$d", (int)WireDirection.Annotation);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+            found.Add(Encoding.UTF8.GetString((byte[])reader.GetValue(0)));
+        return found;
+    }
+
     [Fact]
-    public void An_annotation_is_mirrored_and_a_throwing_mirror_does_not_stop_the_write()
+    public void An_annotation_is_mirrored_in_row_order()
     {
         var mirrored = new List<string>();
         using (var store = NewStore())
@@ -105,12 +118,30 @@ public sealed class WireLogTests : IDisposable
         {
             writer.Annotate("one");
             writer.RecordTx([1]);
+            writer.Annotate("two");
         }
-        Assert.Equal(["one"], mirrored);
+        Assert.Equal(["one", "two"], mirrored);
+        Assert.Equal(mirrored, StoredAnnotations());
+    }
 
+    [Fact]
+    public void A_throwing_mirror_does_not_stop_the_row_being_written()
+    {
         using (var store = NewStore())
         using (var writer = new WireLogWriter(store) { AnnotationMirror = _ => throw new InvalidOperationException() })
             writer.Annotate("two");
+        Assert.Equal(["two"], StoredAnnotations());
+    }
+
+    [Fact]
+    public void A_disposed_writer_does_not_mirror()
+    {
+        var mirrored = new List<string>();
+        using var store = NewStore();
+        var writer = new WireLogWriter(store) { AnnotationMirror = mirrored.Add };
+        writer.Dispose();
+        writer.Annotate("late");
+        Assert.Empty(mirrored);
     }
 
     [Fact]

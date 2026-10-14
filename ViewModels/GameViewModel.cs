@@ -2162,7 +2162,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             AddSystemLine($"Recording failed and has stopped: {message}", 9, transcribe: false);
         });
 
-    // $con is a separate desktop window that exists only on Windows. It stays recognized elsewhere
+    // $con is a separate desktop window, built so far for Windows only. It stays recognized elsewhere
     // and reports itself, because a "$" line that falls through to the MUD is a line the player did
     // not mean to send. The help listing names it only where it exists.
 #if WINDOWS
