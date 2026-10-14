@@ -343,6 +343,48 @@ public sealed class TerminalView : SKCanvasView
         InvalidateSurface();
     }
 
+    /// <summary>Double click: selects the word under the point (see <see cref="TerminalSelection.WordBounds"/>).
+    /// A live view enters scrollback first, as a drag does, unless the click is an activation or
+    /// follows a keypress. Returns true when a selection was made.</summary>
+    public bool SelectWordAt(float dipX, float dipY) => SelectAt(dipX, dipY, lineWise: false);
+
+    /// <summary>Triple click: selects the whole logical line under the point, across its soft wraps.</summary>
+    public bool SelectLineAt(float dipX, float dipY) => SelectAt(dipX, dipY, lineWise: true);
+
+    private bool SelectAt(float dipX, float dipY, bool lineWise)
+    {
+        if (_lastRows is null) return false;
+        if (!_historyMode)
+        {
+            var now = DateTime.UtcNow;
+            if ((now - _lastActivatedUtc).TotalMilliseconds < ActivationClickMs ||
+                (now - _lastKeypressUtc).TotalMilliseconds < RecentKeypressMs)
+                return false;
+            _pendingPress = false;
+            EnterHistory();
+        }
+        var rows = _lastRows;
+        var (row, col) = HitTest(dipX * _lastScale, dipY * _lastScale);
+        if (row < 0 || row >= rows.Count || TerminalBuffer.IsClearRule(rows[row])) return false;
+
+        if (lineWise)
+        {
+            var (first, last) = TerminalSelection.LineRows(_lastRowContinues, rows.Count, row);
+            _selAnchor = (first, 0);
+            _selCaret = (last, RowLength(rows[last]));
+        }
+        else
+        {
+            if (TerminalSelection.WordBounds(rows[row].PlainText, col) is not { } w) return false;
+            _selAnchor = (row, w.Start);
+            _selCaret = (row, w.End);
+        }
+        _selecting = false;
+        _hasSelection = _selCaret != _selAnchor;
+        InvalidateSurface();
+        return _hasSelection;
+    }
+
     /// <summary>
     /// In live mode, hit-tests a clickable span and raises <see cref="SpanInsertTextRequested"/>
     /// with its insertion text. Returns true when a clickable span consumed the click.

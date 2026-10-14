@@ -14,11 +14,13 @@ public partial class GamePage
     private void SetUpMacHotkeys()
     {
         MacHotkeys.Handler = _macHotkeyHandler ??= OnMacHotkey;
+        SetUpMacCopy();
         UIKit.UIMenuSystem.MainSystem.SetNeedsRevalidate();
     }
 
     private void TearDownMacHotkeys()
     {
+        TearDownMacCopy();
         if (ReferenceEquals(MacHotkeys.Handler, _macHotkeyHandler))
             MacHotkeys.Handler = null;
         UIKit.UIMenuSystem.MainSystem.SetNeedsRevalidate();
