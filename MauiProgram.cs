@@ -14,6 +14,8 @@ public static class MauiProgram
 #if WINDOWS
         // First thing, before anything can open the database.
         StartupImport.RunIfRequested();
+#elif MACCATALYST
+        MacStartupImport.RunIfRequested();
 #endif
         var builder = MauiApp.CreateBuilder();
         builder

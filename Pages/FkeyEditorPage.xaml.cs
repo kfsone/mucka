@@ -6,9 +6,12 @@ public partial class FkeyEditorPage : ContentPage
 {
     private readonly FkeyEditorViewModel _vm;
 
-#if WINDOWS
+#if DESKTOP
     // The picker's file-type list, built once: every ".ini" import rebuilt the same two strings.
     private static readonly string[] IniFileTypes = [".ini", "*"];
+
+    // Mac Catalyst filters by uniform type identifier, not extension.
+    private static readonly string[] IniUniformTypes = ["public.text", "public.data"];
 #endif
 
     /// <summary>The chat examples' font size, as the XAML draws them.</summary>
@@ -26,9 +29,8 @@ public partial class FkeyEditorPage : ContentPage
         _vm = vm;
         BindingContext = vm;
         ChatRows.SizeChanged += (_, _) => PlaceChatExamples();
-#if WINDOWS
+#if DESKTOP
         ImportButton.IsVisible = true;
-        ImportButton.Clicked += OnImportClickedAsync;
 #endif
     }
 
@@ -44,6 +46,10 @@ public partial class FkeyEditorPage : ContentPage
         _vm.SaveFailed += OnSaveFailed;
         DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
         DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
+#if DESKTOP
+        ImportButton.Clicked -= OnImportClickedAsync;
+        ImportButton.Clicked += OnImportClickedAsync;
+#endif
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
@@ -57,8 +63,10 @@ public partial class FkeyEditorPage : ContentPage
         _vm.CloseRequested -= OnCloseRequested;
         _vm.SaveFailed -= OnSaveFailed;
         DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
-#if WINDOWS
+#if DESKTOP
         ImportButton.Clicked -= OnImportClickedAsync;
+#endif
+#if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
@@ -135,7 +143,9 @@ public partial class FkeyEditorPage : ContentPage
             _vm.CancelCommand.Execute(null);
         }
     }
+#endif
 
+#if DESKTOP
     private async void OnImportClickedAsync(object? sender, EventArgs e)
     {
         try
@@ -146,7 +156,8 @@ public partial class FkeyEditorPage : ContentPage
                 FileTypes = new FilePickerFileType(
                     new Dictionary<DevicePlatform, IEnumerable<string>>
                     {
-                        { DevicePlatform.WinUI, IniFileTypes }
+                        { DevicePlatform.WinUI, IniFileTypes },
+                        { DevicePlatform.MacCatalyst, IniUniformTypes }
                     })
             };
             var result = await FilePicker.Default.PickAsync(options);
