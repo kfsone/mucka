@@ -28,6 +28,20 @@ public static class MauiProgram
                 fonts.AddFont("CascadiaMonoItalic.ttf", "Cascadia Mono Italic");
             });
 
+#if MACCATALYST
+        // Skia's native canvas view is opaque by default on a Mac, so a canvas that draws on a
+        // transparent clear (the Combat Rail, the compass) shows a solid white box. Marked
+        // non-opaque, and left clear unless the element asks for a background of its own.
+        SkiaSharp.Views.Maui.Handlers.SKCanvasViewHandler.SKCanvasViewMapper.AppendToMapping("MuckaNonOpaque", (handler, view) =>
+        {
+            if (handler.PlatformView is not UIKit.UIView native)
+                return;
+            native.Opaque = false;
+            if (view is not VisualElement { BackgroundColor.Alpha: > 0 })
+                native.BackgroundColor = UIKit.UIColor.Clear;
+        });
+#endif
+
         // Register ViewModels and Pages for dependency injection.
         // ConnectViewModel is transient so each navigation creates a fresh instance.
         builder.Services.AddTransient<ConnectViewModel>();

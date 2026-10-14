@@ -16,14 +16,17 @@ namespace Mucka.Behaviors;
 /// before any dimming, and the dim only appears when an expected update is genuinely late. When
 /// the heartbeat is disabled (interval 0) staleness is meaningless, so we never dim.
 ///
-/// Set <see cref="Source"/> to "Few" (Online) or "Fei" (Here/Carrying). No-op on non-Windows.
+/// On a Mac the same fade is a Core Animation opacity animation (<see cref="MacLayerFade"/>), which
+/// the render server carries out - also off the UI thread.
+///
+/// Set <see cref="Source"/> to "Few" (Online) or "Fei" (Here/Carrying). No-op on Android.
 /// </summary>
 public sealed class StaleDimBehavior : Behavior<View>
 {
     /// <summary>"Few" (Online list) or "Fei" (Here/Carrying lists).</summary>
     public string Source { get; set; } = "";
 
-#if WINDOWS
+#if DESKTOP
     private View? _view;
     private SidePanelViewModel? _sp;
 #endif
@@ -31,7 +34,7 @@ public sealed class StaleDimBehavior : Behavior<View>
     protected override void OnAttachedTo(View view)
     {
         base.OnAttachedTo(view);
-#if WINDOWS
+#if DESKTOP
         _view = view;
         view.Loaded   += OnLoaded;
         view.Unloaded += OnUnloaded;
@@ -40,7 +43,7 @@ public sealed class StaleDimBehavior : Behavior<View>
 
     protected override void OnDetachingFrom(View view)
     {
-#if WINDOWS
+#if DESKTOP
         view.Loaded   -= OnLoaded;
         view.Unloaded -= OnUnloaded;
         Unsubscribe();
@@ -49,7 +52,7 @@ public sealed class StaleDimBehavior : Behavior<View>
         base.OnDetachingFrom(view);
     }
 
-#if WINDOWS
+#if DESKTOP
     private void OnLoaded(object? sender, EventArgs e)
     {
         if (_view?.BindingContext is GameViewModel vm)
@@ -73,6 +76,17 @@ public sealed class StaleDimBehavior : Behavior<View>
 
     private void RestartDim()
     {
+#if MACCATALYST
+        if (_view?.Handler?.PlatformView is not UIKit.UIView ui) return;
+        var interval = (_view.BindingContext as GameViewModel)?.StatUpdateFrequency ?? 0;
+        if (interval <= 0)
+        {
+            MacLayerFade.Set(ui, 1f);
+            return;
+        }
+        // Bright for ~1.5 intervals, then 4 seconds down to 70%; a refresh restarts it from bright.
+        MacLayerFade.Animate(ui, 1f, 0.70f, seconds: 4, delaySeconds: interval * 1.5);
+#else
         if (_view?.Handler?.PlatformView is not Microsoft.UI.Xaml.UIElement el) return;
         var visual = ElementCompositionPreview.GetElementVisual(el);
 
@@ -98,6 +112,7 @@ public sealed class StaleDimBehavior : Behavior<View>
         dim.InsertKeyFrame(1f, 0.70f);
         dim.Duration = TimeSpan.FromSeconds(4);
         visual.StartAnimation("Opacity", dim);
+#endif
     }
 #endif
 }

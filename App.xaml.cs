@@ -27,14 +27,15 @@ public partial class App : Application
             ? profile
             : $"mucka {AppInfo.VersionString}";
 
-#if WINDOWS
+#if DESKTOP
         // Default-size the window at launch - WinUI's default is enormous. Sized for the game
         // view (82 columns + expanded side panel) at the default font size; GamePage re-applies
         // this with the profile's actual font size on first appearance.
         window.Width = Pages.GamePage.PreferredWindowWidthDp(
             ViewModels.GameViewModel.DefaultFontSizePx * ViewModels.GameViewModel.CharWidthPerFontPx,
             panelExpanded: true);
-
+#endif
+#if WINDOWS
         window.HandlerChanged += (s, e) => SetWindowIcon(window);
 #endif
 

@@ -134,6 +134,11 @@ public static class SettingsStore
         var beside = Path.Combine(AppContext.BaseDirectory, "mucka.ini");
         if (File.Exists(beside)) return beside;
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "mucka.ini");
+#elif MACCATALYST
+        // The directory is otherwise only made when the database first opens, which is after the
+        // first read or write of this file.
+        Directory.CreateDirectory(MuckaPaths.GetDataDirectory());
+        return Path.Combine(MuckaPaths.GetDataDirectory(), "mucka.ini");
 #else
         return Path.Combine(FileSystem.AppDataDirectory, "mucka.ini");
 #endif

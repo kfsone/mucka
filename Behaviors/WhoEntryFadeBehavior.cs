@@ -14,14 +14,17 @@ namespace Mucka.Behaviors;
 /// item out of the native panel on removal before WinUI can play an implicit-hide, so departed
 /// entries just vanished. Instead the view-model sets <see cref="WhoEntry.IsDeparting"/> and keeps
 /// the entry in the list; we fade it out here, and the view-model removes it once the fade has
-/// finished (and cancels both if the player reappears). No-op on non-Windows platforms.
+/// finished (and cancels both if the player reappears). On a Mac the fades are Core Animation opacity
+/// animations (<see cref="MacLayerFade"/>), run by the render server. No-op on Android.
 /// </summary>
 public sealed class WhoEntryFadeBehavior : Behavior<Label>
 {
-#if WINDOWS
+#if DESKTOP
     private Label? _label;
     private WhoEntry? _entry;
+#if WINDOWS
     private Microsoft.UI.Composition.Visual? _visual;
+#endif
     private const double FadeInMs  = 2000;   // arrival
     private const double FadeOutMs = 3000;   // departure - slower, easier to notice someone left
 #endif
@@ -29,7 +32,7 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
     protected override void OnAttachedTo(Label label)
     {
         base.OnAttachedTo(label);
-#if WINDOWS
+#if DESKTOP
         _label = label;
         label.Loaded += OnLoaded;
         label.Unloaded += OnUnloaded;
@@ -39,23 +42,27 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
 
     protected override void OnDetachingFrom(Label label)
     {
-#if WINDOWS
+#if DESKTOP
         label.Loaded -= OnLoaded;
         label.Unloaded -= OnUnloaded;
         label.BindingContextChanged -= OnBindingContextChanged;
         HookEntry(null);
+#if WINDOWS
         _visual = null;
+#endif
         _label = null;
 #endif
         base.OnDetachingFrom(label);
     }
 
-#if WINDOWS
+#if DESKTOP
     private void OnLoaded(object? sender, EventArgs e)
     {
+#if WINDOWS
         if (_label?.Handler?.PlatformView is not Microsoft.UI.Xaml.UIElement el) return;
         _visual = ElementCompositionPreview.GetElementVisual(el);
-        HookEntry(_label.BindingContext as WhoEntry);
+#endif
+        HookEntry(_label?.BindingContext as WhoEntry);
         // Fade in from transparent (or stay hidden if this entry is already on its way out).
         FadeTo(_entry?.IsDeparting == true ? 0f : 1f, fromZero: true);
     }
@@ -81,6 +88,11 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
 
     private void FadeTo(float target, bool fromZero)
     {
+#if MACCATALYST
+        if (_label?.Handler?.PlatformView is not UIKit.UIView ui) return;
+        MacLayerFade.Animate(ui, fromZero ? 0f : ui.Layer.PresentationLayer?.Opacity ?? ui.Layer.Opacity, target,
+            (target <= 0f ? FadeOutMs : FadeInMs) / 1000.0);
+#else
         if (_visual is null) return;
         var c = _visual.Compositor;
         if (fromZero) _visual.Opacity = 0f;
@@ -88,6 +100,7 @@ public sealed class WhoEntryFadeBehavior : Behavior<Label>
         a.InsertKeyFrame(1f, target);
         a.Duration = TimeSpan.FromMilliseconds(target <= 0f ? FadeOutMs : FadeInMs);
         _visual.StartAnimation("Opacity", a);
+#endif
     }
 #endif
 }

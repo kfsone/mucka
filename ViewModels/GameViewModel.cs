@@ -733,7 +733,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SidePanel.IsOnlinePinned      = !profile.FloatOnline;   // apply the saved float default to the live state
         SidePanel.IsMapPinned         = !profile.FloatCompass;  // ditto for the compass
         // Restore the Combat Rail's global shown/hidden state. The setter itself gates
-        // to IsCombatRailSupported (Windows only), so a Windows-saved "true" is silently ignored on
+        // to IsCombatRailSupported (desktop only), so a desktop-saved "true" is silently ignored on
         // Android rather than needing a platform check here too.
         SidePanel.IsCombatStatsEnabled = profile.ShowCombatStats;
         SidePanel.IsCombatPanelVisible = profile.ShowCombatRail;
@@ -1739,8 +1739,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $<                    scan recent output for watchword answers", 14);
 #if WINDOWS
         AddSystemLine("  $con                  open the raw protocol console", 14);
-#else
-        AddSystemLine("  $con                  (Windows only)", 14);
 #endif
         AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
@@ -2138,14 +2136,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             AddSystemLine($"Recording failed and has stopped: {message}", 9, transcribe: false);
         });
 
-    // $con is Windows-only: the console is a separate desktop window. It stays recognized on
-    // Android and reports itself, because a "$" line that falls through to the MUD is a line
-    // the player did not mean to send.
+    // $con is a separate desktop window, built so far for Windows only. It stays recognized elsewhere
+    // and reports itself, because a "$" line that falls through to the MUD is a line the player did
+    // not mean to send. The help listing names it only where it exists.
 #if WINDOWS
     private void OpenRawConsole() => OpenRawConsoleRequested?.Invoke();
 #else
     private void OpenRawConsole()
-        => AddSystemLine("[command] $con is Windows only.", 9);
+        => AddSystemLine("[command] $con is not available on this platform.", 9);
 #endif
 
     private void SendFkey(string indexStr)
@@ -2363,6 +2361,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void NotifyWindowSize(double widthDp, int displayableCols)
     {
+#if MACCATALYST
+        // A fixed column count is the player's choice, not a ceiling to fall under: the window's
+        // minimum width keeps the pane wide enough, so a narrower measurement is a transient.
+        if (_maxColumns > 0)
+            displayableCols = Math.Max(displayableCols, _maxColumns);
+#endif
         var clamped       = Mucka.Terminal.TerminalColumns.Effective(_maxColumns, displayableCols);
         var effColChanged = clamped != _effCols;
         // The page's first measurement re-lays out everything that depends on the width even when

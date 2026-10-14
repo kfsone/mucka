@@ -3,13 +3,15 @@
 	<PropertyGroup>
 		<!-- Each runner builds only its own target:
 		     Windows runner  -> net10.0-windows
-		     Linux runner    -> net10.0-android  -->
+		     Linux runner    -> net10.0-android
+		     macOS runner    -> net10.0-maccatalyst  -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
 		<!-- Local Android build/deploy from a Windows dev box (opt-in so plain builds and CI
 		     don't require the android workload):
 		       dotnet build -f net10.0-android -p:LocalAndroid=true -t:Run   (deploys to adb device) -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(LocalAndroid)' == 'true'">net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
-		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows'))">net10.0-android</TargetFrameworks>
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
+		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows')) and !$([MSBuild]::IsOSPlatform('osx'))">net10.0-android</TargetFrameworks>
 
 		<OutputType>Exe</OutputType>
 		<RootNamespace>Mucka</RootNamespace>
@@ -39,8 +41,11 @@
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->
 		<WindowsPackageType>None</WindowsPackageType>
+		<!-- Targets with a resizable desktop window, as opposed to the phone-shaped Android one. -->
+		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);DESKTOP</DefineConstants>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
@@ -66,6 +71,14 @@
 	     (Invariant #0). Off by default -> compiled out entirely. -->
 	<PropertyGroup Condition="'$(FocusDiag)' == 'true'">
 		<DefineConstants>$(DefineConstants);FOCUS_DIAG</DefineConstants>
+	</PropertyGroup>
+
+	<!-- A local Mac Release build is one architecture - this machine's - which is faster and puts the
+	     complete app at bin/Release/net10.0-maccatalyst/<rid>/Mucka.app. With two RIDs the per-RID
+	     folders hold incomplete bundles (no sounds, no icon) and only bin/Release/net10.0-maccatalyst/Mucka.app
+	     is the universal app. CI (CI=true), or -p:UniversalMac=true, builds both. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' and '$(Configuration)' == 'Release' and '$(CI)' != 'true' and '$(UniversalMac)' != 'true'">
+		<RuntimeIdentifier>maccatalyst-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' and '$(Configuration)' == 'Release'">

@@ -7,6 +7,7 @@ namespace Mucka.Core;
 /// </summary>
 public static class Glyph
 {
+    public const string Bullet = "\u2022";
     /// <summary>Small right-pointing triangle: a collapsed sub-menu.</summary>
     public const string ChevronRight = "\u25B8";
     /// <summary>Small down-pointing triangle: an expanded sub-menu.</summary>

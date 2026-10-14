@@ -7,6 +7,8 @@ namespace Mucka.Pages;
 public partial class ConnectPage : ContentPage
 {
     private readonly ConnectViewModel _vm;
+    private GamePage? _prebuiltGamePage;
+    private GuidedLoginPage? _guidedPageForHandoff;
     private int _autoConnectAttempted;
 
     // -- Adaptive layout ------------------------------------------------------
@@ -159,14 +161,15 @@ public partial class ConnectPage : ContentPage
     }
 
     /// <summary>
-    /// Runs the guided-login state machine as a modal overlay over the CURRENT page (ConnectPage
-    /// at this point -- GamePage isn't pushed until guided login succeeds; see <see cref="OnConnected"/>
-    /// for why). <paramref name="conn"/>'s <see cref="GameViewModel"/> must already be constructed
+    /// Runs the guided-login state machine on its own full-window page, pushed onto the navigation
+    /// stack (so it has the back button) and, on success, replaced by the game page directly: the
+    /// profile page is not shown again once a connection has begun. <paramref name="conn"/>'s <see cref="GameViewModel"/> must already be constructed
     /// and subscribed before this runs, so it's listening to LineReady/GameModeEntered from the
     /// very start of the automated shell dance -- including the persona-selection response and the
     /// tearoom description that immediately follows it.
     /// </summary>
-    private async Task<GuidedLoginResult> RunGuidedLoginOverlayAsync(MuckaConnection conn, Profile profile)
+    private async Task<GuidedLoginResult> RunGuidedLoginOverlayAsync(
+        MuckaConnection conn, Profile profile, Func<GamePage> buildGamePage)
     {
         var controller = new GuidedLoginController(conn, profile.GuidedLoginPersona);
         var vm = new GuidedLoginViewModel(controller);
@@ -176,10 +179,21 @@ public partial class ConnectPage : ContentPage
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 page = new GuidedLoginPage(vm);
-                await Navigation.PushModalAsync(page);
+                await Navigation.PushAsync(page);
             });
 
             var result = await controller.RunAsync(page!.CancellationToken);
+            // Built while the overlay is still up. Inflating the game page's XAML takes a noticeable
+            // moment, most of all on the first run, and doing it after the overlay closes leaves the
+            // profile page showing for that long.
+            if (result.Outcome is GuidedLoginOutcome.Succeeded or GuidedLoginOutcome.ManualAtOptionMenu)
+            {
+                // Before the build: backing out while the game page is being built is then not
+                // mistaken for cancelling a login that has already finished.
+                page.HandOff();
+                _guidedPageForHandoff = page;
+                _prebuiltGamePage = await MainThread.InvokeOnMainThreadAsync(buildGamePage);
+            }
             if (result.Outcome == GuidedLoginOutcome.Failed && result.FailureReason != null)
             {
                 await DisplayAlertAsync(
@@ -193,8 +207,13 @@ public partial class ConnectPage : ContentPage
         {
             vm.Detach();
             controller.Dispose();
-            if (page != null)
-                await MainThread.InvokeOnMainThreadAsync(() => Navigation.PopModalAsync());
+            // Unless it is waiting to be replaced, or the player already backed out of it.
+            if (page != null && !ReferenceEquals(page, _guidedPageForHandoff))
+                await MainThread.InvokeOnMainThreadAsync(async () =>
+                {
+                    if (Navigation.NavigationStack.Contains(page))
+                        await Navigation.PopAsync();
+                });
         }
     }
 
@@ -235,18 +254,19 @@ public partial class ConnectPage : ContentPage
                     : ConnectViewModel.PersistCombatStatsAsync;
 
                 // GameViewModel subscribes to conn.LineReady/etc immediately, BEFORE GamePage is
-                // pushed, so nothing is lost while guided login runs -- pushing GamePage now (or
-                // pushing the guided-login dialog modally on top of it) would trigger GamePage's
-                // OnDisappearing, which disposes the connection (see GamePage.OnDisappearing ->
-                // GameViewModel.DisposeAsync -> conn.DisposeAsync). GamePage is only pushed once
-                // guided login has actually finished (or immediately, for non-guided profiles).
+                // pushed, so nothing is lost while guided login runs. GamePage is only pushed once
+                // guided login has actually finished (or immediately, for non-guided profiles):
+                // pushing it earlier and then covering it would trigger its OnDisappearing, which
+                // disposes the connection (see GamePage.OnDisappearing -> GameViewModel.DisposeAsync
+                // -> conn.DisposeAsync).
                 var gameVm = new GameViewModel(conn, profile, saveSettings, persistCombatRailVisibility,
                     persistCombatStats);
 
                 if (profile.GuidedLogin)
                 {
                     gameVm.BeginLoginFlow();
-                    var result = await RunGuidedLoginOverlayAsync(conn, profile);
+                    var result = await RunGuidedLoginOverlayAsync(
+                        conn, profile, () => new GamePage(gameVm, _vm.IsDirectConnectMode));
                     gameVm.EndLoginFlow(result.MailItems);
                     if (result.Outcome is not (GuidedLoginOutcome.Succeeded or GuidedLoginOutcome.ManualAtOptionMenu))
                     {
@@ -257,23 +277,38 @@ public partial class ConnectPage : ContentPage
                         gameVm.NoteLeftAtOptionMenu(result.MailItems);
                 }
 
-                var gamePage = new GamePage(gameVm, _vm.IsDirectConnectMode);
+                var gamePage = _prebuiltGamePage ?? new GamePage(gameVm, _vm.IsDirectConnectMode);
+                _prebuiltGamePage = null;
                 await Navigation.PushAsync(gamePage);
+                if (_guidedPageForHandoff is { } handedOff)
+                {
+                    _guidedPageForHandoff = null;
+                    // The player may have backed out of it already.
+                    if (Navigation.NavigationStack.Contains(handedOff))
+                        Navigation.RemovePage(handedOff);
+                }
             }
             catch (Exception ex)
             {
+                // A page built for this connection is not for the next one, and the login page must
+                // not be left in the stack.
+                _prebuiltGamePage = null;
+                if (_guidedPageForHandoff is { } stranded)
+                {
+                    _guidedPageForHandoff = null;
+                    if (Navigation.NavigationStack.Contains(stranded))
+                        Navigation.RemovePage(stranded);
+                }
                 CrashLog.Write("OnConnected", ex);
                 await DisplayAlertAsync("Launch Error", $"Could not open the game screen:\n{ex.Message}", "OK");
             }
         });
     }
 
-    private void OnProfileSelected(object? sender, SelectionChangedEventArgs e)
+    private void OnProfileTapped(object? sender, TappedEventArgs e)
     {
-        if (e.CurrentSelection is [Profile p, ..])
-        {
-            _vm.SelectProfileCommand.Execute(p);
-        }
+        if (e.Parameter is Profile profile)
+            _vm.SelectedProfile = profile;
     }
 
     private async void OnProfileDoubleTapped(object? sender, TappedEventArgs e)

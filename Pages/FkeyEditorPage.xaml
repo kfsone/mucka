@@ -152,30 +152,7 @@
                     </Label>
                 </Border>
 
-                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
-                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                    <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="4"/>
-                    </Border.GestureRecognizers>
-                    <Border.Triggers>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsFriendsTabActive}" Value="True">
-                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
-                        </DataTrigger>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsFriendsTabActive}" Value="False">
-                            <Setter Property="BackgroundColor" Value="#2d333b"/>
-                        </DataTrigger>
-                    </Border.Triggers>
-                    <Label Text="Friends" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
-                        <Label.Triggers>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsFriendsTabActive}" Value="True">
-                                <Setter Property="TextColor" Value="White"/>
-                            </DataTrigger>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsFriendsTabActive}" Value="False">
-                                <Setter Property="TextColor" Value="#888888"/>
-                            </DataTrigger>
-                        </Label.Triggers>
-                    </Label>
-                </Border>
+                
 
             </HorizontalStackLayout>
         </Border>
@@ -456,7 +433,7 @@
                 <ScrollView Grid.Row="2">
                     <VerticalStackLayout Spacing="4" Padding="0,0,18,0"
                                          IsEnabled="{Binding SoundsEnabled}"
-                                         BindableLayout.ItemsSource="{Binding SoundGroups}">
+                                         BindableLayout.ItemsSource="{Binding SoundGroupsForView}">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:SoundGroupEditorItem">
                                 <VerticalStackLayout Spacing="2">
@@ -513,7 +490,7 @@
                                     <!-- Child sounds, visible while expanded -->
                                     <VerticalStackLayout IsVisible="{Binding Expanded}"
                                                          Margin="46,0,0,4" Spacing="0"
-                                                         BindableLayout.ItemsSource="{Binding Sounds}">
+                                                         BindableLayout.ItemsSource="{Binding VisibleSounds}">
                                         <BindableLayout.ItemTemplate>
                                             <DataTemplate x:DataType="vm:SoundEditorItem">
                                                 <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="6"
@@ -554,13 +531,7 @@
                 </ScrollView>
             </Grid>
 
-            <!-- - FRIENDS TAB - -->
-            <Label Text="Soon!"
-                   IsVisible="{Binding IsFriendsTabActive}"
-                   TextColor="#555555"
-                   FontSize="24"
-                   HorizontalOptions="Center"
-                   VerticalOptions="Center"/>
+            
 
             <!-- - DISPLAY TAB - -->
             <ScrollView IsVisible="{Binding IsDisplayTabActive}">
@@ -679,33 +650,33 @@
                                         <Label Text="own:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="0,0,4,0"/>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
                                             <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
                                             <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
                                             <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
                                             <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <Label Text="other:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="18,0,4,0"/>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
                                             <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
                                             <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
                                             <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44}"/>
+                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
                                             <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                     </HorizontalStackLayout>

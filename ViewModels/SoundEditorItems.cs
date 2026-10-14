@@ -126,8 +126,12 @@ public sealed class SoundGroupEditorItem : BaseViewModel
     public bool Expanded
     {
         get => _expanded;
-        set => SetAndNotify(ref _expanded, value, [nameof(Chevron)]);
+        set => SetAndNotify(ref _expanded, value, [nameof(Chevron), nameof(VisibleSounds)]);
     }
+
+    /// <summary>The rows the tree shows under this group: none while it is collapsed, so a collapsed
+    /// group costs no controls.</summary>
+    public SoundEditorItem[] VisibleSounds => _expanded ? Sounds : [];
     public string Chevron => HasChildren ? (_expanded ? Mucka.Core.Glyph.TriangleDown : Mucka.Core.Glyph.TriangleRight) : " ";
 
     /// <summary>Index into <see cref="DefaultChoices"/>; 0 = no fallback.</summary>

@@ -70,7 +70,7 @@ public partial class GamePage : ContentPage
     private bool _isFkeyEditorOpen;
     private bool _isGuidedLoginOverlayOpen;
 
-#if WINDOWS
+#if DESKTOP
     /// <summary>Something other than the command box legitimately owns the keyboard: the F-key
     /// editor, the guided-login overlay, or scrollback review (Invariant #0's exceptions). The one
     /// predicate FocusGuard suspends on and every deferred refocus checks - a new owner is added
@@ -263,6 +263,13 @@ public partial class GamePage : ContentPage
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
     {
         InitializeComponent();
+#if MACCATALYST
+        // The Mac window has no back gesture; the navigation bar's back button and this row are the ways back.
+        DisconnectSeparator.IsVisible = true;
+        DisconnectRow.IsVisible = true;
+        // The platform's own back button lives in the navigation bar, which this page hides elsewhere.
+        NavigationPage.SetHasNavigationBar(this, true);
+#endif
         _vm = vm;
         _exitOnDisconnect = exitOnDisconnect;
         BindingContext = vm;
@@ -278,6 +285,13 @@ public partial class GamePage : ContentPage
         _fkeyEditorPage = null;
         _isGuidedLoginOverlayOpen = false;
         base.OnAppearing();
+#if MACCATALYST
+        // Every appearance, not only the first: leaving for a modal clears it in OnDisappearing.
+        SetUpMacHotkeys();
+        // And the keyboard goes to the command box on every appearance - the first one, and each
+        // return from a modal.
+        if (!KeyboardOwnedElsewhere) FocusInput();
+#endif
 
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
         catch (Exception ex) { CrashLog.Write("KeepScreenOn", ex); }
@@ -329,6 +343,9 @@ public partial class GamePage : ContentPage
                 Window.Activated += OnWindowActivated;
                 Window.Title = _vm.WindowTitle;   // profile-only until a character is identified
             }
+#if MACCATALYST
+            SetUpMacWindow();
+#endif
 
 #if WINDOWS
             try
@@ -509,6 +526,9 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+#if MACCATALYST
+        TearDownMacHotkeys();
+#endif
 #if ANDROID
         _androidFkeyHandler = null;
         _androidCtrlDHandler = null;
@@ -523,6 +543,9 @@ public partial class GamePage : ContentPage
             _antiIdleTimer?.Stop();
             return;
         }
+#if MACCATALYST
+        TearDownMacCombat();
+#endif
 
         DeviceDisplay.Current.KeepScreenOn = false;
         _antiIdleTimer?.Stop();
@@ -707,7 +730,20 @@ public partial class GamePage : ContentPage
     private void RecalculateColumns(double width)
     {
         if (width <= 0) return;
+#if MACCATALYST
+        if (MacResizeSettling) return;
+        // Columns come from the terminal's own pane, which the side panel narrows; the page's width
+        // overstates it. The pane has no width until it has been laid out.
+        if (Terminal.Width > 0)
+            width = Terminal.Width - CombatRailResize.TerminalGutterDp;
+#endif
         var displayableCols = (int)Math.Floor(width / CharWidthDp);
+#if MACCATALYST
+        // A fixed column count is the player's choice, not a ceiling to fall under: the window's
+        // minimum width keeps the pane wide enough, so a narrower measurement is a transient.
+        if (_vm.MaxColumns > 0)
+            displayableCols = Math.Max(displayableCols, _vm.MaxColumns);
+#endif
         _vm.NotifyWindowSize(width, displayableCols);
         Terminal.Columns = _vm.EffCols;
     }
@@ -855,11 +891,12 @@ public partial class GamePage : ContentPage
             _vm.NoteLeftAtOptionMenu(mailItems);
 
         if (endConnection && _vm.IsConnected)
-        {
-            await _vm.DisconnectAsync();
-            await Navigation.PopAsync();
-        }
+            await LeaveGameAsync();
     }
+
+    /// <summary>Back to the profile page. Closing the connection is OnDisappearing's job (it disposes the
+    /// view model), so this only leaves: the page is gone at once, not after the socket has closed.</summary>
+    private Task<Page> LeaveGameAsync() => Navigation.PopAsync();
 
     // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).
     private void OnFloatingPanelPanUpdated(object? sender, PanUpdatedEventArgs e)
@@ -984,6 +1021,11 @@ public partial class GamePage : ContentPage
         FocusDiag($"FocusInput dispatch: focused={hasFocus} (maui.IsFocused={InputEntry.IsFocused})");
         if (!hasFocus)
             tb.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+#elif MACCATALYST
+        // Ask UIKit, not MAUI's cached IsFocused. BecomeFirstResponder on a field that already has it
+        // is harmless, but there is nothing to gain by calling it.
+        if (InputEntry.Handler?.PlatformView is UIKit.UITextField tf && !tf.IsFirstResponder)
+            tf.BecomeFirstResponder();
 #else
         if (!InputEntry.IsFocused) InputEntry.Focus();
 #endif
@@ -994,6 +1036,9 @@ public partial class GamePage : ContentPage
     private void OnWindowActivated(object? sender, EventArgs e)
     {
         Terminal.NotifyWindowActivated();
+#if MACCATALYST
+        ReassertMacCombatLayers();
+#endif
         if (!Terminal.IsHistoryMode) FocusInput();
     }
 
@@ -1135,6 +1180,14 @@ public partial class GamePage : ContentPage
                 await Navigation.PopAsync();
         });
         return true;   // swallow the back action; pop only on confirmation
+#elif MACCATALYST
+        // The navigation bar's back button ends the session, so it asks first, as the menu row does.
+        Dispatcher.Dispatch(async () =>
+        {
+            if (await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
+                await LeaveGameAsync();
+        });
+        return true;
 #else
         return base.OnBackButtonPressed();
 #endif
@@ -1195,6 +1248,16 @@ public partial class GamePage : ContentPage
     {
         OverflowMenuOverlay.IsVisible = false;
         _vm.ConfigCommand.Execute(null);
+    }
+    // Every menu row is a one-shot: rows that carry their own Command still dismiss the menu.
+    private void OnOverflowItemTapped(object? sender, TappedEventArgs e)
+        => OverflowMenuOverlay.IsVisible = false;
+    private async void OnOverflowDisconnect(object? sender, EventArgs e)
+    {
+        OverflowMenuOverlay.IsVisible = false;
+        if (!await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
+            return;
+        await LeaveGameAsync();
     }
     private void OnOverflowAbout(object? sender, EventArgs e)
     {
@@ -1267,7 +1330,7 @@ public partial class GamePage : ContentPage
         SetInputText(insertText + (InputEntry.Text ?? string.Empty), insertText.Length);
     }
 
-#if WINDOWS
+#if DESKTOP
     // Ctrl+R: unconditionally replaces the input with "<sender> "" and puts the
     // caret after the quote, ready for the reply text. Unlike OnTerminalSpanInsertTextRequested's
     // prepend, this clears whatever was typed - ctrl-r is a deliberate "start a reply now" action.
@@ -1297,6 +1360,14 @@ public partial class GamePage : ContentPage
             // convention. The request also queues behind anything already typed, so a clicked name
             // cannot land in the middle of a command in progress.
             _commandInput.RequestSetText(text, caretPos);
+            _vm.InputText = text;
+            return;
+        }
+#endif
+#if MACCATALYST
+        if (_macCommandInput is not null)
+        {
+            _macCommandInput.RequestSetText(text, caretPos);
             _vm.InputText = text;
             return;
         }

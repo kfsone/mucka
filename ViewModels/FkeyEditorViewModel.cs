@@ -58,8 +58,15 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         set
         {
             if (Set(ref _activeTab, value))
+            {
+                if (value == 3 && !_soundsTabShown)
+                {
+                    _soundsTabShown = true;
+                    OnPropertyChanged(nameof(SoundGroupsForView));
+                }
                 OnPropertiesChanged(nameof(IsSettingsTabActive), nameof(IsHotkeysTabActive),
-                        nameof(IsSoundsTabActive), nameof(IsFriendsTabActive), nameof(IsDisplayTabActive));
+                        nameof(IsSoundsTabActive), nameof(IsDisplayTabActive));
+            }
         }
     }
 
@@ -67,7 +74,11 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool IsDisplayTabActive  => _activeTab == 1;
     public bool IsHotkeysTabActive  => _activeTab == 2;
     public bool IsSoundsTabActive   => _activeTab == 3;
-    public bool IsFriendsTabActive  => _activeTab == 4;
+
+    // The Sounds tab is the page's heaviest part - a heading row per group, and a row of controls per
+    // sound - and it is built when its tab is first opened rather than every time the page is.
+    private bool _soundsTabShown;
+    public SoundGroupEditorItem[] SoundGroupsForView => _soundsTabShown ? SoundGroups : [];
 
     public double FontSize
     {
@@ -107,7 +118,9 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public double StatUpdateFrequency
     {
         get => _statUpdateFrequency;
-        set => SetAndNotify(ref _statUpdateFrequency, value, [nameof(StatUpdateFrequencyDisplay)]);
+        // Bounded here, not just on display: a value allowed to run past the ends is remembered, so
+        // pressing + afterwards climbs back through the overshoot before it moves.
+        set => SetAndNotify(ref _statUpdateFrequency, Math.Clamp(value, 0, 30), [nameof(StatUpdateFrequencyDisplay)]);
     }
 
     public int    FontSizeDisplay            => (int)Math.Round(_fontSize);

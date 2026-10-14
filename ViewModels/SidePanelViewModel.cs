@@ -18,7 +18,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     // On Windows the side panel defaults to expanded; the initial window width
     // is sized to fit it alongside the terminal view (see GamePage.SetPreferredInitialWindowSize).
     private bool _isPanelExpanded
-#if WINDOWS
+#if DESKTOP
         = true
 #endif
         ;
@@ -338,10 +338,9 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
 
-    /// <summary>Whether the Combat Rail is available on this platform at all. Windows only: the
-    /// panel's supporting logic (window resize, tick sweep, metronome, pulse wiring - all in
-    /// GamePage.xaml.cs's #if WINDOWS block) was built for a desktop window that can grow to make
-    /// room for it, not a phone-sized screen. Drives both the overflow-menu entry's visibility and
+    /// <summary>Whether the Combat Rail is available on this platform at all. Desktop only: the
+    /// panel's supporting logic (window resize, tick sweep, metronome, pulse wiring) was built for a
+    /// desktop window that can grow to make room for it, not a phone-sized screen. Drives both the overflow-menu entry's visibility and
     /// <see cref="IsCombatPanelVisible"/>'s own setter, so there is one place that decides this
     /// rather than the menu and the panel disagreeing.</summary>
     [SuppressMessage("Performance", "CA1822:Mark members as static",

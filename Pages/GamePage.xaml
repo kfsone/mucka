@@ -19,12 +19,13 @@
              StatLabelStyle's size. -->
         <OnPlatform x:Key="StatMinorFontSize" x:TypeArguments="x:Double" Default="12">
             <On Platform="WinUI" Value="13"/>
+            <On Platform="MacCatalyst" Value="14"/>
         </OnPlatform>
         <Style x:Key="StatLabelStyle" TargetType="Label">
             <Setter Property="TextColor" Value="White"/>
-            <Setter Property="FontSize" Value="{OnPlatform WinUI=14, Default=13}"/>
+            <Setter Property="FontSize" Value="{OnPlatform WinUI=14, MacCatalyst=15, Default=13}"/>
             <Setter Property="VerticalOptions" Value="Center"/>
-            <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono'}"/>
+            <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', Default='Cascadia Mono'}"/>
         </Style>
         <converters:InvertBoolConverter x:Key="InvertBoolConverter"/>
     </ContentPage.Resources>
@@ -177,8 +178,6 @@
                         <Image Grid.Column="10" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                     </Grid>
 
-                    <!-- Spacer -->
-                    <BoxView Grid.Column="11" Color="Transparent"/>
 
                     <!-- Mail: an envelope in the elastic column, right-aligned so it sits just left of
                          the "rec" chip. Tap dismisses it. -->
@@ -481,7 +480,7 @@
                 <Label x:Name="ToastLabel"
                        Text="* Copied to clipboard"
                        TextColor="#3B78FF" FontSize="12"
-                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
             <!-- Floating dreamword chip: shown top-right when a dreamword is active.
@@ -543,9 +542,9 @@
                             <Label.FormattedText>
                                 <FormattedString>
                                     <Span Text="Online" TextColor="#58a6ff" FontSize="11"
-                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                     <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="11"
-                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                 </FormattedString>
                             </Label.FormattedText>
                         </Label>
@@ -597,21 +596,21 @@
                                              BindableLayout.ItemsSource="{Binding SidePanel.WhosList}">
                             <BindableLayout.ItemTemplate>
                                 <DataTemplate x:DataType="vm:WhoEntry">
-                                    <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                    <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
                                         <Label.FormattedText>
                                             <FormattedString>
                                                 <Span Text="{Binding DisplayPrefix}"
                                                       TextColor="{Binding DisplayColor}"
                                                       FontSize="9"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding DisplayName}"
                                                       TextColor="{Binding DisplayColor}"
                                                       FontSize="11"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding DisplaySuffix}"
                                                       TextColor="{Binding DisplayColor}"
                                                       FontSize="9"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                             </FormattedString>
                                         </Label.FormattedText>
                                         <Label.Behaviors>
@@ -797,6 +796,7 @@
                         <OnPlatform x:TypeArguments="x:String">
                             <On Platform="Android"      Value="monospace"/>
                             <On Platform="WinUI"        Value="Cascadia Mono"/>
+                            <On Platform="MacCatalyst"  Value="Cascadia Mono"/>
                         </OnPlatform>
                     </Entry.FontFamily>
                 </Entry>
@@ -864,7 +864,7 @@
                 <Label Text="SCROLLBACK &#x2014; Esc or click to return to live"
                        TextColor="#F9F1A5" FontSize="12"
                        HorizontalOptions="Center" VerticalOptions="Center"
-                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
         </Grid>
@@ -922,9 +922,9 @@
                                         <Label.FormattedText>
                                             <FormattedString>
                                                 <Span Text="Online" TextColor="#58a6ff" FontSize="11"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="11"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                             </FormattedString>
                                         </Label.FormattedText>
                                     </Label>
@@ -955,21 +955,21 @@
                                         <BindableLayout.ItemTemplate>
                                             <DataTemplate x:DataType="vm:WhoEntry">
                                                 <!-- Persona name at full size; title/level suffix 2pt smaller. -->
-                                                <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                                <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
                                                     <Label.FormattedText>
                                                         <FormattedString>
                                                             <Span Text="{Binding DisplayPrefix}"
                                                                   TextColor="{Binding DisplayColor}"
                                                                   FontSize="9"
-                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                             <Span Text="{Binding DisplayName}"
                                                                   TextColor="{Binding DisplayColor}"
                                                                   FontSize="11"
-                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                             <Span Text="{Binding DisplaySuffix}"
                                                                   TextColor="{Binding DisplayColor}"
                                                                   FontSize="9"
-                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                         </FormattedString>
                                                     </Label.FormattedText>
                                                     <!-- Compositor (off-UI-thread) fade in/out on join/leave. -->
@@ -1001,7 +1001,7 @@
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,3,0,1">
                                                         <BoxView Grid.Column="0" Color="#2d333b" HeightRequest="1" VerticalOptions="Center"/>
                                                         <Label Grid.Column="1" Text="{Binding Header}" TextColor="#6e7681" FontSize="8"
-                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                     </Grid>
                                                     <VerticalStackLayout Spacing="1"
                                                                          BindableLayout.ItemsSource="{Binding Members}">
@@ -1010,18 +1010,18 @@
                                                                 <!-- Right-aligned, only lightly dimmed so it reads as "known, idle". -->
                                                                 <Label Opacity="0.8"
                                                                        HorizontalOptions="End" HorizontalTextAlignment="End"
-                                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}">
+                                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
                                                                     <Label.FormattedText>
                                                                         <FormattedString>
                                                                             <Span Text="{Binding DisplayPrefix}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="9"
-                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplayName}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="11"
-                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplaySuffix}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="9"
-                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                                         </FormattedString>
                                                                     </Label.FormattedText>
                                                                     <Label.GestureRecognizers>
@@ -1080,7 +1080,7 @@
                                                     <DataTemplate x:DataType="x:String">
                                                         <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
                                                                HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                     </DataTemplate>
                                                 </BindableLayout.ItemTemplate>
                                             </VerticalStackLayout>
@@ -1120,7 +1120,7 @@
                                                                    TextColor="{Binding TextColor}" FontSize="11"
                                                                    VerticalOptions="Center"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                             <!-- Crossed swords, as vector path data rather than a bitmap: the
                                                                  glyph has to be recoloured per row (grey = not fighting it,
                                                                  red = fighting it) and a MauiImage cannot be tinted, so a
@@ -1194,11 +1194,11 @@
                                     <Label Text="{Binding SidePanel.OldestRoom}"
                                            TextColor="#00a000" FontSize="11" FontAttributes="Bold"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="{Binding SidePanel.PreviousRoom}"
                                            TextColor="#00c000" FontSize="12"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
 
                                     <!-- Current room: always reserves 2-line height so the compass
                                          doesn't shift when a long description wraps. -->
@@ -1209,7 +1209,7 @@
                                            MaxLines="2" LineBreakMode="TailTruncation"
                                            MinimumHeightRequest="{OnPlatform WinUI=36, Default=40}"
                                            Margin="0,4,0,0"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', Default='monospace'}"/>
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoCurrentRoom}"
                                            TextColor="#555555" FontSize="11" FontAttributes="Italic"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
@@ -1592,11 +1592,11 @@
                 <VerticalStackLayout Spacing="0">
                     <!-- Side Panel / Onlines / Compass are live-state toggles: the OK tracks the
                          current visibility, and tapping flips it without touching saved settings.
-                         Bound straight to the toggle commands so the overlay stays open and the OK
-                         updates in place - handy on phones where the tiny windlet buttons are fiddly. -->
+                         Bound to the toggle commands, and every row closes the menu when tapped
+                         (OnOverflowItemTapped) - a tap is a one-shot, not a live-updating control. -->
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
@@ -1608,7 +1608,7 @@
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
@@ -1620,7 +1620,7 @@
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
@@ -1673,7 +1673,7 @@
                             IsVisible="{Binding SidePanel.IsCombatRailSupported}"
                             IsEnabled="{Binding SidePanel.IsCombatPanelVisible}">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatStatsCommand}"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatStatsCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="34,*">
                             <Label Grid.Column="0" Text="&#x2713;" FontSize="13"
@@ -1715,7 +1715,7 @@
                             IsVisible="{Binding SidePanel.IsCombatRailSupported}"
                             IsEnabled="{Binding SidePanel.IsCombatPanelVisible}">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatFloatsCommand}"/>
+                            <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatFloatsCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="34,*">
                             <Label Grid.Column="0" Text="&#x2713;" FontSize="13"
@@ -1758,7 +1758,7 @@
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
-                            <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}"/>
+                            <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
@@ -1854,6 +1854,17 @@
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
                             <Label Grid.Column="1" Text="About" TextColor="White" FontSize="14"/>
+                        </Grid>
+                    </Border>
+                    <!-- The Mac window has no navigation bar and no back gesture, so the way back to the
+                         profile page is a menu row. -->
+                    <BoxView x:Name="DisconnectSeparator" Color="#2d333b" HeightRequest="1" IsVisible="False"/>
+                    <Border x:Name="DisconnectRow" Padding="16,14" BackgroundColor="Transparent" IsVisible="False">
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowDisconnect"/>
+                        </Border.GestureRecognizers>
+                        <Grid ColumnDefinitions="24,*">
+                            <Label Grid.Column="1" Text="Disconnect" TextColor="#f85149" FontSize="14"/>
                         </Grid>
                     </Border>
                 </VerticalStackLayout>

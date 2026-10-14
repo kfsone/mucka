@@ -6,8 +6,9 @@ namespace Mucka.Pages;
 
 /// <summary>
 /// Hosts the guided-login "Connecting..." experience: shows status/splash text and turns the
-/// controller's persona-choice/create-confirmation events into native pickers/prompts. Pushed
-/// modally by <c>ConnectPage</c> while <see cref="GuidedLoginController.RunAsync"/> runs.
+/// controller's persona-choice/create-confirmation events into native pickers/prompts. Pushed onto
+/// the navigation stack by <c>ConnectPage</c> while <see cref="GuidedLoginController.RunAsync"/>
+/// runs; leaving it by the back button cancels the login.
 /// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
     Justification = "A MAUI page is never Dispose()d, and the token this source hands out outlives the page's own teardown path.")]
@@ -19,6 +20,12 @@ public partial class GuidedLoginPage : ContentPage
     private readonly CancellationTokenSource _cts = new();
 
     public CancellationToken CancellationToken => _cts.Token;
+
+    private bool _handedOff;
+
+    /// <summary>The login has finished and the game page is about to cover this one; leaving the
+    /// page after this is not the player backing out.</summary>
+    public void HandOff() => _handedOff = true;
 
     public GuidedLoginPage(GuidedLoginViewModel vm)
     {
@@ -102,6 +109,8 @@ public partial class GuidedLoginPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+        if (!_handedOff)
+            _cts.Cancel();   // the back button: stop the login rather than leave it running unseen
         _vm.SplashLinesReady -= OnSplashLinesReady;
         _vm.Detach();
     }

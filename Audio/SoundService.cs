@@ -128,10 +128,49 @@ internal static class SoundService
         {
             System.Diagnostics.Debug.WriteLine($"[SoundService] PlayPrepared failed for '{assetName}': {ex.Message}");
         }
+#elif MACCATALYST
+        var player = GetPreparedMacPlayer(assetName);
+        if (player is null)
+        {
+            Play(assetName, volumePercent);
+            return;
+        }
+        lock (s_preparedMac)
+        {
+            player.Volume = Math.Clamp(volumePercent ?? s_volumePercent, 0, 100) / 100f;
+            // Rewound rather than re-opened: the file is opened once, so the only latency left is the
+            // audio path itself. A click cannot overlap itself, which is what a click wants.
+            player.CurrentTime = 0;
+            player.Play();
+        }
 #else
         Play(assetName, volumePercent);
 #endif
     }
+
+#if MACCATALYST
+    private static readonly Dictionary<string, AVFoundation.AVAudioPlayer> s_preparedMac = new();
+
+    /// <summary>The kept-open player for <paramref name="assetName"/>, opened and primed on first use.
+    /// Null when the file is missing or cannot be opened.</summary>
+    private static AVFoundation.AVAudioPlayer? GetPreparedMacPlayer(string assetName)
+    {
+        lock (s_preparedMac)
+        {
+            if (s_preparedMac.TryGetValue(assetName, out var existing))
+                return existing;
+            var path = AssetPath(ResolveAssetName(assetName));
+            if (!File.Exists(path))
+                return null;
+            var player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out _);
+            if (player is null)
+                return null;
+            player.PrepareToPlay();
+            s_preparedMac[assetName] = player;
+            return player;
+        }
+    }
+#endif
 
     /// <summary>
     /// Where an asset's audible content sits inside it - see <see cref="Mucka.Sounds.ClipSpan"/>. Null if
@@ -145,8 +184,18 @@ internal static class SoundService
     /// <para>File I/O - call it once, off the UI thread. See CombatMetronome.SetEnabled.</para>
     /// </summary>
     public static Mucka.Sounds.ClipSpan? WavClipSpan(string assetName)
-        => Mucka.Sounds.WavProbe.Read(Path.GetFullPath(Path.Combine(
-            AppContext.BaseDirectory, ResolveAssetName(assetName).Replace('/', Path.DirectorySeparatorChar))));
+        => Mucka.Sounds.WavProbe.Read(AssetPath(ResolveAssetName(assetName)));
+
+    // Where MauiAssets land: beside the executable on Windows, in the bundle's Resources on a Mac.
+    private static string AssetPath(string assetName)
+    {
+#if MACCATALYST
+        var root = Foundation.NSBundle.MainBundle.ResourcePath ?? AppContext.BaseDirectory;
+#else
+        var root = AppContext.BaseDirectory;
+#endif
+        return Path.GetFullPath(Path.Combine(root, assetName.Replace('/', Path.DirectorySeparatorChar)));
+    }
 
     /// <summary>Opens a sound for <see cref="PlayPrepared"/> ahead of time, so the first click of a
     /// fight does not pay the open cost. Idempotent and a no-op off Windows. <c>GetPreparedPlayer</c>
@@ -159,6 +208,8 @@ internal static class SoundService
     {
 #if WINDOWS
         _ = Task.Run(() => GetPreparedPlayer(assetName));
+#elif MACCATALYST
+        _ = Task.Run(() => GetPreparedMacPlayer(assetName));
 #endif
     }
 
@@ -178,7 +229,13 @@ internal static class SoundService
             return;
 
         try { await PlayCoreAsync(assetName, volumePercent).ConfigureAwait(false); }
-        catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[SoundService] Play failed for '{assetName}': {ex.Message}"); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[SoundService] Play failed for '{assetName}': {ex.Message}");
+#if MACCATALYST
+            Console.Error.WriteLine($"[SoundService] Play failed for '{assetName}': {ex}");
+#endif
+        }
         finally
         {
             if (nonOverlappingTell)
@@ -223,10 +280,8 @@ internal static class SoundService
 
     private static bool AssetExists(string assetName)
     {
-#if WINDOWS
-        var path = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, assetName.Replace('/', Path.DirectorySeparatorChar)));
-        return File.Exists(path);
+#if WINDOWS || MACCATALYST
+        return File.Exists(AssetPath(assetName));
 #elif ANDROID
         try
         {
@@ -396,6 +451,50 @@ internal static class SoundService
         return tcs.Task;
     }
 
+#elif MACCATALYST
+    // AVAudioPlayer is a native object whose managed wrapper must outlive the call: held here until
+    // playback finishes.
+    private static readonly HashSet<AVFoundation.AVAudioPlayer> s_activePlayers = new();
+
+    private static Task PlayCoreAsync(string assetName, int volumePercent)
+    {
+        var path = AssetPath(assetName);
+        if (!File.Exists(path))
+        {
+            Console.Error.WriteLine($"[SoundService] missing asset {path}");
+            return Task.CompletedTask;
+        }
+
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out var error);
+        if (player is null)
+        {
+            Console.Error.WriteLine($"[SoundService] AVAudioPlayer failed for {path}: {error?.LocalizedDescription}");
+            return Task.CompletedTask;
+        }
+
+        var finished = 0;
+        void Finish()
+        {
+            if (Interlocked.Exchange(ref finished, 1) == 1)
+                return;
+            lock (s_activePlayers) s_activePlayers.Remove(player);
+            player.Dispose();
+            tcs.TrySetResult();
+        }
+        lock (s_activePlayers) s_activePlayers.Add(player);
+        player.Volume = volumePercent / 100f;
+        player.FinishedPlaying += (_, _) => Finish();
+        // Backstop: a player that never reports finishing would otherwise hold the caller - and, for a
+        // tell alert, the flag that stops overlapping tells - for good.
+        _ = Task.Delay(TimeSpan.FromSeconds(Math.Max(1.0, player.Duration) + 2.0)).ContinueWith(_ => Finish());
+        if (!player.Play())
+        {
+            Console.Error.WriteLine($"[SoundService] Play() returned false for {path}");
+            Finish();
+        }
+        return tcs.Task;
+    }
 #else
     private static Task PlayCoreAsync(string assetName, int volumePercent) => Task.CompletedTask;
 #endif

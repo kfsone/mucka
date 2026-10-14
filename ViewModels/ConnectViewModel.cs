@@ -9,6 +9,11 @@ namespace Mucka.ViewModels;
 public sealed class ConnectViewModel : BaseViewModel
 {
     private readonly CommandLineArgs _cmdArgs = CommandLineArgs.Current;
+
+    // Picking a profile reads its remembered password straight away, except where reading it is what
+    // asks the player for permission: the Mac keychain prompts on first use, so there it waits until
+    // Connect, when the player has asked to log in.
+    private static readonly bool LoadPasswordOnSelect = !OperatingSystem.IsMacCatalyst();
     private readonly Task _loadProfilesTask;
     // Static: every connection this app makes shares the one dreamword carry, whatever page
     // instance started it.
@@ -17,6 +22,9 @@ public sealed class ConnectViewModel : BaseViewModel
     private string _host = "mud2.co.uk";
     private int _port = 23;
     private string _statusText = string.Empty;
+    private string _progressText = string.Empty;
+    private bool _passwordFetchAttempted;
+    private Profile? _selectedProfile;
     private bool _isConnecting;
     private bool _hasError;
     private string _accountId = string.Empty;
@@ -45,11 +53,61 @@ public sealed class ConnectViewModel : BaseViewModel
     public string Host { get => _host; set => Set(ref _host, value); }
     public int Port { get => _port; set => Set(ref _port, value); }
     public string StatusText { get => _statusText; set => Set(ref _statusText, value); }
-    public bool IsConnecting { get => _isConnecting; set => Set(ref _isConnecting, value); }
+    public bool IsConnecting
+    {
+        get => _isConnecting;
+        set
+        {
+            if (Set(ref _isConnecting, value))
+                OnPropertiesChanged(nameof(IsNotConnecting), nameof(ConnectButtonText), nameof(CanConnect));
+        }
+    }
+
+    public bool IsNotConnecting => !_isConnecting;
+    public string ConnectButtonText => _isConnecting ? "Connecting..." : "Connect  " + Glyph.TriangleRight;
+
+    /// <summary>What the connection attempt is doing right now; shown while <see cref="IsConnecting"/>.</summary>
+    public string ProgressText { get => _progressText; set => Set(ref _progressText, value); }
+
+    /// <summary>The profile row highlighted in the list. Assigned by the list when the player picks a
+    /// row, and by <see cref="ApplyProfile"/> whenever the form is filled from a profile by any other
+    /// route, so the highlight and the form cannot disagree.</summary>
+    public Profile? SelectedProfile
+    {
+        get => _selectedProfile;
+        set
+        {
+            if (ReferenceEquals(_selectedProfile, value)) return;
+            _selectedProfile = value;
+            OnPropertyChanged();
+            if (value is not null) SelectProfile(value);
+        }
+    }
     public bool HasError { get => _hasError; set => Set(ref _hasError, value); }
     public string AccountId { get => _accountId; set => Set(ref _accountId, value); }
-    public string Password { get => _password; set => Set(ref _password, value); }
-    public bool RememberPassword { get => _rememberPassword; set => Set(ref _rememberPassword, value); }
+    public string Password
+    {
+        get => _password;
+        set { if (Set(ref _password, value)) OnPropertiesChanged(nameof(PasswordPlaceholder), nameof(PasswordPlaceholderColor)); }
+    }
+
+    public bool RememberPassword
+    {
+        get => _rememberPassword;
+        set { if (Set(ref _rememberPassword, value)) OnPropertiesChanged(nameof(PasswordPlaceholder), nameof(PasswordPlaceholderColor)); }
+    }
+
+    // A remembered password that has not been fetched yet (see LoadPasswordOnSelect) is shown as
+    // dots in the empty box, so the player can see one is on file without the keychain being asked.
+    private bool RememberedPasswordUnfetched
+        => !LoadPasswordOnSelect && _rememberPassword && _selectedProfile is { RememberPassword: true }
+           && string.IsNullOrEmpty(_password) && !_passwordFetchAttempted;
+
+    public string PasswordPlaceholder
+        => RememberedPasswordUnfetched ? string.Concat(Enumerable.Repeat(Glyph.Bullet, 10)) : "password (optional)";
+
+    public Color PasswordPlaceholderColor
+        => RememberedPasswordUnfetched ? Color.FromArgb("#cccccc") : Color.FromArgb("#444444");
     public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
     public int MaxColumns
@@ -99,7 +157,6 @@ public sealed class ConnectViewModel : BaseViewModel
     public ObservableCollection<Profile> SavedProfiles { get; } = new();
 
     public ICommand ConnectCommand { get; }
-    public ICommand SelectProfileCommand { get; }
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
     public ICommand DeleteProfileCommand { get; }
@@ -111,7 +168,6 @@ public sealed class ConnectViewModel : BaseViewModel
     public ConnectViewModel()
     {
         ConnectCommand = new AsyncCommand(ConnectAsync);
-        SelectProfileCommand = new Command<Profile>(SelectProfile);
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         ShowTelnetHelpCommand = new Command(async () =>
@@ -132,12 +188,22 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         HasError = false;
         StatusText = string.Empty;
+        ProgressText = $"Connecting to {Host.Trim()}...";
         IsConnecting = true;
         OnPropertyChanged(nameof(CanConnect));
         try
         {
             var accountId = AccountId.Trim();
             var loginName = TelnetLoginName.Trim();
+
+            if (!LoadPasswordOnSelect && RememberPassword && accountId.Length > 0 && string.IsNullOrEmpty(Password)
+                && SavedProfiles.FirstOrDefault(p => string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
+                    is { RememberPassword: true } remembered)
+            {
+                await LoadProfilePasswordAsync(remembered);
+                _passwordFetchAttempted = true;
+                OnPropertiesChanged(nameof(PasswordPlaceholder), nameof(PasswordPlaceholderColor));
+            }
 
             string resolvedPassword = Password;
             if (TelnetLoginEnabled && !string.IsNullOrEmpty(accountId) && string.IsNullOrEmpty(resolvedPassword))
@@ -184,8 +250,21 @@ public sealed class ConnectViewModel : BaseViewModel
                    : font.DefaultFontSize > 0 ? font.DefaultFontSize
                    : GameViewModel.DefaultFontSizePx)
                 : GameViewModel.DefaultFontSizePx;
-            var windowCols = Mucka.Terminal.TerminalColumns.Effective(
-                MaxColumns, Mucka.Terminal.TerminalColumns.Displayable(PageWidthDp, fontPx));
+#if MACCATALYST
+            // The game page's terminal sits beside the side panel, so the page's width overstates
+            // what the terminal gets by the panel and the gutter. Observed on the Mac with auto
+            // columns: told ~150, the terminal wrapped the server's already-wrapped lines again.
+            var terminalWidthDp = PageWidthDp - Mucka.Combat.CombatRailResize.SidePanelWidthDp
+                                  - Mucka.Combat.CombatRailResize.TerminalGutterDp;
+#else
+            var terminalWidthDp = PageWidthDp;
+#endif
+            var displayableCols = Mucka.Terminal.TerminalColumns.Displayable(terminalWidthDp, fontPx);
+#if MACCATALYST
+            // The game window is sized to a fixed count's width, so it is not limited by this page.
+            if (MaxColumns > 0) displayableCols = Math.Max(displayableCols, MaxColumns);
+#endif
+            var windowCols = Mucka.Terminal.TerminalColumns.Effective(MaxColumns, displayableCols);
             var conn = await Task.Run(() => new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
@@ -280,10 +359,17 @@ public sealed class ConnectViewModel : BaseViewModel
             }
             if (!IsDirectConnectMode)
             {
-                await SaveCurrentProfileAsync(profile, RememberPassword ? resolvedPassword : null);
+                await SaveCurrentProfileAsync(profile);
             }
 
             Connected?.Invoke(conn, profile);
+
+            // After the session has been handed over, not before: a keychain that stops to ask the
+            // player's permission would otherwise hold the whole login while the server waits.
+            // Not with an empty password while remembering: that is a stored password that was not
+            // fetched (denied, locked), and saving "nothing" would delete it.
+            if (!IsDirectConnectMode && !(RememberPassword && string.IsNullOrEmpty(resolvedPassword)))
+                _ = SavePasswordAsync(profile.Name, RememberPassword ? resolvedPassword : null);
         }
         catch (Exception ex)
         {
@@ -305,6 +391,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
 
         ApplyProfile(p);
+        if (!LoadPasswordOnSelect) return;
         var _ = LoadProfilePasswordAsync(p).ContinueWith(
             t => System.Diagnostics.Debug.WriteLine($"[SelectProfile] password load failed: {t.Exception}"),
             TaskContinuationOptions.OnlyOnFaulted);
@@ -312,6 +399,9 @@ public sealed class ConnectViewModel : BaseViewModel
 
     private int ApplyProfile(Profile p)
     {
+        _selectedProfile = p;
+        OnPropertyChanged(nameof(SelectedProfile));
+        _passwordFetchAttempted = false;
         Password = string.Empty;
         ProfileName = p.Name;
         Host = p.Host;
@@ -331,7 +421,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private async Task SelectProfileAsync(Profile p, bool loadPassword)
     {
         ApplyProfile(p);
-        if (loadPassword)
+        if (loadPassword && LoadPasswordOnSelect)
         {
             await LoadProfilePasswordAsync(p);
         }
@@ -345,7 +435,11 @@ public sealed class ConnectViewModel : BaseViewModel
         }
 
         var selectionVersion = ApplyProfile(profile);
-        await LoadProfilePasswordAsync(profile);
+        // The keychain read below can take a moment; say what is happening before it, not after.
+        ProgressText = $"Logging in to {profile.Name}...";
+        IsConnecting = true;
+        try { await LoadProfilePasswordAsync(profile); }
+        finally { IsConnecting = false; }
         if (selectionVersion != Volatile.Read(ref _profileSelectionVersion))
         {
             return;
@@ -431,7 +525,12 @@ public sealed class ConnectViewModel : BaseViewModel
         if (existing == null) return;
 
         SavedProfiles.Remove(existing);
-        await ProfileStore.SetPasswordAsync(name, null);
+        // The password is a nicety to clear; failing to must not stop the profile being deleted.
+        try { await ProfileStore.SetPasswordAsync(name, null); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] password clear failed for '{name}': {ex}");
+        }
         // The profile's settings:/fkeys: ini sections are deliberately left behind -
         // SaveProfilesAsync only removes the [profile:] section and the order entry.
 
@@ -555,7 +654,24 @@ public sealed class ConnectViewModel : BaseViewModel
     public static Task PersistCombatStatsAsync(bool showCombatStats)
         => SettingsStore.SetGlobalFlagAsync("showcombatstats", showCombatStats);
 
-    private async Task SaveCurrentProfileAsync(Profile incoming, string? password)
+    /// <summary>Stores the remembered password (or clears it). A store that cannot keep it must not
+    /// turn a successful login into a failed one, so the profile is saved again as not remembering.</summary>
+    private async Task SavePasswordAsync(string profileName, string? password)
+    {
+        try { await ProfileStore.SetPasswordAsync(profileName, password); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] password save failed for '{profileName}': {ex}");
+            var saved = SavedProfiles.FirstOrDefault(p =>
+                string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+            if (saved is null) return;
+            saved.RememberPassword = false;
+            try { await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList()); }
+            catch (Exception saveEx) { CrashLog.Write("SavePassword", saveEx); }
+        }
+    }
+
+    private async Task SaveCurrentProfileAsync(Profile incoming)
     {
         var existing = SavedProfiles.FirstOrDefault(p =>
             string.Equals(p.Name, incoming.Name, StringComparison.OrdinalIgnoreCase));
@@ -590,7 +706,6 @@ public sealed class ConnectViewModel : BaseViewModel
             SavedProfiles.Insert(0, incoming);
         }
 
-        await ProfileStore.SetPasswordAsync(incoming.Name, password);
         await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
 
         // Keep mucka.ini in sync - it is the authoritative settings store, so a column

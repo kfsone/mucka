@@ -179,6 +179,13 @@ public sealed class TerminalView : SKCanvasView
 
     // -- Scroll API (host wires wheel / keys to these) -------------------------
 
+    /// <summary>One row's height in device-independent units, or 0 before the first paint. The
+    /// font is sized in surface pixels, so this divides out the surface's scale.</summary>
+    public double RowHeightDp
+        => _font is { CellHeight: > 0f } f && Width > 0 && CanvasSize.Width > 0
+            ? f.CellHeight / (CanvasSize.Width / Width)
+            : 0.0;
+
     /// <summary>Scroll by visual rows; positive = toward older output (up). Enters/exits history as needed.</summary>
     public void ScrollByRows(int rowsTowardOlder)
     {

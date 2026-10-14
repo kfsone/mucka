@@ -20,11 +20,10 @@ internal static class MuckaPaths
     /// <para>Not the cache directory, which the clogs and the wire log used to use. A cache
     /// directory is reclaimable: Android deletes it under storage pressure without asking and
     /// without telling the app, and "Clear cache" in the settings app empties it. That was tolerable
-    /// for a hand-armed log and is not tolerable for the corpus. This is the same directory
-    /// <c>mucka.ini</c> and the crash log already use.</para></summary>
+    /// for a hand-armed log and is not tolerable for the corpus.</para></summary>
     internal static string GetDataDirectory()
     {
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst())
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mucka");
 
         return FileSystem.AppDataDirectory;

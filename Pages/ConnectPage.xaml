@@ -52,7 +52,8 @@
                         x:Name="ProfileList"
                         ItemsSource="{Binding SavedProfiles}"
                         SelectionMode="Single"
-                        SelectionChanged="OnProfileSelected"
+                        SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                        IsEnabled="{Binding IsNotConnecting}"
                         BackgroundColor="#111111">
             <CollectionView.Header>
                 <Label Text="Saved profiles"
@@ -64,6 +65,11 @@
                 <DataTemplate x:DataType="core:Profile">
                     <VerticalStackLayout Padding="12,6" Spacing="2">
                         <VerticalStackLayout.GestureRecognizers>
+                            <!-- Selecting on a single click is the row's own job: on the Mac the double-tap
+                                 recognizer below stops the list's native selection from firing. -->
+                            <TapGestureRecognizer NumberOfTapsRequired="1"
+                                                  Tapped="OnProfileTapped"
+                                                  CommandParameter="{Binding .}" />
                             <TapGestureRecognizer NumberOfTapsRequired="2"
                                                   Tapped="OnProfileDoubleTapped"
                                                   CommandParameter="{Binding .}" />
@@ -159,8 +165,8 @@
                                IsPassword="True"
                                TextColor="White"
                                BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="password (optional)"
+                               PlaceholderColor="{Binding PasswordPlaceholderColor}"
+                               Placeholder="{Binding PasswordPlaceholder}"
                                ToolTipProperties.Text="password (optional)"
                                SemanticProperties.Description="Password (optional)"
                                ReturnType="Done" />
@@ -271,7 +277,7 @@
                 <Grid ColumnDefinitions="*,Auto"
                       ColumnSpacing="8">
                     <Button Grid.Column="0"
-                            Text="Connect  &#x25B6;"
+                            Text="{Binding ConnectButtonText}"
                             Command="{Binding ConnectCommand}"
                             IsEnabled="{Binding CanConnect}"
                             BackgroundColor="#1f6feb"
@@ -377,6 +383,13 @@
                             HorizontalOptions="Fill"/>
 
                 </VerticalStackLayout>
+
+                <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
+                                       HorizontalOptions="Center" Spacing="8">
+                    <ActivityIndicator IsRunning="{Binding IsConnecting}" Color="#58a6ff"
+                                       HeightRequest="18" WidthRequest="18" VerticalOptions="Center"/>
+                    <Label Text="{Binding ProgressText}" TextColor="#58a6ff" VerticalOptions="Center"/>
+                </HorizontalStackLayout>
 
                 <Label Text="{Binding StatusText}"
                        TextColor="#f85149"
