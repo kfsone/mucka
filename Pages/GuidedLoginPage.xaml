@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:core="clr-namespace:Mucka.Core"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:render="clr-namespace:Mucka.Rendering"
              x:Class="Mucka.Pages.GuidedLoginPage"
@@ -15,7 +16,7 @@
                Text="{Binding DropHeadline}"
                TextColor="{Binding DropHeadlineColor}"
                IsVisible="{Binding HasDropContext}"
-               FontSize="28"
+               FontSize="{core:ScaledFont 28}"
                FontAttributes="Bold"
                HorizontalOptions="Center"
                Margin="0,0,0,12"/>
@@ -47,7 +48,7 @@
                 <ActivityIndicator IsRunning="True" Color="#1f6feb" HorizontalOptions="Center"/>
                 <Label Text="{Binding Status}"
                        TextColor="#cccccc"
-                       FontSize="16"
+                       FontSize="{core:ScaledFont 16}"
                        HorizontalOptions="Center"/>
             </VerticalStackLayout>
 
@@ -63,10 +64,10 @@
                     StrokeShape="RoundRectangle 8">
                 <VerticalStackLayout Spacing="12">
                     <HorizontalStackLayout Spacing="10" HorizontalOptions="Center">
-                        <Label Text="&#x2709;" TextColor="#d29922" FontSize="28" VerticalOptions="Center"/>
-                        <Label Text="Mail!" TextColor="#d29922" FontSize="24" FontAttributes="Bold" VerticalOptions="Center"/>
+                        <Label Text="&#x2709;" TextColor="#d29922" FontSize="{core:ScaledFont 28}" VerticalOptions="Center"/>
+                        <Label Text="Mail!" TextColor="#d29922" FontSize="{core:ScaledFont 24}" FontAttributes="Bold" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
-                    <Label Text="{Binding MailText}" TextColor="#cccccc" FontSize="16" HorizontalOptions="Center"/>
+                    <Label Text="{Binding MailText}" TextColor="#cccccc" FontSize="{core:ScaledFont 16}" HorizontalOptions="Center"/>
                     <HorizontalStackLayout Spacing="12" HorizontalOptions="Center">
                         <Button Text="Drop to menu"
                                 Command="{Binding MailDropCommand}"

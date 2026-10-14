@@ -9,6 +9,7 @@ public partial class App : Application
 	public App()
 	{
 		InitializeComponent();
+		Core.UiFontScaleState.LoadSavedStepInBackground();
 	}
 
     protected override Window CreateWindow(IActivationState? activationState)

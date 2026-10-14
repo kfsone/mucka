@@ -39,6 +39,9 @@ public sealed record ClientSettings
     // -- Display tab settings (always global, never per-profile) --------------
     /// <summary>Global default terminal font size in pixels; 0 = use built-in default.</summary>
     public int DefaultFontSize { get; init; }
+    /// <summary>UI font size step for the chrome (<see cref="Mucka.Ui.UiFontScale"/>): 0 Normal,
+    /// 1 Large, 2 Larger. The live value is <see cref="UiFontScaleState.Step"/>.</summary>
+    public int UiFontStep { get; init; }
     /// <summary>Global default maximum terminal columns; 0 = auto-size.</summary>
     public int DefaultMaxColumns { get; init; }
     /// <summary>Dreamword pill font size adjustment relative to the base size. Range -2 to +4.</summary>

@@ -29,6 +29,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _soundsEnabled;
     // -- Display tab (always global) -------------------------------------------
     private double _displayFontSize;
+    private int _uiFontStep;
     private double _displayColumns;
     private double _displayDreamwordOffset;
     private bool   _showOnline;
@@ -262,6 +263,14 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
     public int DisplayFontSizeDisplay => (int)Math.Round(_displayFontSize);
 
+    /// <summary>The UI font size step being edited (<see cref="Mucka.Ui.UiFontScale"/>).</summary>
+    public int UiFontStep
+    {
+        get => _uiFontStep;
+        set => SetAndNotify(ref _uiFontStep, Mucka.Ui.UiFontScale.Clamp(value), [nameof(UiFontStepName)]);
+    }
+    public string UiFontStepName => Mucka.Ui.UiFontScale.Names[_uiFontStep];
+
     public double DisplayColumns
     {
         get => _displayColumns;
@@ -406,6 +415,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand DecrColumnsCommand { get; }
     public ICommand IncrStatFreqCommand { get; }
     public ICommand DecrStatFreqCommand { get; }
+    public ICommand IncrUiFontStepCommand { get; }
+    public ICommand DecrUiFontStepCommand { get; }
     public ICommand IncrDisplayFontSizeCommand { get; }
     public ICommand DecrDisplayFontSizeCommand { get; }
     public ICommand IncrDisplayColumnsCommand { get; }
@@ -453,6 +464,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _soundsEnabled         = settings.Sounds.MasterEnabled;
         // Display tab
         _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
+        _uiFontStep            = Mucka.Ui.UiFontScale.Clamp(settings.UiFontStep);
         _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
         _chatThemeIndex = Math.Max(0, ChatTheme.All.ToList().IndexOf(settings.ChatTheme));
         var chatPalette = ChatColorizer.ResolvePalette(SelectedChatTheme, settings.EmoteColor, settings.SayColor,
@@ -571,6 +583,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DecrColumnsCommand  = new Command(() => Columns  -= 1);
         IncrStatFreqCommand = new Command(() => StatUpdateFrequency += 5);
         DecrStatFreqCommand = new Command(() => StatUpdateFrequency -= 5);
+        IncrUiFontStepCommand              = new Command(() => UiFontStep += 1);
+        DecrUiFontStepCommand              = new Command(() => UiFontStep -= 1);
         IncrDisplayFontSizeCommand         = new Command(() => DisplayFontSize         += 1);
         DecrDisplayFontSizeCommand         = new Command(() => DisplayFontSize         -= 1);
         IncrDisplayColumnsCommand          = new Command(() => DisplayColumns          += 1);
@@ -597,6 +611,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         FkeysPerProfile     = _fkeysToProfileOnly,
         Sounds              = CollectSounds(),
         DefaultFontSize     = DisplayFontSizeDisplay,
+        UiFontStep          = _uiFontStep,
         DefaultMaxColumns   = (int)Math.Round(_displayColumns),
         DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),
         EmoteColor        = EmoteColor.Hex6,

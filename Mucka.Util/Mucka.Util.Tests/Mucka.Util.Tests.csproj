@@ -24,6 +24,7 @@
     <ProjectReference Include="..\Mucka.Combat\Mucka.Combat.csproj" />
     <ProjectReference Include="..\Mucka.Commands\Mucka.Commands.csproj" />
     <ProjectReference Include="..\Mucka.Sounds\Mucka.Sounds.csproj" />
+    <ProjectReference Include="..\Mucka.Ui\Mucka.Ui.csproj" />
   </ItemGroup>
 
   <ItemGroup>

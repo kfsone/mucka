@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:core="clr-namespace:Mucka.Core"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:render="clr-namespace:Mucka.Rendering"
              xmlns:pages="clr-namespace:Mucka.Pages"
@@ -23,7 +24,7 @@
         </OnPlatform>
         <Style x:Key="StatLabelStyle" TargetType="Label">
             <Setter Property="TextColor" Value="White"/>
-            <Setter Property="FontSize" Value="{OnPlatform WinUI=14, MacCatalyst=15, Default=13}"/>
+            <Setter Property="FontSize" Value="{core:ScaledFont Size={OnPlatform WinUI=14, MacCatalyst=15, Default=13}, Tight=True}"/>
             <Setter Property="VerticalOptions" Value="Center"/>
             <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', Default='Cascadia Mono'}"/>
         </Style>
@@ -56,7 +57,7 @@
                         <Border.GestureRecognizers>
                             <TapGestureRecognizer Tapped="OnOverflowMenuTapped"/>
                         </Border.GestureRecognizers>
-                        <Label Text="&#x2630;" TextColor="#aaaaaa" FontSize="13"
+                        <Label Text="&#x2630;" TextColor="#aaaaaa" FontSize="{core:ScaledFont Size=13, Tight=True}"
                                VerticalOptions="Center"/>
                     </Border>
 
@@ -77,7 +78,7 @@
                             <FormattedString>
                                 <Span Text="Sta: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding StaCurValue}" TextColor="{Binding StaColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding StaMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
+                                <Span Text="{Binding StaMaxValue}" TextColor="#808080" FontSize="{core:ScaledFont Size={StaticResource StatMinorFontSize}, Tight=True}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -87,7 +88,7 @@
                             <FormattedString>
                                 <Span Text="Mag: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding MagCurValue}" TextColor="{Binding MagColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding MagMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
+                                <Span Text="{Binding MagMaxValue}" TextColor="#808080" FontSize="{core:ScaledFont Size={StaticResource StatMinorFontSize}, Tight=True}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -96,7 +97,7 @@
                             <FormattedString>
                                 <Span Text="Str: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding StrCurValue}" TextColor="{Binding StrColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding StrMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
+                                <Span Text="{Binding StrMaxValue}" TextColor="#808080" FontSize="{core:ScaledFont Size={StaticResource StatMinorFontSize}, Tight=True}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -105,7 +106,7 @@
                             <FormattedString>
                                 <Span Text="Dex: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding DexCurValue}" TextColor="{Binding DexColor}" FontAttributes="Bold"/>
-                                <Span Text="{Binding DexMaxValue}" TextColor="#808080" FontSize="{StaticResource StatMinorFontSize}"/>
+                                <Span Text="{Binding DexMaxValue}" TextColor="#808080" FontSize="{core:ScaledFont Size={StaticResource StatMinorFontSize}, Tight=True}"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>
@@ -121,8 +122,8 @@
                                 <Span Text="Score: " TextColor="#58a6ff"/>
                                 <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}" FontAttributes="Bold"/>
                                 <Span Text="{Binding ScoreDeltaValue}" TextColor="{Binding ScoreColor}"
-                                      FontSize="{StaticResource StatMinorFontSize}"/>
-                                <Span Text=" &#x1F50D;" TextColor="#58a6ff" FontSize="11"/>
+                                      FontSize="{core:ScaledFont Size={StaticResource StatMinorFontSize}, Tight=True}"/>
+                                <Span Text=" &#x1F50D;" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"/>
                             </FormattedString>
                         </Label.FormattedText>
                         <Label.GestureRecognizers>
@@ -181,7 +182,7 @@
 
                     <!-- Mail: an envelope in the elastic column, right-aligned so it sits just left of
                          the "rec" chip. Tap dismisses it. -->
-                    <Label Grid.Column="11" Text="&#x2709;" TextColor="#d29922" FontSize="16"
+                    <Label Grid.Column="11" Text="&#x2709;" TextColor="#d29922" FontSize="{core:ScaledFont Size=16, Tight=True}"
                            IsVisible="{Binding MailGlyphVisible}"
                            HorizontalOptions="End" VerticalOptions="Center" Margin="0,0,8,0"
                            SemanticProperties.Description="You have mail. Tap to dismiss."
@@ -211,10 +212,10 @@
                             </DataTrigger>
                         </Border.Triggers>
                         <HorizontalStackLayout Spacing="3">
-                            <Label Text="&#x25CF;" FontSize="9" TextColor="#E74856"
+                            <Label Text="&#x25CF;" FontSize="{core:ScaledFont Size=9, Tight=True}" TextColor="#E74856"
                                    IsVisible="{Binding IsRecording}"
                                    VerticalOptions="Center"/>
-                            <Label Text="rec" FontSize="10" HorizontalOptions="Center" VerticalOptions="Center">
+                            <Label Text="rec" FontSize="{core:ScaledFont Size=10, Tight=True}" HorizontalOptions="Center" VerticalOptions="Center">
                                 <Label.Triggers>
                                     <DataTrigger TargetType="Label" Binding="{Binding IsRecording}" Value="True">
                                         <Setter Property="TextColor" Value="White"/>
@@ -264,29 +265,29 @@
 
                     <!-- - Labels row (2pt smaller font) - -->
                     <Label Grid.Row="0" Grid.Column="0"
-                           Text="Sta" TextColor="#58a6ff" FontSize="11"
+                           Text="Sta" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="0" Grid.Column="1"
-                           Text="Mag" TextColor="#58a6ff" FontSize="11"
+                           Text="Mag" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            IsVisible="{Binding MagVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="0" Grid.Column="2"
-                           Text="Str" TextColor="#58a6ff" FontSize="11"
+                           Text="Str" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="0" Grid.Column="3"
-                           Text="Dex" TextColor="#58a6ff" FontSize="11"
+                           Text="Dex" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <!-- col 4: | separator - label row spacer -->
                     <Label Grid.Row="0" Grid.Column="5"
-                           Text="Score" TextColor="#58a6ff" FontSize="11"
+                           Text="Score" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <!-- col 6: | separator, col 7: status effects, col 8: * spacer -->
                     <Label Grid.Row="0" Grid.Column="10"
-                           Text="Wth" TextColor="#58a6ff" FontSize="11"
+                           Text="Wth" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            IsVisible="{Binding WeatherVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <Label Grid.Row="0" Grid.Column="12"
-                           Text="Rst" TextColor="#58a6ff" FontSize="11"
+                           Text="Rst" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            IsVisible="{Binding TtrVisible}"
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
 
@@ -479,7 +480,7 @@
                 <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                 <Label x:Name="ToastLabel"
                        Text="* Copied to clipboard"
-                       TextColor="#3B78FF" FontSize="12"
+                       TextColor="#3B78FF" FontSize="{core:ScaledFont 12}"
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
@@ -541,15 +542,15 @@
                                HorizontalOptions="Fill" HorizontalTextAlignment="Start">
                             <Label.FormattedText>
                                 <FormattedString>
-                                    <Span Text="Online" TextColor="#58a6ff" FontSize="11"
+                                    <Span Text="Online" TextColor="#58a6ff" FontSize="{core:ScaledFont 11}"
                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
-                                    <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="11"
+                                    <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="{core:ScaledFont 11}"
                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                 </FormattedString>
                             </Label.FormattedText>
                         </Label>
                         <!-- Hamburger: opens settings > Display -->
-                        <Label Grid.Column="1" Text="&#x2630;" TextColor="#888888" FontSize="12"
+                        <Label Grid.Column="1" Text="&#x2630;" TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                VerticalOptions="Center" Padding="4,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.OpenFloatingDisplaySettingsCommand}"/>
@@ -557,13 +558,13 @@
                         </Label>
                         <!-- Resize: - shrinks, + grows. Sized and spaced to match the compass
                              windlet, for a reliable tap target. -->
-                        <Label Grid.Column="2" Text="&#x2212;" TextColor="#888888" FontSize="14"
+                        <Label Grid.Column="2" Text="&#x2212;" TextColor="#888888" FontSize="{core:ScaledFont 14}"
                                VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.DecreaseOnlineSizeCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <Label Grid.Column="3" Text="+" TextColor="#888888" FontSize="14"
+                        <Label Grid.Column="3" Text="+" TextColor="#888888" FontSize="{core:ScaledFont 14}"
                                VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.IncreaseOnlineSizeCommand}"/>
@@ -573,7 +574,7 @@
                         <Label Grid.Column="4"
                                Text="{Binding SidePanel.PinGlyph}"
                                TextColor="{Binding SidePanel.PinColor}"
-                               FontSize="14" VerticalOptions="Center"
+                               FontSize="{core:ScaledFont 14}" VerticalOptions="Center"
                                Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
@@ -581,7 +582,7 @@
                         </Label>
                         <!-- Fold toggle -->
                         <Label Grid.Column="5" Text="{Binding SidePanel.FloatingFoldGlyph}"
-                               TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                               TextColor="#444444" FontSize="{core:ScaledFont 9}" VerticalOptions="Center"
                                Padding="4,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingFoldCommand}"/>
@@ -601,15 +602,15 @@
                                             <FormattedString>
                                                 <Span Text="{Binding DisplayPrefix}"
                                                       TextColor="{Binding DisplayColor}"
-                                                      FontSize="9"
+                                                      FontSize="{core:ScaledFont 9}"
                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding DisplayName}"
                                                       TextColor="{Binding DisplayColor}"
-                                                      FontSize="11"
+                                                      FontSize="{core:ScaledFont 11}"
                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding DisplaySuffix}"
                                                       TextColor="{Binding DisplayColor}"
-                                                      FontSize="9"
+                                                      FontSize="{core:ScaledFont 9}"
                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                             </FormattedString>
                                         </Label.FormattedText>
@@ -626,7 +627,7 @@
                 <!-- Corner lock: unlock to drag + reveal the title strip; re-lock for a clean,
                      content-only windlet. Overlaid, so it never shifts the list down. -->
                 <Label x:Name="OnlineLockIcon" Text="{Binding SidePanel.FloatingOnlineLockGlyph}"
-                       FontSize="11" Opacity="0.5"
+                       FontSize="{core:ScaledFont 11}" Opacity="0.5"
                        HorizontalOptions="End" VerticalOptions="Start" Padding="6,3,4,3">
                     <Label.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingOnlineLockCommand}"/>
@@ -665,13 +666,13 @@
                           IsVisible="{Binding SidePanel.IsFloatingMapUnlocked}">
                         <!-- Resize: - shrinks, + grows. Sized and spaced for a reliable tap target
                              on a phone. -->
-                        <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="14"
+                        <Label Grid.Column="1" Text="&#x2212;" TextColor="#888888" FontSize="{core:ScaledFont 14}"
                                VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.DecreaseMapSizeCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
-                        <Label Grid.Column="2" Text="+" TextColor="#888888" FontSize="14"
+                        <Label Grid.Column="2" Text="+" TextColor="#888888" FontSize="{core:ScaledFont 14}"
                                VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.IncreaseMapSizeCommand}"/>
@@ -680,14 +681,14 @@
                         <!-- Dock toggle: hollow [ ] = float me, filled [x] = dock me -->
                         <Label Grid.Column="3" Text="{Binding SidePanel.MapPinGlyph}"
                                TextColor="{Binding SidePanel.MapPinColor}"
-                               FontSize="14" VerticalOptions="Center" Padding="7,0,0,0">
+                               FontSize="{core:ScaledFont 14}" VerticalOptions="Center" Padding="7,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
                         <!-- Fold toggle -->
                         <Label Grid.Column="4" Text="{Binding SidePanel.FloatingMapFoldGlyph}"
-                               TextColor="#444444" FontSize="9" VerticalOptions="Center" Padding="4,0,0,0">
+                               TextColor="#444444" FontSize="{core:ScaledFont 9}" VerticalOptions="Center" Padding="4,0,0,0">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingMapFoldCommand}"/>
                             </Label.GestureRecognizers>
@@ -714,7 +715,7 @@
                 <!-- Corner lock: unlock to drag + reveal the title strip; re-lock for a clean,
                      dial-only windlet. Overlaid, so it never shifts the dial down. -->
                 <Label x:Name="MapLockIcon" Text="{Binding SidePanel.FloatingMapLockGlyph}"
-                       FontSize="11" Opacity="0.5"
+                       FontSize="{core:ScaledFont 11}" Opacity="0.5"
                        HorizontalOptions="End" VerticalOptions="Start" Padding="6,3,4,3">
                     <Label.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SidePanel.ToggleFloatingMapLockCommand}"/>
@@ -810,7 +811,7 @@
                     Command="{Binding ToggleChatModeCommand}"
                     ToolTipProperties.Text="Show chat messages only"
                     BackgroundColor="#2d333b" TextColor="#888888"
-                    FontSize="10" CornerRadius="3"
+                    FontSize="{core:ScaledFont 10}" CornerRadius="3"
                     WidthRequest="44" HeightRequest="26" Padding="0"
                     VerticalOptions="Center" Margin="4,0,0,0">
                 <Button.Triggers>
@@ -829,7 +830,7 @@
                     Command="{Binding ToggleFkeysCommand}"
                     ToolTipProperties.Text="Toggle toolbar (right-click: settings)"
                     BackgroundColor="#2d333b" TextColor="#888888"
-                    FontSize="10" CornerRadius="3"
+                    FontSize="{core:ScaledFont 10}" CornerRadius="3"
                     WidthRequest="30" HeightRequest="26" Padding="0"
                     VerticalOptions="Center" Margin="4,0,0,0">
                 <Button.Triggers>
@@ -844,7 +845,7 @@
                     Text="&#x25B6;"
                     Command="{Binding SendCommand}"
                     BackgroundColor="#1f6feb" TextColor="White"
-                    FontSize="10" CornerRadius="3"
+                    FontSize="{core:ScaledFont 10}" CornerRadius="3"
                     WidthRequest="30" HeightRequest="26" Padding="0"
                     VerticalOptions="Center" Margin="4,0,0,0"/>
 
@@ -862,7 +863,7 @@
                     <TapGestureRecognizer Tapped="OnScrollbackBarTapped"/>
                 </Border.GestureRecognizers>
                 <Label Text="SCROLLBACK &#x2014; Esc or click to return to live"
-                       TextColor="#F9F1A5" FontSize="12"
+                       TextColor="#F9F1A5" FontSize="{core:ScaledFont 12}"
                        HorizontalOptions="Center" VerticalOptions="Center"
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
             </Border>
@@ -921,9 +922,9 @@
                                            HorizontalOptions="Fill" HorizontalTextAlignment="Start">
                                         <Label.FormattedText>
                                             <FormattedString>
-                                                <Span Text="Online" TextColor="#58a6ff" FontSize="11"
+                                                <Span Text="Online" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
-                                                <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="11"
+                                                <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                             </FormattedString>
                                         </Label.FormattedText>
@@ -933,7 +934,7 @@
                                     <Label Grid.Column="1"
                                            Text="{Binding SidePanel.PinGlyph}"
                                            TextColor="{Binding SidePanel.PinColor}"
-                                           FontSize="13" VerticalOptions="Center"
+                                           FontSize="{core:ScaledFont Size=13, Tight=True}" VerticalOptions="Center"
                                            Padding="4,0,0,0">
                                         <Label.GestureRecognizers>
                                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}"/>
@@ -941,7 +942,7 @@
                                     </Label>
                                     <!-- Fold toggle -->
                                     <Label Grid.Column="2" Text="{Binding SidePanel.OnlineFoldGlyph}"
-                                           TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                           TextColor="#444444" FontSize="{core:ScaledFont Size=9, Tight=True}" VerticalOptions="Center"
                                            Padding="4,0,0,0">
                                         <Label.GestureRecognizers>
                                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlineCommand}"/>
@@ -960,15 +961,15 @@
                                                         <FormattedString>
                                                             <Span Text="{Binding DisplayPrefix}"
                                                                   TextColor="{Binding DisplayColor}"
-                                                                  FontSize="9"
+                                                                  FontSize="{core:ScaledFont Size=9, Tight=True}"
                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                             <Span Text="{Binding DisplayName}"
                                                                   TextColor="{Binding DisplayColor}"
-                                                                  FontSize="11"
+                                                                  FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                             <Span Text="{Binding DisplaySuffix}"
                                                                   TextColor="{Binding DisplayColor}"
-                                                                  FontSize="9"
+                                                                  FontSize="{core:ScaledFont Size=9, Tight=True}"
                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                         </FormattedString>
                                                     </Label.FormattedText>
@@ -1000,7 +1001,7 @@
                                                     <!-- Separator: hairline rule with the age at the right end ("- ~1 min"). -->
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,3,0,1">
                                                         <BoxView Grid.Column="0" Color="#2d333b" HeightRequest="1" VerticalOptions="Center"/>
-                                                        <Label Grid.Column="1" Text="{Binding Header}" TextColor="#6e7681" FontSize="8"
+                                                        <Label Grid.Column="1" Text="{Binding Header}" TextColor="#6e7681" FontSize="{core:ScaledFont Size=8, Tight=True}"
                                                                FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                     </Grid>
                                                     <VerticalStackLayout Spacing="1"
@@ -1014,13 +1015,13 @@
                                                                     <Label.FormattedText>
                                                                         <FormattedString>
                                                                             <Span Text="{Binding DisplayPrefix}"
-                                                                                  TextColor="{Binding DisplayColor}" FontSize="9"
+                                                                                  TextColor="{Binding DisplayColor}" FontSize="{core:ScaledFont Size=9, Tight=True}"
                                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplayName}"
-                                                                                  TextColor="{Binding DisplayColor}" FontSize="11"
+                                                                                  TextColor="{Binding DisplayColor}" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplaySuffix}"
-                                                                                  TextColor="{Binding DisplayColor}" FontSize="9"
+                                                                                  TextColor="{Binding DisplayColor}" FontSize="{core:ScaledFont Size=9, Tight=True}"
                                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                                         </FormattedString>
                                                                     </Label.FormattedText>
@@ -1059,11 +1060,11 @@
 
                                         <!-- Carrying heading + fold toggle -->
                                         <Grid ColumnDefinitions="*,Auto">
-                                            <Label Text="Carrying" TextColor="#58a6ff" FontSize="11"
+                                            <Label Text="Carrying" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                    VerticalOptions="Center"
                                                    HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
                                             <Label Grid.Column="1" Text="{Binding SidePanel.InventoryFoldGlyph}"
-                                                   TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                                   TextColor="#444444" FontSize="{core:ScaledFont Size=9, Tight=True}" VerticalOptions="Center"
                                                    Padding="8,0,0,0">
                                                 <Label.GestureRecognizers>
                                                     <TapGestureRecognizer Command="{Binding SidePanel.ToggleInventoryCommand}"/>
@@ -1072,13 +1073,13 @@
                                         </Grid>
                                         <VerticalStackLayout IsVisible="{Binding SidePanel.IsInventoryExpanded}" Spacing="1">
                                             <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoInventory}"
-                                                   TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                                   TextColor="#555555" FontSize="{core:ScaledFont Size=11, Tight=True}" FontAttributes="Italic"
                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"/>
                                             <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
                                                                  BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
                                                 <BindableLayout.ItemTemplate>
                                                     <DataTemplate x:DataType="x:String">
-                                                        <Label Text="{Binding .}" TextColor="#cccccc" FontSize="11"
+                                                        <Label Text="{Binding .}" TextColor="#cccccc" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                                HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                                                FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                                     </DataTemplate>
@@ -1090,11 +1091,11 @@
 
                                         <!-- Items here heading + fold toggle -->
                                         <Grid ColumnDefinitions="*,Auto">
-                                            <Label Text="Here" TextColor="#58a6ff" FontSize="11"
+                                            <Label Text="Here" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                    VerticalOptions="Center"
                                                    HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
                                             <Label Grid.Column="1" Text="{Binding SidePanel.ItemsHereFoldGlyph}"
-                                                   TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                                   TextColor="#444444" FontSize="{core:ScaledFont Size=9, Tight=True}" VerticalOptions="Center"
                                                    Padding="8,0,0,0">
                                                 <Label.GestureRecognizers>
                                                     <TapGestureRecognizer Command="{Binding SidePanel.ToggleItemsHereCommand}"/>
@@ -1103,7 +1104,7 @@
                                         </Grid>
                                         <VerticalStackLayout IsVisible="{Binding SidePanel.IsItemsHereExpanded}" Spacing="1">
                                             <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoRoomItems}"
-                                                   TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                                   TextColor="#555555" FontSize="{core:ScaledFont Size=11, Tight=True}" FontAttributes="Italic"
                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"/>
                                             <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasRoomItems}"
                                                                  BindableLayout.ItemsSource="{Binding SidePanel.RoomItemsList}">
@@ -1117,7 +1118,7 @@
                                                     <DataTemplate x:DataType="vm:RoomEntry">
                                                         <Grid ColumnDefinitions="*,16">
                                                             <Label Grid.Column="0" Text="{Binding Name}"
-                                                                   TextColor="{Binding TextColor}" FontSize="11"
+                                                                   TextColor="{Binding TextColor}" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                                    VerticalOptions="Center"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                                                    FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
@@ -1149,21 +1150,21 @@
 
                                     <!-- Map heading: label . float toggle . fold toggle -->
                                     <Grid Margin="0,0,0,1" ColumnDefinitions="*,Auto,Auto">
-                                        <Label Text="Map" TextColor="#58a6ff" FontSize="11"
+                                        <Label Text="Map" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                                                VerticalOptions="Center"
                                                HorizontalOptions="Fill" HorizontalTextAlignment="Start"/>
                                         <!-- Float toggle: hollow [ ] = docked (tap to float me),
                                              filled [x] = floated free (tap to dock me) -->
                                         <Label Grid.Column="1" Text="{Binding SidePanel.MapPinGlyph}"
                                                TextColor="{Binding SidePanel.MapPinColor}"
-                                               FontSize="13" VerticalOptions="Center"
+                                               FontSize="{core:ScaledFont Size=13, Tight=True}" VerticalOptions="Center"
                                                Padding="8,0,0,0">
                                             <Label.GestureRecognizers>
                                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}"/>
                                             </Label.GestureRecognizers>
                                         </Label>
                                         <Label Grid.Column="2" Text="{Binding SidePanel.MapFoldGlyph}"
-                                               TextColor="#444444" FontSize="9" VerticalOptions="Center"
+                                               TextColor="#444444" FontSize="{core:ScaledFont Size=9, Tight=True}" VerticalOptions="Center"
                                                Padding="8,0,0,0">
                                             <Label.GestureRecognizers>
                                                 <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapCommand}"/>
@@ -1192,11 +1193,11 @@
 
                                     <!-- Room trail: one font point smaller per step back -->
                                     <Label Text="{Binding SidePanel.OldestRoom}"
-                                           TextColor="#00a000" FontSize="11" FontAttributes="Bold"
+                                           TextColor="#00a000" FontSize="{core:ScaledFont Size=11, Tight=True}" FontAttributes="Bold"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="{Binding SidePanel.PreviousRoom}"
-                                           TextColor="#00c000" FontSize="12"
+                                           TextColor="#00c000" FontSize="{core:ScaledFont Size=12, Tight=True}"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
 
@@ -1204,14 +1205,14 @@
                                          doesn't shift when a long description wraps. -->
                                     <Label Text="{Binding SidePanel.CurrentRoom}"
                                            IsVisible="{Binding SidePanel.HasCurrentRoom}"
-                                           TextColor="#00ff00" FontSize="13" FontAttributes="Bold"
+                                           TextColor="#00ff00" FontSize="{core:ScaledFont Size=13, Tight=True}" FontAttributes="Bold"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            MaxLines="2" LineBreakMode="TailTruncation"
                                            MinimumHeightRequest="{OnPlatform WinUI=36, Default=40}"
                                            Margin="0,4,0,0"
                                            FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoCurrentRoom}"
-                                           TextColor="#555555" FontSize="11" FontAttributes="Italic"
+                                           TextColor="#555555" FontSize="{core:ScaledFont Size=11, Tight=True}" FontAttributes="Italic"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                            Margin="0,4,0,0"/>
                             </VerticalStackLayout>
@@ -1399,17 +1400,17 @@
                 <VerticalStackLayout Spacing="4">
 
                     <Grid ColumnDefinitions="*,Auto">
-                        <Label Text="Mucka" TextColor="White" FontSize="14" FontAttributes="Bold"/>
-                        <Label Grid.Column="1" Text="&#x2715;" TextColor="#888888" FontSize="12"
+                        <Label Text="Mucka" TextColor="White" FontSize="{core:ScaledFont 14}" FontAttributes="Bold"/>
+                        <Label Grid.Column="1" Text="&#x2715;" TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                Padding="8,0,0,0" VerticalOptions="Center">
                             <Label.GestureRecognizers>
                                 <TapGestureRecognizer Command="{Binding SidePanel.CloseAboutCommand}"/>
                             </Label.GestureRecognizers>
                         </Label>
                     </Grid>
-                    <Label Text="a muddy client" TextColor="#888888" FontSize="11" FontAttributes="Italic"/>
+                    <Label Text="a muddy client" TextColor="#888888" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"/>
 
-                    <Label FontSize="11" Margin="0,6,0,0">
+                    <Label FontSize="{core:ScaledFont 11}" Margin="0,6,0,0">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Version " TextColor="#888888"/>
@@ -1418,7 +1419,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11" Margin="0,2,0,0">
+                    <Label FontSize="{core:ScaledFont 11}" Margin="0,2,0,0">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="&#xA9; " TextColor="#888888"/>
@@ -1430,14 +1431,14 @@
                         </Label.GestureRecognizers>
                     </Label>
 
-                    <Label Text="github.com/kfsone/mucka" TextColor="#58a6ff" FontSize="11"
+                    <Label Text="github.com/kfsone/mucka" TextColor="#58a6ff" FontSize="{core:ScaledFont 11}"
                            TextDecorations="Underline" Margin="0,2,0,0">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://github.com/kfsone/mucka"/>
                         </Label.GestureRecognizers>
                     </Label>
 
-                    <Label Text="Releases" TextColor="#58a6ff" FontSize="11"
+                    <Label Text="Releases" TextColor="#58a6ff" FontSize="{core:ScaledFont 11}"
                            TextDecorations="Underline" Margin="0,2,0,0">
                         <Label.GestureRecognizers>
                             <TapGestureRecognizer Command="{Binding SidePanel.OpenLinkCommand}" CommandParameter="https://github.com/kfsone/mucka/releases"/>
@@ -1446,7 +1447,7 @@
 
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Heavily inspired by " TextColor="#888888"/>
@@ -1458,13 +1459,13 @@
                         </Label.GestureRecognizers>
                     </Label>
 
-                    <Label Text="Clio &#xA9; Ian Peattie" TextColor="#888888" FontSize="11"/>
+                    <Label Text="Clio &#xA9; Ian Peattie" TextColor="#888888" FontSize="{core:ScaledFont 11}"/>
 
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 
-                    <Label Text="Tips" TextColor="White" FontSize="11" FontAttributes="Bold"/>
+                    <Label Text="Tips" TextColor="White" FontSize="{core:ScaledFont 11}" FontAttributes="Bold"/>
 
-                    <Label FontSize="11" Margin="0,2,0,0">
+                    <Label FontSize="{core:ScaledFont 11}" Margin="0,2,0,0">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Ctrl-D" TextColor="#58a6ff"/>
@@ -1473,7 +1474,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Ctrl-Shift-D" TextColor="#58a6ff"/>
@@ -1482,7 +1483,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Ctrl-F" TextColor="#58a6ff"/>
@@ -1491,7 +1492,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Ctrl-Shift-F" TextColor="#58a6ff"/>
@@ -1500,7 +1501,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="Ctrl-`" TextColor="#58a6ff"/>
@@ -1509,7 +1510,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="F1-F12" TextColor="#58a6ff"/>
@@ -1518,7 +1519,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="PgUp / PgDn" TextColor="#58a6ff"/>
@@ -1527,7 +1528,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="$help" TextColor="#58a6ff"/>
@@ -1536,7 +1537,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="$name=command" TextColor="#58a6ff"/>
@@ -1545,7 +1546,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="^1 / ^2 / ^3" TextColor="#58a6ff"/>
@@ -1554,7 +1555,7 @@
                         </Label.FormattedText>
                     </Label>
 
-                    <Label FontSize="11">
+                    <Label FontSize="{core:ScaledFont 11}">
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="$$ / ^^" TextColor="#58a6ff"/>
@@ -1565,7 +1566,7 @@
 
                     <BoxView Color="#2d333b" HeightRequest="1" Margin="0,8"/>
 
-                    <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="11" FontAttributes="Bold"/>
+                    <Label Text="WORK IN PROGRESS" TextColor="#e3b341" FontSize="{core:ScaledFont 11}" FontAttributes="Bold"/>
 
                 </VerticalStackLayout>
                 </ScrollView>
@@ -1599,10 +1600,10 @@
                             <TapGestureRecognizer Command="{Binding SidePanel.TogglePanelCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsPanelExpanded}"/>
-                            <Label Grid.Column="1" Text="Side Panel" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Side Panel" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>
@@ -1611,10 +1612,10 @@
                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleOnlinePinnedCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsFloatingOnlineVisible}"/>
-                            <Label Grid.Column="1" Text="Onlines" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Onlines" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"/>
@@ -1623,10 +1624,10 @@
                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleMapPinnedCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsFloatingMapVisible}"/>
-                            <Label Grid.Column="1" Text="Compass" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Compass" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
                     <BoxView Color="#2d333b" HeightRequest="1"
@@ -1645,10 +1646,10 @@
                             <TapGestureRecognizer Tapped="OnOverflowCombatRail"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding SidePanel.IsCombatPanelVisible}"/>
-                            <Label Grid.Column="1" Text="Combat" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Combat" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
                     <!-- Combat's two dependants below are drawn as a SUB-GROUP: indented into the
@@ -1676,7 +1677,7 @@
                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatStatsCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="34,*">
-                            <Label Grid.Column="0" Text="&#x2713;" FontSize="13"
+                            <Label Grid.Column="0" Text="&#x2713;" FontSize="{core:ScaledFont 13}"
                                    VerticalOptions="Center" Margin="10,0,0,0"
                                    IsVisible="{Binding SidePanel.IsCombatStatsEnabled}">
                                 <Label.Triggers>
@@ -1690,7 +1691,7 @@
                                     </DataTrigger>
                                 </Label.Triggers>
                             </Label>
-                            <Label Grid.Column="1" Text="Stats" FontSize="13">
+                            <Label Grid.Column="1" Text="Stats" FontSize="{core:ScaledFont 13}">
                                 <Label.Triggers>
                                     <DataTrigger TargetType="Label"
                                                  Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="True">
@@ -1718,7 +1719,7 @@
                             <TapGestureRecognizer Command="{Binding SidePanel.ToggleCombatFloatsCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="34,*">
-                            <Label Grid.Column="0" Text="&#x2713;" FontSize="13"
+                            <Label Grid.Column="0" Text="&#x2713;" FontSize="{core:ScaledFont 13}"
                                    VerticalOptions="Center" Margin="10,0,0,0"
                                    IsVisible="{Binding SidePanel.IsCombatFloatsEnabled}">
                                 <Label.Triggers>
@@ -1732,7 +1733,7 @@
                                     </DataTrigger>
                                 </Label.Triggers>
                             </Label>
-                            <Label Grid.Column="1" Text="Damage floats" FontSize="13">
+                            <Label Grid.Column="1" Text="Damage floats" FontSize="{core:ScaledFont 13}">
                                 <Label.Triggers>
                                     <DataTrigger TargetType="Label"
                                                  Binding="{Binding SidePanel.IsCombatPanelVisible}" Value="True">
@@ -1761,10 +1762,10 @@
                             <TapGestureRecognizer Command="{Binding ToggleRecordingCommand}" Tapped="OnOverflowItemTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding IsRecording}"/>
-                            <Label Grid.Column="1" Text="Log Recording" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Log Recording" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
 
@@ -1776,10 +1777,10 @@
                             <TapGestureRecognizer Tapped="OnOverflowScore"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="14"
+                            <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding ScoreGraph.IsVisible}"/>
-                            <Label Grid.Column="1" Text="Score" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Score" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
 
@@ -1789,7 +1790,7 @@
                             <TapGestureRecognizer Tapped="OnOverflowSettings"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="1" Text="Settings" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Settings" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
 
@@ -1804,9 +1805,9 @@
                             <TapGestureRecognizer Tapped="OnOverflowOrientationTapped"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*,Auto">
-                            <Label Grid.Column="1" Text="Orientation" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Orientation" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                             <Label x:Name="OrientationChevron" Grid.Column="2" Text="&#x25b8;"
-                                   TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                   TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                         </Grid>
                     </Border>
                     <VerticalStackLayout x:Name="OrientationSubmenu" IsVisible="False" Spacing="0"
@@ -1817,9 +1818,9 @@
                             </Border.GestureRecognizers>
                             <Grid ColumnDefinitions="34,*">
                                 <Label x:Name="OrientCheckSystem" Grid.Column="0" Text="&#x2713;"
-                                       TextColor="#3fb950" FontSize="13" VerticalOptions="Center"
+                                       TextColor="#3fb950" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                        Margin="10,0,0,0" IsVisible="True"/>
-                                <Label Grid.Column="1" Text="System" TextColor="#d0d0d0" FontSize="13"/>
+                                <Label Grid.Column="1" Text="System" TextColor="#d0d0d0" FontSize="{core:ScaledFont 13}"/>
                             </Grid>
                         </Border>
                         <BoxView Color="#2d333b" HeightRequest="1"/>
@@ -1829,9 +1830,9 @@
                             </Border.GestureRecognizers>
                             <Grid ColumnDefinitions="34,*">
                                 <Label x:Name="OrientCheckPortrait" Grid.Column="0" Text="&#x2713;"
-                                       TextColor="#3fb950" FontSize="13" VerticalOptions="Center"
+                                       TextColor="#3fb950" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                        Margin="10,0,0,0" IsVisible="False"/>
-                                <Label Grid.Column="1" Text="Portrait" TextColor="#d0d0d0" FontSize="13"/>
+                                <Label Grid.Column="1" Text="Portrait" TextColor="#d0d0d0" FontSize="{core:ScaledFont 13}"/>
                             </Grid>
                         </Border>
                         <BoxView Color="#2d333b" HeightRequest="1"/>
@@ -1841,9 +1842,9 @@
                             </Border.GestureRecognizers>
                             <Grid ColumnDefinitions="34,*">
                                 <Label x:Name="OrientCheckLandscape" Grid.Column="0" Text="&#x2713;"
-                                       TextColor="#3fb950" FontSize="13" VerticalOptions="Center"
+                                       TextColor="#3fb950" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                        Margin="10,0,0,0" IsVisible="False"/>
-                                <Label Grid.Column="1" Text="Landscape" TextColor="#d0d0d0" FontSize="13"/>
+                                <Label Grid.Column="1" Text="Landscape" TextColor="#d0d0d0" FontSize="{core:ScaledFont 13}"/>
                             </Grid>
                         </Border>
                     </VerticalStackLayout>
@@ -1853,7 +1854,7 @@
                             <TapGestureRecognizer Tapped="OnOverflowAbout"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="1" Text="About" TextColor="White" FontSize="14"/>
+                            <Label Grid.Column="1" Text="About" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
                     <!-- The Mac window has no navigation bar and no back gesture, so the way back to the
@@ -1864,7 +1865,7 @@
                             <TapGestureRecognizer Tapped="OnOverflowDisconnect"/>
                         </Border.GestureRecognizers>
                         <Grid ColumnDefinitions="24,*">
-                            <Label Grid.Column="1" Text="Disconnect" TextColor="#f85149" FontSize="14"/>
+                            <Label Grid.Column="1" Text="Disconnect" TextColor="#f85149" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
                 </VerticalStackLayout>

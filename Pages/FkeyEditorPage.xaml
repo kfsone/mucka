@@ -65,7 +65,7 @@
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Settings" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Settings" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
                             <DataTrigger TargetType="Label" Binding="{Binding IsSettingsTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
@@ -90,7 +90,7 @@
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Display" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Display" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
                             <DataTrigger TargetType="Label" Binding="{Binding IsDisplayTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
@@ -115,7 +115,7 @@
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Hotkeys" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Hotkeys" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
                             <DataTrigger TargetType="Label" Binding="{Binding IsHotkeysTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
@@ -140,7 +140,7 @@
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Sounds" FontSize="13" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Sounds" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
                             <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
@@ -172,46 +172,46 @@
                                   VerticalOptions="Center"/>
                         <Label Grid.Column="1"
                                Text="Save to profile only (otherwise these settings are shared by all profiles)"
-                               TextColor="#888888" FontSize="12"
+                               TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                VerticalOptions="Center"/>
                     </Grid>
 
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="Font Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrFontSizeCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding FontSizeDisplay}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding FontSizeDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrFontSizeCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
 
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Columns" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="Columns" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrColumnsCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding ColumnsLabel}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding ColumnsLabel}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    MinimumWidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrColumnsCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
 
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Volume" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="Volume" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
-                            <Label Text="{Binding VolumeDisplay}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding VolumeDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="28" VerticalOptions="Center"/>
                             <Slider Minimum="0" Maximum="100" WidthRequest="160"
                                     Value="{Binding Volume, Mode=TwoWay}"/>
@@ -219,17 +219,17 @@
                     </Grid>
 
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Stat Update (FES)" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="Stat Update (FES)" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrStatFreqCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding StatUpdateFrequencyDisplay}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding StatUpdateFrequencyDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="44" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrStatFreqCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
@@ -245,7 +245,7 @@
                                       VerticalOptions="Start"/>
                             <Label Grid.Column="1"
                                    Text="Hey, that gong-like 'beep' sound was funny at first but it gets annoying, how about you just not?"
-                                   TextColor="#888888" FontSize="12"
+                                   TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                    VerticalOptions="Center"/>
                         </Grid>
 
@@ -259,12 +259,12 @@
                                       VerticalOptions="Center"/>
                             <Label Grid.Column="1"
                                    Text="Like, ever?"
-                                   TextColor="#888888" FontSize="12"
+                                   TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                    VerticalOptions="Center"/>
                         </Grid>
 
                         <!-- "Hear it" link: always visible -->
-                        <Label Margin="28,0,0,0" FontSize="12">
+                        <Label Margin="28,0,0,0" FontSize="{core:ScaledFont 12}">
                             <Label.FormattedText>
                                 <FormattedString>
                                     <Span Text="Wait, what beep-gong sound? I want to " TextColor="#888888"/>
@@ -282,7 +282,7 @@
                         <!-- Advanced (Debug builds only): reset-timer diagnostics into the recording -->
                         <VerticalStackLayout Spacing="4" Margin="0,12,0,0"
                                              IsVisible="{Binding IsTtrDiagAvailable}">
-                            <Label Text="Advanced" TextColor="#c9d1d9" FontSize="14" FontAttributes="Bold"/>
+                            <Label Text="Advanced" TextColor="#c9d1d9" FontSize="{core:ScaledFont 14}" FontAttributes="Bold"/>
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                                 <CheckBox Grid.Column="0"
                                           IsChecked="{Binding LogResetDiagnostics, Mode=TwoWay}"
@@ -290,7 +290,7 @@
                                           VerticalOptions="Center"/>
                                 <Label Grid.Column="1"
                                        Text="Log reset-timer (TTR) diagnostics - requires session recording"
-                                       TextColor="#888888" FontSize="12"
+                                       TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                        VerticalOptions="Center"/>
                             </Grid>
                         </VerticalStackLayout>
@@ -311,7 +311,7 @@
                               VerticalOptions="Center"/>
                     <Label Grid.Column="1"
                            Text="Save to profile only (otherwise these hotkeys are shared by all profiles)"
-                           TextColor="#888888" FontSize="12"
+                           TextColor="#888888" FontSize="{core:ScaledFont 12}"
                            VerticalOptions="Center"/>
                 </Grid>
 
@@ -322,7 +322,7 @@
                             Command="{Binding SetModifierCommand}"
                             CommandParameter="0"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
-                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            FontSize="{core:ScaledFont 12}" WidthRequest="72" HeightRequest="30"
                             CornerRadius="4" Padding="0">
                         <Button.Triggers>
                             <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="0">
@@ -336,7 +336,7 @@
                             Command="{Binding SetModifierCommand}"
                             CommandParameter="1"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
-                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            FontSize="{core:ScaledFont 12}" WidthRequest="72" HeightRequest="30"
                             CornerRadius="4" Padding="0">
                         <Button.Triggers>
                             <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="1">
@@ -350,7 +350,7 @@
                             Command="{Binding SetModifierCommand}"
                             CommandParameter="2"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
-                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            FontSize="{core:ScaledFont 12}" WidthRequest="72" HeightRequest="30"
                             CornerRadius="4" Padding="0">
                         <Button.Triggers>
                             <DataTrigger TargetType="Button" Binding="{Binding ActiveModifier}" Value="2">
@@ -366,7 +366,7 @@
                             ToolTipProperties.Text="Import from clio.ini"
                             IsVisible="False"
                             BackgroundColor="#2d333b" TextColor="#888888"
-                            FontSize="12" WidthRequest="72" HeightRequest="30"
+                            FontSize="{core:ScaledFont 12}" WidthRequest="72" HeightRequest="30"
                             CornerRadius="4" Padding="0"/>
                 </Grid>
 
@@ -379,7 +379,7 @@
                                     <Label Grid.Column="0"
                                            Text="{Binding Label}"
                                            TextColor="#888888"
-                                           FontSize="12"
+                                           FontSize="{core:ScaledFont 12}"
                                            VerticalOptions="Center"
                                            WidthRequest="36"/>
                                     <Entry Grid.Column="1"
@@ -409,9 +409,9 @@
                               Color="#1f6feb"
                               VerticalOptions="Center"/>
                     <Label Grid.Column="1" Text="All sounds" TextColor="White"
-                           FontSize="13" FontAttributes="Bold" VerticalOptions="Center"/>
+                           FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center"/>
                     <Label Grid.Column="2" Text="{Binding VolumeDisplay}" TextColor="White"
-                           FontSize="13" WidthRequest="28" HorizontalTextAlignment="End"
+                           FontSize="{core:ScaledFont 13}" WidthRequest="28" HorizontalTextAlignment="End"
                            VerticalOptions="Center"/>
                     <Slider Grid.Column="3" Minimum="0" Maximum="100" WidthRequest="160"
                             Value="{Binding Volume, Mode=TwoWay}" VerticalOptions="Center"/>
@@ -420,13 +420,13 @@
                             Text="Reset to Default"
                             Command="{Binding ResetSoundsCommand}"
                             BackgroundColor="#2d333b" TextColor="#cccccc"
-                            FontSize="12" HeightRequest="30"
+                            FontSize="{core:ScaledFont 12}" HeightRequest="30"
                             CornerRadius="4" Padding="10,0"/>
                 </Grid>
 
                 <Label Grid.Row="1"
                        Text="Tap a heading to expand its group; &#x266A; previews a sound. A group's Default plays when the game triggers a sound in that group that has no sound file of its own."
-                       TextColor="#888888" FontSize="12"/>
+                       TextColor="#888888" FontSize="{core:ScaledFont 12}"/>
 
                 <!-- The tree: collapsible groups of individual sounds.
                      Right padding keeps the controls clear of the overlay scrollbar. -->
@@ -441,7 +441,7 @@
                                     <!-- Group heading row -->
                                     <Grid ColumnDefinitions="20,Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
                                         <Label Grid.Column="0" Text="{Binding Chevron}"
-                                               TextColor="#888888" FontSize="12"
+                                               TextColor="#888888" FontSize="{core:ScaledFont 12}"
                                                VerticalOptions="Center" HorizontalTextAlignment="Center">
                                             <Label.GestureRecognizers>
                                                 <TapGestureRecognizer Command="{Binding ToggleExpandCommand}"/>
@@ -460,17 +460,17 @@
                                             <Border.GestureRecognizers>
                                                 <TapGestureRecognizer Command="{Binding PlayCommand}"/>
                                             </Border.GestureRecognizers>
-                                            <Label Text="&#x266A;" TextColor="#1f6feb" FontSize="13"/>
+                                            <Label Text="&#x266A;" TextColor="#1f6feb" FontSize="{core:ScaledFont 13}"/>
                                         </Border>
                                         <Label Grid.Column="3" Text="{Binding Name}"
-                                               TextColor="White" FontSize="13" FontAttributes="Bold"
+                                               TextColor="White" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"
                                                VerticalOptions="Center">
                                             <Label.GestureRecognizers>
                                                 <TapGestureRecognizer Command="{Binding ToggleExpandCommand}"/>
                                             </Label.GestureRecognizers>
                                         </Label>
                                         <Label Grid.Column="4" Text="{Binding VolumeDisplay}"
-                                               TextColor="#888888" FontSize="11" WidthRequest="26"
+                                               TextColor="#888888" FontSize="{core:ScaledFont 11}" WidthRequest="26"
                                                HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                         <Slider Grid.Column="5" Minimum="0" Maximum="100" WidthRequest="110"
                                                 ToolTipProperties.Text="Group volume - follows the master slider until moved; drag back onto the master value to re-attach"
@@ -484,7 +484,7 @@
                                                 SelectedIndex="{Binding SelectedDefaultIndex, Mode=TwoWay}"
                                                 TextColor="White" TitleColor="#888888"
                                                 BackgroundColor="#161b22"
-                                                FontSize="12" WidthRequest="200"/>
+                                                FontSize="{core:ScaledFont 12}" WidthRequest="200"/>
                                     </Grid>
 
                                     <!-- Child sounds, visible while expanded -->
@@ -507,13 +507,13 @@
                                                         <Border.GestureRecognizers>
                                                             <TapGestureRecognizer Command="{Binding PlayCommand}"/>
                                                         </Border.GestureRecognizers>
-                                                        <Label Text="&#x266A;" TextColor="#1f6feb" FontSize="13"/>
+                                                        <Label Text="&#x266A;" TextColor="#1f6feb" FontSize="{core:ScaledFont 13}"/>
                                                     </Border>
                                                     <Label Grid.Column="2" Text="{Binding Name}"
-                                                           TextColor="#cccccc" FontSize="12"
+                                                           TextColor="#cccccc" FontSize="{core:ScaledFont 12}"
                                                            VerticalOptions="Center"/>
                                                     <Label Grid.Column="3" Text="{Binding VolumeDisplay}"
-                                                           TextColor="#888888" FontSize="11" WidthRequest="26"
+                                                           TextColor="#888888" FontSize="{core:ScaledFont 11}" WidthRequest="26"
                                                            HorizontalTextAlignment="End" VerticalOptions="Center"/>
                                                     <Slider Grid.Column="4" Minimum="0" Maximum="100" WidthRequest="110"
                                                             ToolTipProperties.Text="Sound volume - follows the group slider until moved; drag back onto the group value to re-attach"
@@ -538,39 +538,56 @@
                 <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
 
                     <Label Text="These settings apply globally to all profiles."
-                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                           TextColor="#555555" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"/>
 
                     <!-- - General - -->
-                    <Label Text="General" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+                    <Label Text="General" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"/>
 
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Default Font Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="Default Font Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrDisplayFontSizeCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding DisplayFontSizeDisplay}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding DisplayFontSizeDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrDisplayFontSizeCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
 
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Default Column Width" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="UI Font Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                               ToolTipProperties.Text="Size of the text in menus, panels and settings. The terminal text has its own size (Default Font Size). Takes effect on Apply or Save."/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <Button Text="&#x2212;" Command="{Binding DecrUiFontStepCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                            <Label Text="{Binding UiFontStepName}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                   WidthRequest="64" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
+                            <Button Text="+" Command="{Binding IncrUiFontStepCommand}"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                        </HorizontalStackLayout>
+                    </Grid>
+
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
+                        <Label Grid.Column="0" Text="Default Column Width" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrDisplayColumnsCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding DisplayColumnsDisplay}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding DisplayColumnsDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="36" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrDisplayColumnsCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
@@ -586,18 +603,18 @@
 
                     <!-- Dreamword pill size offset -->
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Dreamword Pill Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                        <Label Grid.Column="0" Text="Dreamword Pill Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Adjusts the dreamword chip font size relative to the base. Range: -2 to +4"/>
                         <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrDisplayDreamwordOffsetCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding DisplayDreamwordOffsetDisplay}" TextColor="White" FontSize="13"
+                            <Label Text="{Binding DisplayDreamwordOffsetDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                             <Button Text="+" Command="{Binding IncrDisplayDreamwordOffsetCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="15" WidthRequest="34" HeightRequest="30"
+                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
                     </Grid>
@@ -605,19 +622,19 @@
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
                     <!-- - Chat colours - -->
-                    <Label Text="Chat colours" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+                    <Label Text="Chat colours" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"/>
                     <Label Text="For everyone's lines. Emotes is who did it, and acts and emotes; the others are the quoted words. A shout or a tell is its own colour from end to end. Each row styles your own messages and other people's separately: italic, bold, dim."
-                           TextColor="#555555" FontSize="11" FontAttributes="Italic"/>
+                           TextColor="#555555" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"/>
 
                     <Grid ColumnDefinitions="160,Auto,Auto" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Theme" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                        <Label Grid.Column="0" Text="Theme" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                         <Button Grid.Column="2"
                                 Text="{Binding ChatResetText}"
                                 Command="{Binding ResetChatColorsCommand}"
                                 ToolTipProperties.Text="Reset colors to the theme defaults"
                                 SemanticProperties.Description="Reset colors to the theme defaults"
                                 BackgroundColor="#2d333b" TextColor="#cccccc"
-                                FontSize="14" MinimumWidthRequest="34" HeightRequest="30"
+                                FontSize="{core:ScaledFont 14}" MinimumWidthRequest="34" HeightRequest="30"
                                 CornerRadius="4" Padding="8,0" VerticalOptions="Center"/>
                         <Picker Grid.Column="1"
                                 ItemsSource="{Binding ChatThemeNames}"
@@ -625,7 +642,7 @@
                                 SemanticProperties.Description="Chat colour theme"
                                 TextColor="White" TitleColor="#888888"
                                 BackgroundColor="#161b22"
-                                FontSize="13" WidthRequest="160"/>
+                                FontSize="{core:ScaledFont 13}" WidthRequest="160"/>
                     </Grid>
 
                     <!-- Each row: label, controls (the Auto column the page measures for the wide/narrow
@@ -635,58 +652,58 @@
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ChatColorEditorItem">
                                 <Grid ColumnDefinitions="160,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="2">
-                                    <Label Grid.Column="0" Text="{Binding Label}" TextColor="#888888" FontSize="13" VerticalOptions="Center"/>
+                                    <Label Grid.Column="0" Text="{Binding Label}" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
                                     <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                                        <Label Text="#" TextColor="#888888" FontSize="14" VerticalOptions="Center"/>
+                                        <Label Text="#" TextColor="#888888" FontSize="{core:ScaledFont 14}" VerticalOptions="Center"/>
                                         <Entry Text="{Binding Hex, Mode=TwoWay}" MaxLength="7"
-                                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="13"
+                                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
                                                WidthRequest="90" HeightRequest="34"/>
                                         <BoxView Color="{Binding Preview}" WidthRequest="22" HeightRequest="22"
                                                  VerticalOptions="Center" Margin="6,0,0,0"/>
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Grid.Row="1" Grid.Column="1" Spacing="6">
-                                        <Label Text="R" TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                        <Label Text="R" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                                         <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding R, Mode=TwoWay}"/>
-                                        <Label Text="{Binding RText}" TextColor="White" FontSize="12" WidthRequest="26" VerticalOptions="Center"/>
-                                        <Label Text="G" TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                        <Label Text="{Binding RText}" TextColor="White" FontSize="{core:ScaledFont 12}" WidthRequest="26" VerticalOptions="Center"/>
+                                        <Label Text="G" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                                         <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding G, Mode=TwoWay}"/>
-                                        <Label Text="{Binding GText}" TextColor="White" FontSize="12" WidthRequest="26" VerticalOptions="Center"/>
-                                        <Label Text="B" TextColor="#888888" FontSize="12" VerticalOptions="Center"/>
+                                        <Label Text="{Binding GText}" TextColor="White" FontSize="{core:ScaledFont 12}" WidthRequest="26" VerticalOptions="Center"/>
+                                        <Label Text="B" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                                         <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding B, Mode=TwoWay}"/>
-                                        <Label Text="{Binding BText}" TextColor="White" FontSize="12" WidthRequest="26" VerticalOptions="Center"/>
+                                        <Label Text="{Binding BText}" TextColor="White" FontSize="{core:ScaledFont 12}" WidthRequest="26" VerticalOptions="Center"/>
                                     </HorizontalStackLayout>
                                     <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="2">
-                                        <Label Text="own:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="0,0,4,0"/>
+                                        <Label Text="own:" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center" Margin="0,0,4,0"/>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
                                                       MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
-                                            <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
+                                            <Label Text="italic" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Italic" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
                                                       MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
-                                            <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                                            <Label Text="bold" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Bold" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
                                             <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
                                                       MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
-                                            <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                            <Label Text="dim" TextColor="#777777" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
-                                        <Label Text="other:" TextColor="#888888" FontSize="12" VerticalOptions="Center" Margin="18,0,4,0"/>
+                                        <Label Text="other:" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center" Margin="18,0,4,0"/>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
                                                       MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
-                                            <Label Text="italic" TextColor="#cccccc" FontSize="12" FontAttributes="Italic" VerticalOptions="Center"/>
+                                            <Label Text="italic" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Italic" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
                                             <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
                                                       MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
-                                            <Label Text="bold" TextColor="#cccccc" FontSize="12" FontAttributes="Bold" VerticalOptions="Center"/>
+                                            <Label Text="bold" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Bold" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                         <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
                                             <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
                                                       MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, Default=32}"/>
-                                            <Label Text="dim" TextColor="#777777" FontSize="12" VerticalOptions="Center"/>
+                                            <Label Text="dim" TextColor="#777777" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
                                         </HorizontalStackLayout>
                                     </HorizontalStackLayout>
                                     <Border Grid.Column="2" Grid.RowSpan="3" IsVisible="{Binding ShowExamples}"
@@ -715,13 +732,13 @@
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
                     <!-- - Side Panel - -->
-                    <Label Text="Side Panel" TextColor="#58a6ff" FontSize="13" FontAttributes="Bold"/>
+                    <Label Text="Side Panel" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"/>
 
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                         <CheckBox Grid.Column="0" IsChecked="{Binding ShowOnline, Mode=TwoWay}"
                                   Color="#1f6feb" VerticalOptions="Center"/>
                         <Label Grid.Column="1" Text="Show online"
-                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Show the Online section (FEW). When disabled, the online list is not requested from the server."/>
                     </Grid>
 
@@ -729,36 +746,36 @@
                     <VerticalStackLayout Margin="28,0,0,0" Spacing="8" IsEnabled="{Binding ShowOnline}">
 
                         <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                            <Label Grid.Column="0" Text="Max online" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                            <Label Grid.Column="0" Text="Max online" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="Maximum number of players shown in the list. 0 = unlimited."/>
                             <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                                 <Button Text="&#x2212;" Command="{Binding DecrMaxOnlineCommand}"
                                         BackgroundColor="#2d333b" TextColor="#cccccc"
-                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                         CornerRadius="4" Padding="0"/>
-                                <Label Text="{Binding MaxOnlineDisplayText}" TextColor="White" FontSize="13"
+                                <Label Text="{Binding MaxOnlineDisplayText}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                        MinimumWidthRequest="60" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                                 <Button Text="+" Command="{Binding IncrMaxOnlineCommand}"
                                         BackgroundColor="#2d333b" TextColor="#cccccc"
-                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                         CornerRadius="4" Padding="0"/>
                             </HorizontalStackLayout>
                         </Grid>
 
                         <!-- Forget window: minutes a departed player lingers in the Recent list -->
                         <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                            <Label Grid.Column="0" Text="Offline window" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                            <Label Grid.Column="0" Text="Offline window" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="How long a player who drops off the Online list lingers in a quiet 'Recent' list below it before being forgotten. 0 = off (forget immediately). Max 10 min."/>
                             <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
                                 <Button Text="&#x2212;" Command="{Binding DecrForgetWindowCommand}"
                                         BackgroundColor="#2d333b" TextColor="#cccccc"
-                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                         CornerRadius="4" Padding="0"/>
-                                <Label Text="{Binding OnlineForgetWindowText}" TextColor="White" FontSize="13"
+                                <Label Text="{Binding OnlineForgetWindowText}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                        MinimumWidthRequest="60" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
                                 <Button Text="+" Command="{Binding IncrForgetWindowCommand}"
                                         BackgroundColor="#2d333b" TextColor="#cccccc"
-                                        FontSize="15" WidthRequest="34" HeightRequest="30"
+                                        FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                         CornerRadius="4" Padding="0"/>
                             </HorizontalStackLayout>
                         </Grid>
@@ -767,7 +784,7 @@
                             <CheckBox Grid.Column="0" IsChecked="{Binding FloatOnline, Mode=TwoWay}"
                                       Color="#1f6feb" VerticalOptions="Center"/>
                             <Label Grid.Column="1" Text="Float"
-                                   TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="Default the Online list to a floating panel instead of docked in the side panel. Changing this also moves the panel now if it still matches the saved default; if you've manually floated/docked it since, the live panel is left as-is."/>
                         </Grid>
 
@@ -775,7 +792,7 @@
                             <CheckBox Grid.Column="0" IsChecked="{Binding OnlineNamesOnly, Mode=TwoWay}"
                                       Color="#1f6feb" VerticalOptions="Center"/>
                             <Label Grid.Column="1" Text="Names only"
-                                   TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="Show only the persona name without the title or level description."/>
                         </Grid>
 
@@ -785,7 +802,7 @@
                         <CheckBox Grid.Column="0" IsChecked="{Binding ShowInventory, Mode=TwoWay}"
                                   Color="#1f6feb" VerticalOptions="Center"/>
                         <Label Grid.Column="1" Text="Inventory"
-                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Show the Carrying section (FEI inventory half)."/>
                     </Grid>
 
@@ -793,7 +810,7 @@
                         <CheckBox Grid.Column="0" IsChecked="{Binding ShowItemsHere, Mode=TwoWay}"
                                   Color="#1f6feb" VerticalOptions="Center"/>
                         <Label Grid.Column="1" Text="Items here"
-                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Show the Here section (FEI room-items half). When both Inventory and Items here are disabled, FEI is not requested from the server."/>
                     </Grid>
 
@@ -801,7 +818,7 @@
                         <CheckBox Grid.Column="0" IsChecked="{Binding ShowMapCompass, Mode=TwoWay}"
                                   Color="#1f6feb" VerticalOptions="Center"/>
                         <Label Grid.Column="1" Text="Map / Compass"
-                               TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Show the Map/Compass section."/>
                     </Grid>
 
@@ -813,7 +830,7 @@
                             <CheckBox Grid.Column="0" IsChecked="{Binding FloatCompass, Mode=TwoWay}"
                                       Color="#1f6feb" VerticalOptions="Center"/>
                             <Label Grid.Column="1" Text="Float"
-                                   TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                                   TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="Default the compass to a floating panel instead of docked in the side panel. Changing this also moves the panel now if it still matches the saved default; if you've manually floated/docked it since, the live panel is left as-is."/>
                         </Grid>
 
@@ -837,14 +854,14 @@
                         Text="Cancel"
                         Command="{Binding CancelCommand}"
                         BackgroundColor="#2d333b" TextColor="#cccccc"
-                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        FontSize="{core:ScaledFont 13}" WidthRequest="80" HeightRequest="34"
                         CornerRadius="4" Padding="0"/>
 
                 <Button Grid.Column="2"
                         Text="Apply"
                         Command="{Binding ApplyCommand}"
                         BackgroundColor="#2d333b" TextColor="#cccccc"
-                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        FontSize="{core:ScaledFont 13}" WidthRequest="80" HeightRequest="34"
                         CornerRadius="4" Padding="0"/>
 
                 <Button Grid.Column="3"
@@ -852,7 +869,7 @@
                         Command="{Binding SaveCommand}"
                         IsEnabled="{Binding CanSave}"
                         BackgroundColor="#1f6feb" TextColor="White"
-                        FontSize="13" WidthRequest="80" HeightRequest="34"
+                        FontSize="{core:ScaledFont 13}" WidthRequest="80" HeightRequest="34"
                         CornerRadius="4" Padding="0"/>
             </Grid>
         </Border>

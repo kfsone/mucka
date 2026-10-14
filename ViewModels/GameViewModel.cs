@@ -14,6 +14,7 @@ using MudSharp.Session;
 using Mucka.Combat;
 using Mucka.Commands;
 using Mucka.Terminal;
+using Mucka.Ui;
 
 namespace Mucka.ViewModels;
 
@@ -374,18 +375,33 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool IsCompactStats    => _effCols < 76;
     public bool IsNotCompactStats => _effCols >= 76;
     public bool IsCompactWeather  => _effCols < 80;
+    /// <summary>Authored (unscaled) stat value size: shrinks when effcols &lt; 50.</summary>
+    private double StatsValueBaseSize => _effCols < 50 ? 12.0 : 13.0;
+    /// <summary>The status bar's sizes follow the UI font step at no more than
+    /// <see cref="UiFontScale.TightMaxScale"/>: its columns are tiered by effcols.</summary>
+    private static double TightScaled(double authored)
+        => UiFontScale.Apply(authored, UiFontScaleState.Current.Step, tight: true);
     /// <summary>Font size for stat values in compact layout - shrinks when effcols &lt; 50.</summary>
-    public double StatsValueFontSize => _effCols < 50 ? 12.0 : 13.0;
+    public double StatsValueFontSize => TightScaled(StatsValueBaseSize);
     /// <summary>Font size for the "/max" half of a stat pair - two points below the current value.</summary>
-    public double StatsMaxValueFontSize => StatsValueFontSize - 2.0;
+    public double StatsMaxValueFontSize => TightScaled(StatsValueBaseSize - 2.0);
     /// <summary>Font size for the score (with its reset-delta) in the compact bar - one point below
     /// the stat values so the always-on delta suffix fits without crowding the effects column.</summary>
-    public double ScoreCompactFontSize => StatsValueFontSize - CompactScoreStepPt;
+    public double ScoreCompactFontSize => TightScaled(StatsValueBaseSize - CompactScoreStepPt);
     /// <summary>Operator rule: the compact bar's delta is a point smaller again than its score.</summary>
-    public double ScoreCompactDeltaFontSize => ScoreCompactFontSize - CompactScoreStepPt;
+    public double ScoreCompactDeltaFontSize => TightScaled(StatsValueBaseSize - 2 * CompactScoreStepPt);
     private const double CompactScoreStepPt = 1.0;
     /// <summary>Font size for the dreamword pill - one point larger in wide mode.</summary>
-    public double DreamwordFontSize => (_effCols < 50 ? 12.0 : 13.0) + _dreamwordSizeOffset;
+    public double DreamwordFontSize
+        => UiFontScale.Apply((_effCols < 50 ? 12.0 : 13.0) + _dreamwordSizeOffset, UiFontScaleState.Current.Step);
+
+    /// <summary>Raises the font-size properties above after the UI font step changed.</summary>
+    private void OnUiFontStepChanged()
+    {
+        OnPropertiesChanged(nameof(StatsValueFontSize), nameof(StatsMaxValueFontSize),
+            nameof(ScoreCompactFontSize), nameof(ScoreCompactDeltaFontSize),
+            nameof(DreamwordFontSize), nameof(FkeyFontSize));
+    }
 
     // -- Fkey toolbar density - three tiers shrinking with effcols ------------
     // Returns (fontSize, buttonRightMargin, totalHorizPad).
@@ -396,7 +412,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _     => ( 9.0, 1.0, 2.0),
     };
 
-    public double    FkeyFontSize     => FkeyDensity().Font;
+    public double    FkeyFontSize     => TightScaled(FkeyDensity().Font);
     public Thickness FkeyButtonMargin => new Thickness(0, 0, FkeyDensity().Bm, FkeyDensity().Bm);
     public Thickness FkeyBarPadding   { get { var d = FkeyDensity(); return new Thickness(d.PadH / 2, d.Bm, d.PadH / 2, d.Bm); } }
 
@@ -594,6 +610,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         Sounds              = _sounds.Clone(),
         // Display tab globals (stored on the profile struct at load time).
         DefaultFontSize     = _defaultFontSize,
+        UiFontStep          = UiFontScaleState.Current.Step,
         DefaultMaxColumns   = _defaultMaxColumns,
         DreamwordSizeOffset = _dreamwordSizeOffset,
         EmoteColor        = _emoteColor,
@@ -665,6 +682,15 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         Func<bool, Task>? persistCombatStatsAsync = null)
     {
         _conn = conn;
+        // Weak: the state is a process-wide singleton and this view-model is per connection.
+        var weakSelf = new WeakReference<GameViewModel>(this);
+        System.ComponentModel.PropertyChangedEventHandler? onStep = null;
+        onStep = (_, _) =>
+        {
+            if (weakSelf.TryGetTarget(out var vm)) vm.OnUiFontStepChanged();
+            else UiFontScaleState.Current.PropertyChanged -= onStep;
+        };
+        UiFontScaleState.Current.PropertyChanged += onStep;
         _saveSettingsAsync = saveSettingsAsync;
         _persistCombatRailVisibilityAsync = persistCombatRailVisibilityAsync;
         _persistCombatStatsAsync = persistCombatStatsAsync;
@@ -809,6 +835,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     {
         ApplyFkeys(fkeys);
         ApplyFontSize(settings.FontSize);
+        UiFontScaleState.Current.Step = settings.UiFontStep;
         ApplyVolume(settings.Volume);
         ApplyMaxColumns(settings.MaxColumns);
         ApplyStatUpdateFrequency(settings.StatUpdateFrequency);
