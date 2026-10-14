@@ -133,7 +133,7 @@ public partial class FkeyEditorPage : ContentPage
 
         var stack = Navigation.ModalStack;
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
-            await Navigation.PopModalAsync();
+            await Navigation.PopModalAsync(Mucka.Core.NavAnimation.Animated);
     }
 
     private void OnCloseRequested() =>

@@ -206,7 +206,7 @@ public partial class ConnectPage : ContentPage
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
                 page = new GuidedLoginPage(vm);
-                await Navigation.PushAsync(page);
+                await Navigation.PushAsync(page, Mucka.Core.NavAnimation.Animated);
             });
 
             var result = await controller.RunAsync(page!.CancellationToken);
@@ -239,7 +239,7 @@ public partial class ConnectPage : ContentPage
                 await MainThread.InvokeOnMainThreadAsync(async () =>
                 {
                     if (Navigation.NavigationStack.Contains(page))
-                        await Navigation.PopAsync();
+                        await Navigation.PopAsync(Mucka.Core.NavAnimation.Animated);
                 });
         }
     }
@@ -306,7 +306,7 @@ public partial class ConnectPage : ContentPage
 
                 var gamePage = _prebuiltGamePage ?? new GamePage(gameVm, _vm.IsDirectConnectMode);
                 _prebuiltGamePage = null;
-                await Navigation.PushAsync(gamePage);
+                await Navigation.PushAsync(gamePage, Mucka.Core.NavAnimation.Animated);
                 if (_guidedPageForHandoff is { } handedOff)
                 {
                     _guidedPageForHandoff = null;

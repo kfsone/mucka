@@ -2622,7 +2622,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         UnsubscribeConnectionEvents();
         // The connection goes first. It owns the store and the always-on wire log, which outrank a
         // hand-armed transcript: nothing here may end up as the reason they were not closed.
+        // On the pool: when both loops have already ended the awaits inside complete synchronously and
+        // the store drain would run on the caller's (UI) thread. Everything above stays on the caller.
+#if MACCATALYST
+        await Task.Run(() => _conn.DisposeAsync().AsTask());
+#else
         await _conn.DisposeAsync();
+#endif
         // Then the footer and the handle. SessionRecorder.Completion is documented never to fault,
         // so this cannot throw past here either.
         var recorder = _recorder;

@@ -14,9 +14,12 @@ public partial class GamePage
 
     private void SetUpMacScroll()
     {
-        Terminal.HandlerChanged += (_, _) => InstallMacScroll();
+        Terminal.HandlerChanged -= OnMacScrollHandlerChanged;
+        Terminal.HandlerChanged += OnMacScrollHandlerChanged;
         InstallMacScroll();
     }
+
+    private void OnMacScrollHandlerChanged(object? sender, EventArgs e) => InstallMacScroll();
 
     private void InstallMacScroll()
     {

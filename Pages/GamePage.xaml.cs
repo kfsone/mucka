@@ -650,7 +650,13 @@ public partial class GamePage : ContentPage
 #endif
         // AsTask() consumes the ValueTask exactly once, which fire-and-forget needs: a discarded
         // ValueTask can be recycled by a pooling implementation while it is still in flight.
-        _ = _vm.DisposeAsync().AsTask();
+        _ = ObserveDisposeAsync(_vm.DisposeAsync().AsTask());
+    }
+
+    private static async Task ObserveDisposeAsync(Task disposing)
+    {
+        try { await disposing; }
+        catch (Exception ex) { CrashLog.Write("GameViewModel.DisposeAsync", ex); }
     }
 
     // 1 s tick: anti-idle keep-alive plus the projected reset countdown. Output draining is
@@ -771,7 +777,7 @@ public partial class GamePage : ContentPage
         };
         _isFkeyEditorOpen = true;
         _fkeyEditorPage = new FkeyEditorPage(editorVm);
-        return Navigation.PushModalAsync(_fkeyEditorPage);
+        return Navigation.PushModalAsync(_fkeyEditorPage, Mucka.Core.NavAnimation.Animated);
     }
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
@@ -837,7 +843,7 @@ public partial class GamePage : ContentPage
         {
             _isGuidedLoginOverlayOpen = true;
             page = new GuidedLoginPage(loginVm);
-            await Navigation.PushModalAsync(page);
+            await Navigation.PushModalAsync(page, Mucka.Core.NavAnimation.Animated);
 
             var result = await controller.RunAsync(page.CancellationToken);
             mailItems = result.MailItems;
@@ -878,7 +884,7 @@ public partial class GamePage : ContentPage
             controller.Dispose();
             _vm.EndLoginFlow(mailItems);
             if (page != null)
-                await Navigation.PopModalAsync();
+                await Navigation.PopModalAsync(Mucka.Core.NavAnimation.Animated);
             _isGuidedLoginOverlayOpen = false;
             _guidedLoginOverlayRunning = false;
             if (!Terminal.IsHistoryMode)
@@ -896,7 +902,7 @@ public partial class GamePage : ContentPage
 
     /// <summary>Back to the profile page. Closing the connection is OnDisappearing's job (it disposes the
     /// view model), so this only leaves: the page is gone at once, not after the socket has closed.</summary>
-    private Task<Page> LeaveGameAsync() => Navigation.PopAsync();
+    private Task<Page> LeaveGameAsync() => Navigation.PopAsync(Mucka.Core.NavAnimation.Animated);
 
     // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).
     private void OnFloatingPanelPanUpdated(object? sender, PanUpdatedEventArgs e)
@@ -3515,7 +3521,7 @@ public partial class GamePage : ContentPage
                 return;
             }
 
-            await Navigation.PopAsync();
+            await Navigation.PopAsync(Mucka.Core.NavAnimation.Animated);
         });
     }
 }
