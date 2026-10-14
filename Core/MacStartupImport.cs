@@ -17,7 +17,14 @@ internal static class MacStartupImport
         if (CommandLineArgs.Current.ImportPath is not { } path)
             return;
 
-        _outcome = DatabaseImport.Run(MuckaPaths.GetDatabasePath(), Path.GetFullPath(path));
+        try
+        {
+            _outcome = DatabaseImport.Run(MuckaPaths.GetDatabasePath(), Path.GetFullPath(path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            _outcome = new DatabaseImportOutcome(false, $"Import failed, and your database was not changed: {ex.Message}");
+        }
     }
 
     /// <summary>Alerts with the import outcome the first time <paramref name="page"/> appears; does

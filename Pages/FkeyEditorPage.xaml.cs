@@ -31,7 +31,6 @@ public partial class FkeyEditorPage : ContentPage
         ChatRows.SizeChanged += (_, _) => PlaceChatExamples();
 #if DESKTOP
         ImportButton.IsVisible = true;
-        ImportButton.Clicked += OnImportClickedAsync;
 #endif
     }
 
@@ -47,6 +46,10 @@ public partial class FkeyEditorPage : ContentPage
         _vm.SaveFailed += OnSaveFailed;
         DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
         DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
+#if DESKTOP
+        ImportButton.Clicked -= OnImportClickedAsync;
+        ImportButton.Clicked += OnImportClickedAsync;
+#endif
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
