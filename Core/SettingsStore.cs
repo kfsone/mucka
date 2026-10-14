@@ -8,7 +8,7 @@ using Mucka.Commands;
 namespace Mucka.Core;
 
 /// <summary>
-/// Persists client settings and fkey macros to mucka.ini - the same file that holds the
+/// Persists client settings and Fkeys to mucka.ini - the same file that holds the
 /// hand-edited [watch] rules, which are preserved verbatim (IniFile only rewrites the
 /// lines it owns).
 ///
@@ -695,7 +695,7 @@ public static class SettingsStore
             _ => null,
         };
 
-    /// <summary>Parses "F1".."F36" (case-insensitive) into a 0-based macro index.</summary>
+    /// <summary>Parses "F1".."F36" (case-insensitive) into a 0-based Fkey index.</summary>
     private static bool TryParseFkeyIndex(string key, out int index)
     {
         index = -1;

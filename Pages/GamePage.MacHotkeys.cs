@@ -14,15 +14,29 @@ public partial class GamePage
     private void SetUpMacHotkeys()
     {
         MacHotkeys.Handler = _macHotkeyHandler ??= OnMacHotkey;
+        MacHotkeys.Fkeys = _vm.GetAllFkeys;
+        _vm.FkeysChanged -= RebuildMacMenu;
+        _vm.FkeysChanged += RebuildMacMenu;
         SetUpMacCopy();
-        UIKit.UIMenuSystem.MainSystem.SetNeedsRevalidate();
+        RebuildMacMenu();
     }
 
     private void TearDownMacHotkeys()
     {
         TearDownMacCopy();
+        _vm.FkeysChanged -= RebuildMacMenu;
         if (ReferenceEquals(MacHotkeys.Handler, _macHotkeyHandler))
+        {
             MacHotkeys.Handler = null;
+            MacHotkeys.Fkeys = null;
+        }
+        RebuildMacMenu();
+    }
+
+    // The Game menu lists only the Fkeys that have text, so it is rebuilt when they change.
+    private static void RebuildMacMenu()
+    {
+        UIKit.UIMenuSystem.MainSystem.SetNeedsRebuild();
         UIKit.UIMenuSystem.MainSystem.SetNeedsRevalidate();
     }
 
@@ -40,7 +54,7 @@ public partial class GamePage
 
         if (id.Length >= 2 && id[^1] is >= '0' and <= '9' && id.Contains('f') && !id.Contains('-'))
         {
-            // f1..f12 / sf1..sf12 / cf1..cf12 -> macro slots 0-11 / 12-23 / 24-35.
+            // f1..f12 / sf1..sf12 / cf1..cf12 -> Fkey slots 0-11 / 12-23 / 24-35.
             var bank = id[0] switch { 's' => 12, 'c' => 24, _ => 0 };
             if (int.TryParse(id.AsSpan(id.IndexOf('f') + 1), out var n))
             {

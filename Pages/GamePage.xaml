@@ -1514,7 +1514,7 @@
                         <Label.FormattedText>
                             <FormattedString>
                                 <Span Text="F1-F12" TextColor="#58a6ff"/>
-                                <Span Text="  Macro slots (with Shift / Ctrl for 13-36)" TextColor="#888888"/>
+                                <Span Text="  Fkeys (with Shift / Ctrl for 13-36)" TextColor="#888888"/>
                             </FormattedString>
                         </Label.FormattedText>
                     </Label>

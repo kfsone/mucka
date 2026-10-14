@@ -23,6 +23,9 @@ internal static class MacHotkeys
     /// <summary>Copies the terminal's selection to the pasteboard.</summary>
     public static Action? CopyTerminal { get; set; }
 
+    /// <summary>The 36 Fkey texts of the profile in play; an empty one gets no menu entry.</summary>
+    public static Func<string[]>? Fkeys { get; set; }
+
     internal const string Action = "muckaHotkey:";
 
     /// <summary>True while the game page is showing and nothing is presented over it. A key command
@@ -49,7 +52,8 @@ internal static class MacHotkeys
 
     public static UIMenu Build()
     {
-        var macros = new List<UIMenuElement>();
+        var fkeyItems = new List<UIMenuElement>();
+        var texts = Fkeys?.Invoke();
         (string Prefix, string Label, UIKeyModifierFlags Mods)[] banks =
         [
             ("", "F", 0),
@@ -63,7 +67,12 @@ internal static class MacHotkeys
         ];
         foreach (var (prefix, label, mods) in banks)
             for (var n = 0; n < fkeys.Length; n++)
-                macros.Add(Key($"Macro {label}{n + 1}", fkeys[n], mods, $"{prefix}f{n + 1}"));
+            {
+                var slot = (prefix switch { "s" => 12, "c" => 24, _ => 0 }) + n;
+                if (texts is null || slot >= texts.Length || string.IsNullOrWhiteSpace(texts[slot]))
+                    continue;
+                fkeyItems.Add(Key($"{label}{n + 1}", fkeys[n], mods, $"{prefix}f{n + 1}"));
+            }
 
         var game = new List<UIMenuElement>
         {
@@ -72,16 +81,16 @@ internal static class MacHotkeys
             Key("Flee", "f", UIKeyModifierFlags.Control, "ctrl-f"),
             Key("Flee in Typed Direction", "f", UIKeyModifierFlags.Control | UIKeyModifierFlags.Shift, "ctrl-shift-f"),
             Key("Wield Alternate Weapon", "w", UIKeyModifierFlags.Control, "ctrl-w"),
-            Key("Control Macro 1", "1", UIKeyModifierFlags.Control, "ctrl-1"),
-            Key("Control Macro 2", "2", UIKeyModifierFlags.Control, "ctrl-2"),
-            Key("Control Macro 3", "3", UIKeyModifierFlags.Control, "ctrl-3"),
+            Key("Ctrl-1", "1", UIKeyModifierFlags.Control, "ctrl-1"),
+            Key("Ctrl-2", "2", UIKeyModifierFlags.Control, "ctrl-2"),
+            Key("Ctrl-3", "3", UIKeyModifierFlags.Control, "ctrl-3"),
             Key("Reply to Last Tell", "r", UIKeyModifierFlags.Control, "ctrl-r"),
             Key("Scroll Back a Page", UIKeyCommand.PageUp, 0, "pgup"),
             Key("Scroll Forward a Page", UIKeyCommand.PageDown, 0, "pgdn"),
             Key("Previous Command", UIKeyCommand.UpArrow, 0, "history-up"),
             Key("Next Command", UIKeyCommand.DownArrow, 0, "history-down"),
             Key("Clear Input", UIKeyCommand.Escape, 0, "escape"),
-            UIMenu.Create("Macros", null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, macros.ToArray()),
+            UIMenu.Create("Fkeys", null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, fkeyItems.ToArray()),
         };
         return UIMenu.Create("Game", null, new NSString("org.kfs.mucka.game"), (UIMenuOptions)0, game.ToArray());
     }

@@ -812,6 +812,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         return fkeys;
     }
 
+    /// <summary>Raised after <see cref="ApplyFkeys"/> has replaced the fkey texts.</summary>
+    public event Action? FkeysChanged;
+
     public void ApplyFkeys(string[] fkeys)
     {
         for (var i = 0; i < _allFkeys.Length; i++)
@@ -821,6 +824,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             FkeyItems[i].Command = _allFkeys[i];
 
         UpdateFkeyItems();
+        FkeysChanged?.Invoke();
     }
 
     /// <summary>
@@ -1511,7 +1515,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>
     /// Sends any queued typed line NOW, before the caller writes its own line to the socket.
     ///
-    /// <para>Every other way the player sends something - an F-key, a compass click, a Ctrl macro,
+    /// <para>Every other way the player sends something - an F-key, a compass click, a Ctrl-1..3 alias,
     /// Ctrl+F to flee - writes to the connection immediately, while a typed line waits one dispatcher
     /// turn in <see cref="InputGate"/>. Without this, an F-key pressed in that window would
     /// overtake the command the player typed first, and the MUD would act on them in the wrong
@@ -1577,9 +1581,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return false;
 
         // ^1=command / ^2=command / ^3=command (or bare ^1..^3, with optional
-        // whitespace around "=") - bind/send the three Ctrl-1..Ctrl-3 control-macro slots.
-        // Three, not five: reaching Ctrl-4/Ctrl-5 without looking is a stretch mid-fight, and a
-        // macro you have to look down for is a macro that gets you killed.
+        // whitespace around "=") - bind/send the three Ctrl-1..Ctrl-3 control alias slots.
+        // Three, not five: reaching Ctrl-4/Ctrl-5 without looking is a stretch mid-fight, and an
+        // alias you have to look down for is an alias that gets you killed.
         // No "$" prefix: this is the one command family typed with a bare "^" lead,
         // matching the physical Ctrl+<digit> shortcut.
         // "^" is a client-local sigil, same as "$": a SINGLE leading "^" is owned by this block
@@ -1588,7 +1592,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // above and has already returned before reaching here.
         if (text.Length > 0 && text[0] == '^')
         {
-            if (text.Length >= 2 && text[1] is >= '1' and <= '3' && IsCtrlMacroShape(text))
+            if (text.Length >= 2 && text[1] is >= '1' and <= '3' && IsCtrlAliasShape(text))
             {
                 if (_sessionAliases.TryDefine(text, out var ctrlAliasName, out var ctrlAliasCommand, out var ctrlError))
                 {
@@ -1651,7 +1655,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 ExportDatabase(name.Length > 6 ? name[7..] : string.Empty);
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
-            // $f<n>: annotate with fkey n's macro (absolute 1-36). Checked after "fkeys" so it
+            // $f<n>: annotate with Fkey n's text (absolute 1-36). Checked after "fkeys" so it
             // never swallows it; the digit parse also rules "fkeys" out on its own.
             else if (name.Length >= 2 && (name[0] is 'f' or 'F') && int.TryParse(name[1..], out var fn))
                 AnnotateFkey(fn);
@@ -1676,8 +1680,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // "^N" (bare, length 2 - caller already checked) or "^N" followed by optional
     // whitespace then "=" (the rest, including whitespace after "=", is trimmed by
     // SessionCommandAliases.TryDefine itself). Anything else ("^Nfoo" with no "=",
-    // a second digit, ...) is not a recognized control-macro shape.
-    private static bool IsCtrlMacroShape(string text)
+    // a second digit, ...) is not a recognized control alias shape.
+    private static bool IsCtrlAliasShape(string text)
     {
         if (text.Length == 2)
             return true;
@@ -1695,7 +1699,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string ExpandOutgoingCommand(string command)
         => SessionCommandAliases.CollapseEscapes(_watchwords.ExpandSlots(_sessionAliases.Expand(command)));
 
-    /// <summary>Send the control-macro bound to Ctrl+&lt;slot&gt; (slot 1-3, see "^1".."^3" definitions).</summary>
+    /// <summary>Send the control alias bound to Ctrl+&lt;slot&gt; (slot 1-3, see "^1".."^3" definitions).</summary>
     public void SendControlAlias(int slot)
     {
         FlushPendingInput();   // keep the socket in the order the player caused
@@ -1763,7 +1767,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 #if WINDOWS
         AddSystemLine("  $con                  open the raw protocol console", 14);
 #endif
-        AddSystemLine("  $fkeys [shift|ctrl]   list your function-key macros", 14);
+        AddSystemLine("  $fkeys [shift|ctrl]   list your Fkeys", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
         AddSystemLine("  $CHATTEST             play a scripted chat into the output (sends nothing)", 14);
@@ -2020,7 +2024,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             EmitAnnotated(result.Text);
     }
 
-    // $fkeys [shift|ctrl] - list the 12 macros on the requested layer, echoing each line into the
+    // $fkeys [shift|ctrl] - list the 12 Fkeys on the requested layer, echoing each line into the
     // active capture/log as well as the terminal.
     private void PrintFkeys(string layerArg)
     {
@@ -2040,9 +2044,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var shown = 0;
         for (var i = 0; i < 12; i++)
         {
-            var macro = _allFkeys[baseSlot + i];
-            if (string.IsNullOrEmpty(macro)) continue;
-            EmitAnnotated($"  {label}{i + 1} = {macro}");
+            var fkey = _allFkeys[baseSlot + i];
+            if (string.IsNullOrEmpty(fkey)) continue;
+            EmitAnnotated($"  {label}{i + 1} = {fkey}");
             shown++;
         }
         if (shown == 0)
@@ -2056,7 +2060,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _conn.Annotate(msg);
     }
 
-    // $f<n> - take fkey n's macro (absolute 1-36), drop it above the prompt as a "// ..." note
+    // $f<n> - take Fkey n's text (absolute 1-36), drop it above the prompt as a "// ..." note
     // (the prompt is restored beneath it), and record it in the capture as an annotation.
     private void AnnotateFkey(int n)
     {
@@ -2065,14 +2069,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             AddSystemLine($"[fkey] {n} out of range (1-{_allFkeys.Length})", 9);
             return;
         }
-        var macro = _allFkeys[n - 1].TrimEnd('\r', '\n');
-        if (string.IsNullOrWhiteSpace(macro))
+        var fkey = _allFkeys[n - 1].TrimEnd('\r', '\n');
+        if (string.IsNullOrWhiteSpace(fkey))
         {
             AddSystemLine($"[fkey] {n} is empty", 9);
             return;
         }
 
-        InjectNote($"// {macro}");
+        InjectNote($"// {fkey}");
     }
 
     // A client note above the prompt: the $f<n> form, on the pane and in the transcript.
@@ -2180,13 +2184,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         }
 
-        SendMacro(FkeyItems[i].Command);
+        SendFkeyText(FkeyItems[i].Command);
 
         RequestFocus?.Invoke();
     }
 
     /// <summary>
-    /// Send the fkey macro at the given absolute index (0-11=None, 12-23=Shift, 24-35=Ctrl).
+    /// Send the Fkey at the given absolute index (0-11=None, 12-23=Shift, 24-35=Ctrl).
     /// Called by GamePage's keyboard handlers on both platforms.
     /// </summary>
     public void SendFkeyAbsolute(int absoluteIndex)
@@ -2197,11 +2201,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             return;
         }
 
-        SendMacro(_allFkeys[absoluteIndex]);
+        SendFkeyText(_allFkeys[absoluteIndex]);
         RequestFocus?.Invoke();
     }
 
-    private void SendMacro(string? cmd)
+    private void SendFkeyText(string? cmd)
     {
         FlushPendingInput();   // keep the socket in the order the player caused
         if (!string.IsNullOrWhiteSpace(cmd))
