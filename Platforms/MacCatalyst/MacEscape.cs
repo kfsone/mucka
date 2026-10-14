@@ -5,13 +5,8 @@ using UIKit;
 namespace Mucka;
 
 /// <summary>
-/// Escape on a page that is presented over the game, as the Windows pages' PreviewKeyDown handler
-/// does. The key command is added to the page's own view controller, so it exists only while that
-/// page is the one showing and is looked up before the text field's own handling (priority over
-/// system behavior), which makes Escape act even in the middle of editing a field. The game's
-/// menu Escape is disabled while a view controller is presented (<see cref="MacHotkeys.IsActive"/>),
-/// so the two never both fire. The selector is exported on the app delegate, the last stop of the
-/// responder chain, because a key command's action needs a responder to receive it.
+/// Escape on a page presented over the game: a UIKeyCommand on the page's view controller, added in
+/// OnAppearing and removed in OnDisappearing. Ignored while something is presented over that page.
 /// </summary>
 internal static class MacEscape
 {
@@ -47,5 +42,10 @@ internal static class MacEscape
             _current = null;
     }
 
-    public static void Fire() => _current?.OnEscape();
+    public static void Fire()
+    {
+        if (_current is not { } registration || registration.Controller.PresentedViewController is not null)
+            return;
+        registration.OnEscape();
+    }
 }
