@@ -72,6 +72,14 @@ internal sealed class MacRailFloat
         layer.AddAnimation(group, Key);
     }
 
+    /// <summary>Gives the view up: no animation, fully opaque.</summary>
+    public void Release()
+    {
+        _generation++;
+        _view.Layer.RemoveAnimation(Key);
+        _view.Layer.Opacity = 1f;
+    }
+
     /// <summary>Cancels any float in flight and hides the view.</summary>
     public void Rest()
     {

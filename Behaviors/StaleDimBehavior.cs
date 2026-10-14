@@ -29,6 +29,9 @@ public sealed class StaleDimBehavior : Behavior<View>
 #if DESKTOP
     private View? _view;
     private SidePanelViewModel? _sp;
+#if MACCATALYST
+    private UIKit.UIView? _macHost;
+#endif
 #endif
 
     protected override void OnAttachedTo(View view)
@@ -77,7 +80,12 @@ public sealed class StaleDimBehavior : Behavior<View>
     private void RestartDim()
     {
 #if MACCATALYST
-        if (_view?.Handler?.PlatformView is not UIKit.UIView ui) return;
+        if (_view is null || Mucka.Rendering.MacAnimatedView.Of(_view.Handler) is not { } ui) return;
+        if (!ReferenceEquals(_macHost, ui))
+        {
+            if (_macHost is not null) MacLayerFade.Release(_macHost);
+            _macHost = ui;
+        }
         var interval = (_view.BindingContext as GameViewModel)?.StatUpdateFrequency ?? 0;
         if (interval <= 0)
         {

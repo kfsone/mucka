@@ -38,6 +38,9 @@ internal static class MacLayerFade
         layer.AddAnimation(fade, Key);
     }
 
+    /// <summary>Gives the view up: no fade, fully opaque.</summary>
+    public static void Release(UIView view) => Set(view, 1f);
+
     /// <summary>Stops any fade and holds the view at <paramref name="opacity"/>.</summary>
     public static void Set(UIView view, float opacity)
     {
