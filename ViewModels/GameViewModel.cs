@@ -1752,6 +1752,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $import2 unclosed 2,4 also import those runs, which have no recorded end", 14);
         AddSystemLine("  $EXPORT [path]        write a snapshot of mucka.db (default ~/.mucka/mucka-export.db)", 14);
         AddSystemLine("                        merge it elsewhere by starting Mucka with: mucka -import <file>", 14);
+#if MACCATALYST
+        AddSystemLine("                        on a Mac: Mucka.app/Contents/MacOS/Mucka -import <file>", 14);
+#endif
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
         AddSystemLine("  $name                 run a command defined above", 14);

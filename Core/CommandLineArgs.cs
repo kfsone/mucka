@@ -6,7 +6,7 @@ namespace Mucka.Core;
 ///   mucka -profile &lt;name&gt;
 ///   mucka [-host &lt;host&gt;] [-port &lt;port&gt;] [-user &lt;name&gt;] [-account &lt;id&gt;] [-password &lt;pwd&gt;]
 ///   mucka [-record]      - arm the session transcript on entering the game (also the in-game rec chip)
-///   mucka -import &lt;file&gt; - merge a $EXPORT file into the database before anything opens it (Windows only)
+///   mucka -import &lt;file&gt; - merge a $EXPORT file into the database before anything opens it
 /// Warning:
 ///   -password exposes credentials via process listings, shell history, and crash reports.
 ///   Prefer a saved profile or the interactive password prompt when possible.
@@ -43,9 +43,11 @@ public sealed class CommandLineArgs
 #if WINDOWS
     /// <summary>If set, trace/log output is written to this file (Windows only).</summary>
     public string? LogPath { get; private set; }
+#endif
 
+#if DESKTOP
     /// <summary>If set, an export file to merge into the database at start-up - see
-    /// <see cref="StartupImport"/> (Windows only).</summary>
+    /// <c>StartupImport</c> (desktop only).</summary>
     public string? ImportPath { get; private set; }
 #endif
 
@@ -80,6 +82,8 @@ public sealed class CommandLineArgs
                 "record" => true,
 #if WINDOWS
                 "logs" => true,
+#endif
+#if DESKTOP
                 "import" => true,
 #endif
                 _ => false
@@ -143,6 +147,8 @@ public sealed class CommandLineArgs
                     if (TakeValue() is { } logPath)
                         result.LogPath = logPath;
                     break;
+#endif
+#if DESKTOP
                 case "import":
                     if (TakeValue() is { } importPath)
                         result.ImportPath = importPath;
