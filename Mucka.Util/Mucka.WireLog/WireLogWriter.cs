@@ -40,6 +40,9 @@ public sealed class WireLogWriter : IDisposable
 
     public WireLogWriter(MuckaStore store) => _store = store;
 
+    /// <summary>Receives the text of every annotation as it is written. Must not block or throw.</summary>
+    public Action<string>? AnnotationMirror { get; init; }
+
     public void RecordRx(ReadOnlySpan<byte> data) => Emit(WireDirection.Rx, data);
 
     public void RecordTx(byte[] data) => Emit(WireDirection.Tx, data);
@@ -50,7 +53,7 @@ public sealed class WireLogWriter : IDisposable
     {
         // UTF-8 rather than Latin-1: an annotation is a .NET string, and UTF-8 round-trips all of
         // them. See the encoding contract on WireRecord.
-        Emit(WireDirection.Annotation, Encoding.UTF8.GetBytes(message));
+        Emit(WireDirection.Annotation, Encoding.UTF8.GetBytes(message), message);
     }
 
     /// <summary>Nothing is held back, so there is nothing to flush. Kept because every path that ends
@@ -62,7 +65,7 @@ public sealed class WireLogWriter : IDisposable
 
     public void Dispose() => _disposed = true;
 
-    private void Emit(WireDirection direction, ReadOnlySpan<byte> payload)
+    private void Emit(WireDirection direction, ReadOnlySpan<byte> payload, string? mirrorText = null)
     {
         if (_disposed) return;
         // The payload is copied outside the lock: it is the only part of this that is not O(1), and
@@ -87,6 +90,12 @@ public sealed class WireLogWriter : IDisposable
         {
             _store.Enqueue(new WireRow(_store.SessionId, ++_seq,
                 DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), direction, bytes));
+            // Inside the lock so the mirror's order is the rows' order.
+            if (mirrorText is not null)
+            {
+                try { AnnotationMirror?.Invoke(mirrorText); }
+                catch { }
+            }
         }
     }
 }
