@@ -164,6 +164,47 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         set => Set(ref _logResetDiagnostics, value);
     }
 
+    /// <summary>Shows the "Store Passwords Securely" row; only a Mac has a keychain choice to make.</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding IsPasswordStoreAvailable}); a binding cannot resolve a static member.")]
+    public bool IsPasswordStoreAvailable =>
+#if MACCATALYST
+        true;
+#else
+        false;
+#endif
+
+#if MACCATALYST
+    private bool _storePasswordsSecurely;
+
+    /// <summary>Keychain (true) or plain text in the ini (false). Applies as soon as it is flipped,
+    /// moving the saved passwords across; it is not part of Save.</summary>
+    public bool StorePasswordsSecurely
+    {
+        get => _storePasswordsSecurely;
+        set
+        {
+            if (!Set(ref _storePasswordsSecurely, value)) return;
+            _ = Task.Run(() => ProfileStore.ChooseSecureStorageAsync(value, moveFromOld: true))
+                .ContinueWith(t => CrashLog.Write("PasswordStorageChoice", t.Exception!),
+                    TaskContinuationOptions.OnlyOnFaulted);
+        }
+    }
+
+    private async Task LoadStorePasswordsSecurelyAsync()
+    {
+        var secure = await SettingsStore.GetSecurePasswordsAsync().ConfigureAwait(false) ?? false;
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            // Assigned to the field: showing the stored value must not run a migration.
+            _storePasswordsSecurely = secure;
+            OnPropertyChanged(nameof(StorePasswordsSecurely));
+        });
+    }
+#else
+    public bool StorePasswordsSecurely { get => false; set { } }
+#endif
+
     /// <summary>Gates the Debug-only "log reset diagnostics" row (XAML has no #if, so bind visibility here).</summary>
     [SuppressMessage("Performance", "CA1822:Mark members as static",
         Justification = "Bound from XAML ({Binding IsTtrDiagAvailable}); a binding cannot resolve a static member.")]
@@ -387,6 +428,9 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         Func<ClientSettings, string[], Task>? onSave,
         int effectiveColumns = 0)
     {
+#if MACCATALYST
+        _ = LoadStorePasswordsSecurelyAsync();
+#endif
         _original = settings;
         _onApply  = onApply;
         _onSave   = onSave;

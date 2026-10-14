@@ -1,5 +1,8 @@
 using System.Globalization;
 using Microsoft.Maui.Storage;
+#if MACCATALYST
+using Mucka.Commands;
+#endif
 
 namespace Mucka.Core;
 
@@ -30,7 +33,8 @@ namespace Mucka.Core;
 ///   2=MUD2.COM
 ///
 ///   [profile:MUD2 UK]     ; connection identity - settings/fkeys live above, passwords
-///   host=mud2.co.uk       ; in SecureStorage (ProfileStore)
+///   host=mud2.co.uk       ; in SecureStorage (ProfileStore); on macOS in the keychain, or
+///                         ; as password=... here when securepasswords=no
 ///   port=23
 ///
 /// Windows: ./mucka.ini beside the exe, then ~/mucka.ini; new files are created in the
@@ -43,6 +47,9 @@ public static class SettingsStore
     private const int FkeyCount = 36;
     private const string ProfilesSection = "profiles";
     private const string ProfileSectionPrefix = "profile:";
+#if MACCATALYST
+    private const string SecurePasswordsKey = "securepasswords";
+#endif
 
     // Serializes read-modify-write cycles so concurrent saves cannot interleave on the
     // shared tmp file (the cause of the silent second-save failure).
@@ -389,6 +396,50 @@ public static class SettingsStore
             s_gate.Release();
         }
     }
+
+#if MACCATALYST
+    private const string ProfilePasswordKey = "password";
+
+    /// <summary>The "Store Passwords Securely" choice: true keychain, false plain text in this
+    /// file, null not asked yet (no securepasswords key in [settings]).</summary>
+    public static async Task<bool?> GetSecurePasswordsAsync()
+        => await GetGlobalValueAsync(SecurePasswordsKey).ConfigureAwait(false) is { } v ? ParseOnOff(v) : null;
+
+    public static Task SetSecurePasswordsAsync(bool secure) => SetGlobalFlagAsync(SecurePasswordsKey, secure);
+
+    /// <summary>The password kept as plain text in the profile's section; null when there is none.</summary>
+    public static async Task<string?> GetPlainPasswordAsync(string profileName)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var raw = IniFile.Load(ResolvePath()).Get(ProfileSectionPrefix + profileName, ProfilePasswordKey);
+            return string.IsNullOrEmpty(raw) ? null : IniPasswordCodec.Decode(raw);
+        }
+        finally { s_gate.Release(); }
+    }
+
+    /// <summary>Writes (or, for an empty password, removes) the profile's plain text password.</summary>
+    public static async Task SetPlainPasswordAsync(string profileName, string? password)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini = IniFile.Load(path);
+            var section = ProfileSectionPrefix + profileName;
+            if (string.IsNullOrEmpty(password))
+            {
+                if (ini.Get(section, ProfilePasswordKey) is null) return;
+                ini.Remove(section, ProfilePasswordKey);
+            }
+            else
+                ini.Set(section, ProfilePasswordKey, IniPasswordCodec.Encode(password));
+            await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally { s_gate.Release(); }
+    }
+#endif
 
     // -- Private ----------------------------------------------------------------
 

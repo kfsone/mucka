@@ -98,6 +98,12 @@ public sealed class IniFile
     {
         var text = string.Join(Environment.NewLine, _lines) + Environment.NewLine;
         var tmpPath = path + ".tmp";
+        // On a Mac the file may hold a plain text password; it is owner-only from its first byte.
+        if (OperatingSystem.IsMacCatalyst())
+        {
+            File.WriteAllText(tmpPath, string.Empty);
+            File.SetUnixFileMode(tmpPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
         await File.WriteAllTextAsync(tmpPath, text).ConfigureAwait(false);
         File.Move(tmpPath, path, overwrite: true);
     }
