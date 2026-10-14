@@ -137,6 +137,10 @@ public partial class ConnectPage : ContentPage
     protected override async void OnAppearing()
     {
         base.OnAppearing();
+#if MACCATALYST
+        if (!_vm.IsDirectConnectMode && Interlocked.Exchange(ref _passwordChoiceAsked, 1) == 0)
+            _ = AskPasswordStorageAsync();
+#endif
         if (!_vm.IsDirectConnectMode || Interlocked.Exchange(ref _autoConnectAttempted, 1) != 0)
         {
             return;
@@ -148,6 +152,29 @@ public partial class ConnectPage : ContentPage
             _vm.ConnectCommand.Execute(null);
         }
     }
+
+#if MACCATALYST
+    private int _passwordChoiceAsked;
+
+    // Asked once, from the first appearance of this page, so the window is already up; never on the
+    // game pages. Until it is answered nothing is stored anywhere (see ProfileStore).
+    private async Task AskPasswordStorageAsync()
+    {
+        try
+        {
+            if (await SettingsStore.GetSecurePasswordsAsync() is not null) return;
+            await Task.Yield();
+            var tcs = new TaskCompletionSource<bool>();
+            await Navigation.PushModalAsync(new PasswordStorePage(tcs));
+            var secure = await tcs.Task;
+            await Task.Run(() => ProfileStore.ChooseSecureStorageAsync(secure, moveFromOld: true));
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("PasswordStorageChoice", ex);
+        }
+    }
+#endif
 
     private async Task<PasswordResult?> PromptPasswordAsync(PasswordPromptArgs args)
     {

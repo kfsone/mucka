@@ -575,6 +575,15 @@
                         </HorizontalStackLayout>
                     </Grid>
 
+                    <!-- Mac only: where saved passwords live -->
+                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12" IsVisible="{Binding IsPasswordStoreAvailable}">
+                        <Label Grid.Column="0" Text="Store Passwords Securely" TextColor="#888888" FontSize="13" VerticalOptions="Center"
+                               ToolTipProperties.Text="On: saved passwords go in your macOS keychain. Off: they are kept as plain text in ~/.mucka/mucka.ini."/>
+                        <Switch Grid.Column="1" IsToggled="{Binding StorePasswordsSecurely, Mode=TwoWay}"
+                                HorizontalOptions="Start" VerticalOptions="Center"
+                                SemanticProperties.Description="Store passwords securely in the macOS keychain"/>
+                    </Grid>
+
                     <!-- Dreamword pill size offset -->
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Dreamword Pill Size" TextColor="#888888" FontSize="13" VerticalOptions="Center"
