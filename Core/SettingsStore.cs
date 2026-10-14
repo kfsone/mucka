@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Maui.Storage;
+using Mucka.Settings;
 #if MACCATALYST
 using Mucka.Commands;
 #endif
@@ -11,30 +12,33 @@ namespace Mucka.Core;
 /// hand-edited [watch] rules, which are preserved verbatim (IniFile only rewrites the
 /// lines it owns).
 ///
-/// Layout: settings and fkeys are GLOBAL by default; a profile opts into its own copy
-/// via the "Save to profile only" checkboxes (one per page), which switch the save
-/// target to the suffixed sections. Loads prefer the per-profile section when present:
+/// Layout: every setting is GLOBAL, in [settings]. The one per-profile setting is a profile's own
+/// F-key set, an opt-in copy made by the Hotkeys page's "Save to profile only" checkbox, which
+/// switches the save target to [fkeys:Name]; loads prefer it when present. Older versions also kept
+/// settings per profile ([settings:Name], and columns/antiidle/keepscreenon/defaulthotkeys inside
+/// [profile:Name]); GlobalSettingsMigration moves those into [settings] on first load and removes
+/// them.
 ///
-///   [settings]            ; globals - the default save target
+///   [settings]            ; globals - the only save target for settings
 ///   fontsize=15
 ///   columns=80
 ///   volume=75
 ///   statupdate=10
 ///   mutebeep=no
+///   antiidle=0
+///   keepscreenon=no
 ///
 ///   [fkeys]               ; F1-F12 plain, F13-F24 shift, F25-F36 ctrl (clio.ini layout)
 ///   F1=l around
 ///
-///   [settings:MUD2 UK]    ; per-profile override - "Save to profile only" checked
-///   [fkeys:MUD2 UK]
+///   [fkeys:MUD2 UK]       ; per-profile F-key set - "Save to profile only" checked
 ///
 ///   [profiles]            ; connection profiles, most-recently-used first
 ///   1=MUD2 UK
 ///   2=MUD2.COM
 ///
-///   [profile:MUD2 UK]     ; connection identity - settings/fkeys live above, passwords
-///   host=mud2.co.uk       ; in SecureStorage (ProfileStore); on macOS in the keychain, or
-///                         ; as password=... here when securepasswords=no
+///   [profile:MUD2 UK]     ; connection identity - passwords in SecureStorage (ProfileStore); on
+///   host=mud2.co.uk       ; macOS in the keychain, or as password=... here when securepasswords=no
 ///   port=23
 ///
 /// Windows: ./mucka.ini beside the exe, then ~/mucka.ini; new files are created in the
@@ -45,8 +49,8 @@ namespace Mucka.Core;
 public static class SettingsStore
 {
     private const int FkeyCount = 36;
-    private const string ProfilesSection = "profiles";
-    private const string ProfileSectionPrefix = "profile:";
+    private const string ProfilesSection = GlobalSettingsMigration.ProfilesSection;
+    private const string ProfileSectionPrefix = GlobalSettingsMigration.ProfileSectionPrefix;
 #if MACCATALYST
     private const string SecurePasswordsKey = "securepasswords";
 #endif
@@ -57,8 +61,8 @@ public static class SettingsStore
 
     /// <summary>
     /// Settings read from mucka.ini; null members mean "not present in the file".
-    /// The scope flags record which section each part came from (per-profile vs global)
-    /// and drive the "Save to profile only" checkboxes.
+    /// <see cref="FkeysPerProfile"/> records whether the fkeys came from the profile's own
+    /// [fkeys:Name] section and drives the Hotkeys page's "Save to profile only" checkbox.
     /// </summary>
     public sealed record StoredSettings(
         int? FontSize,
@@ -68,7 +72,6 @@ public static class SettingsStore
         bool? MuteBeepPermanently,
         SoundSettings? Sounds,
         string[]? Fkeys,
-        bool SettingsPerProfile,
         bool FkeysPerProfile,
         // Display tab - always read/written to the global [settings] section.
         int? DefaultFontSize    = null,
@@ -104,7 +107,6 @@ public static class SettingsStore
             if (LogResetDiagnostics is bool logttr)  profile.LogResetDiagnostics = logttr;
             if (Sounds              is not null)     profile.Sounds              = Sounds;
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
-            profile.SettingsPerProfile = SettingsPerProfile;
             profile.FkeysPerProfile    = FkeysPerProfile;
             // Display tab - always from the global [settings] section.
             if (DefaultFontSize   is int dfs)  profile.DefaultFontSize   = dfs;
@@ -152,23 +154,19 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// Loads the stored settings for a profile - preferring its per-profile sections,
-    /// falling back to the globals - or null when mucka.ini has neither (first run -
-    /// callers keep the profile's built-in defaults).
+    /// Loads the stored settings for a profile - the global [settings], and its own [fkeys:Name]
+    /// in preference to the global [fkeys] when it has one - or null when mucka.ini has neither
+    /// (first run - callers keep the profile's built-in defaults).
     /// </summary>
     public static async Task<StoredSettings?> LoadProfileAsync(string profileName)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            var ini = IniFile.Load(ResolvePath());
-            // Per-profile section wins when present; otherwise the globals.
-            var profileSettings = $"settings:{profileName}";
+            var ini = await LoadIniAsync().ConfigureAwait(false);
             var profileFkeys    = $"fkeys:{profileName}";
-            var settingsPerProfile = ini.HasSection(profileSettings);
-            var fkeysPerProfile    = ini.HasSection(profileFkeys);
-            var settingsSection = settingsPerProfile ? profileSettings
-                                : ini.HasSection("settings") ? "settings" : null;
+            var fkeysPerProfile = ini.HasSection(profileFkeys);
+            var settingsSection = ini.HasSection("settings") ? "settings" : null;
             var fkeysSection    = fkeysPerProfile ? profileFkeys
                                 : ini.HasSection("fkeys") ? "fkeys" : null;
             if (settingsSection is null && fkeysSection is null)
@@ -195,7 +193,6 @@ public static class SettingsStore
                 LogResetDiagnostics: settingsSection is null ? null : GetBool(ini, settingsSection, "logttr"),
                 Sounds:              settingsSection is null ? null : ReadSoundSettings(ini, settingsSection),
                 Fkeys:               fkeys,
-                SettingsPerProfile:  settingsPerProfile,
                 FkeysPerProfile:     fkeysPerProfile,
                 // Display tab settings always come from the global [settings] section.
                 DefaultFontSize:    ini.HasSection("settings") ? GetInt (ini, "settings", "defaultfontsize")    : null,
@@ -227,11 +224,10 @@ public static class SettingsStore
 
     /// <summary>
     /// Writes the settings (and, when non-null, the fkeys) into mucka.ini, preserving
-    /// everything else in the file (comments, [watch] rules, other sections). Each part
-    /// goes to its per-profile section when the corresponding scope flag in
-    /// <paramref name="settings"/> is set, otherwise to the globals. An existing section
-    /// of the other scope is left alone (the saved-globals-while-profile-exists ambiguity
-    /// is deliberately unresolved). Pass null <paramref name="fkeys"/> to leave all fkey
+    /// everything else in the file (comments, [watch] rules, other sections). The settings
+    /// always go to the global [settings]; the fkeys go to [fkeys:Name] when
+    /// <see cref="ClientSettings.FkeysPerProfile"/> is set, otherwise to the global [fkeys] (an
+    /// existing section of the other scope is left alone). Pass null <paramref name="fkeys"/> to leave all fkey
     /// sections untouched - used by the connect page, which cannot edit hotkeys.
     /// </summary>
     /// <param name="writeSounds">False leaves every sound key in the section untouched. Pass false
@@ -254,9 +250,9 @@ public static class SettingsStore
         try
         {
             var path = ResolvePath();
-            var ini  = IniFile.Load(path);
+            var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
 
-            var settingsSection = settings.SettingsPerProfile ? $"settings:{profileName}" : "settings";
+            const string settingsSection = "settings";
             // mucka.ini is a stored file format, so every number in it is written and read back
             // invariant - the file must not change meaning when it is opened under another locale.
             ini.Set(settingsSection, "fontsize",   settings.FontSize.ToString(CultureInfo.InvariantCulture));
@@ -332,7 +328,7 @@ public static class SettingsStore
         try
         {
             var path = ResolvePath();
-            var ini  = IniFile.Load(path);
+            var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
             ini.Set("settings", key, value);
             await ini.SaveAsync(path).ConfigureAwait(false);
         }
@@ -348,7 +344,7 @@ public static class SettingsStore
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            return IniFile.Load(ResolvePath()).Get("settings", key);
+            return (await LoadIniAsync().ConfigureAwait(false)).Get("settings", key);
         }
         finally
         {
@@ -366,8 +362,7 @@ public static class SettingsStore
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            var path = ResolvePath();
-            var ini  = IniFile.Load(path);
+            var ini  = await LoadIniAsync().ConfigureAwait(false);
             var profiles = ReadProfiles(ini);
             return profiles.Count > 0 ? profiles : DefaultProfiles();
         }
@@ -388,7 +383,7 @@ public static class SettingsStore
         try
         {
             var path = ResolvePath();
-            var ini  = IniFile.Load(path);
+            var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
             WriteProfiles(ini, profiles);
             await ini.SaveAsync(path).ConfigureAwait(false);
         }
@@ -414,7 +409,7 @@ public static class SettingsStore
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            var raw = IniFile.Load(ResolvePath()).Get(ProfileSectionPrefix + profileName, ProfilePasswordKey);
+            var raw = (await LoadIniAsync().ConfigureAwait(false)).Get(ProfileSectionPrefix + profileName, ProfilePasswordKey);
             return string.IsNullOrEmpty(raw) ? null : IniPasswordCodec.Decode(raw);
         }
         finally { s_gate.Release(); }
@@ -427,7 +422,7 @@ public static class SettingsStore
         try
         {
             var path = ResolvePath();
-            var ini = IniFile.Load(path);
+            var ini = await LoadIniAsync(persist: false).ConfigureAwait(false);
             var section = ProfileSectionPrefix + profileName;
             if (string.IsNullOrEmpty(password))
             {
@@ -444,6 +439,51 @@ public static class SettingsStore
 
     // -- Private ----------------------------------------------------------------
 
+    /// <summary>
+    /// Loads mucka.ini with the per-profile settings of older versions already moved into
+    /// [settings] (see <see cref="GlobalSettingsMigration"/>). Called with the gate held. With
+    /// <paramref name="persist"/> the moved document is written straight away, so a read-only
+    /// caller does not have to wait for a save; the value is in [settings] in the same atomic
+    /// write that removes the old copy. A failed write is not fatal: the caller still gets the
+    /// moved document, and the next save writes it.
+    /// </summary>
+    private static async Task<IniFile> LoadIniAsync(bool persist = true)
+    {
+        var path = ResolvePath();
+        var ini  = IniFile.Load(path);
+        if (GlobalSettingsMigration.Apply(ini) && persist)
+        {
+            try { await ini.SaveAsync(path).ConfigureAwait(false); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SettingsStore] migrated mucka.ini not written: {ex}");
+            }
+        }
+        return ini;
+    }
+
+    /// <summary>
+    /// Writes the three connect-page settings that are global: the advertised column count, the
+    /// anti-idle interval and keep-screen-on. Every other key in the file is left alone.
+    /// </summary>
+    public static async Task SaveConnectGlobalsAsync(int maxColumns, int antiIdleSeconds, bool keepScreenOn)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
+            ini.Set("settings", "columns",      maxColumns.ToString(CultureInfo.InvariantCulture));
+            ini.Set("settings", "antiidle",     antiIdleSeconds.ToString(CultureInfo.InvariantCulture));
+            ini.Set("settings", "keepscreenon", keepScreenOn ? "yes" : "no");
+            await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
     private static List<Profile> DefaultProfiles() => new()
     {
         new Profile { Name = "MUD2 UK",  Host = "mud2.co.uk",  Port = 23    },
@@ -452,20 +492,7 @@ public static class SettingsStore
 
     private static List<Profile> ReadProfiles(IniFile ini)
     {
-        // [profiles] gives the MRU order; any [profile:X] section it doesn't mention
-        // (e.g. hand-added) is appended in file order.
-        var names = new List<string>();
-        foreach (var (_, value) in ini.Items(ProfilesSection))
-            if (value.Length > 0 && !names.Contains(value, StringComparer.OrdinalIgnoreCase))
-                names.Add(value);
-        foreach (var section in ini.SectionNames())
-        {
-            if (!section.StartsWith(ProfileSectionPrefix, StringComparison.OrdinalIgnoreCase))
-                continue;
-            var name = section[ProfileSectionPrefix.Length..].Trim();
-            if (name.Length > 0 && !names.Contains(name, StringComparer.OrdinalIgnoreCase))
-                names.Add(name);
-        }
+        var names = GlobalSettingsMigration.ProfileNames(ini);
 
         var profiles = new List<Profile>(names.Count);
         foreach (var name in names)
@@ -479,10 +506,10 @@ public static class SettingsStore
             if (GetBool(ini, section, "rememberpassword") is bool rem)   p.RememberPassword   = rem;
             if (GetBool(ini, section, "telnetlogin")      is bool tel)   p.TelnetLoginEnabled = tel;
             if (ini.Get(section, "loginname") is { Length: > 0 } login)  p.TelnetLoginName    = login;
-            if (GetInt (ini, section, "columns")          is int cols)   p.MaxColumns         = cols;
-            if (GetInt (ini, section, "antiidle")         is int idle)   p.AntiIdleSeconds    = idle;
-            if (GetBool(ini, section, "keepscreenon")     is bool keep)  p.KeepScreenOn       = keep;
-            if (GetBool(ini, section, "defaulthotkeys")   is bool defs)  p.DefaultHotkeys     = defs;
+            if (GetInt (ini, "settings", "columns")        is int cols)   p.MaxColumns         = cols;
+            if (GetInt (ini, "settings", "antiidle")       is int idle)   p.AntiIdleSeconds    = idle;
+            if (GetBool(ini, "settings", "keepscreenon")   is bool keep)  p.KeepScreenOn       = keep;
+            if (GetBool(ini, "settings", "defaulthotkeys") is bool defs)  p.DefaultHotkeys     = defs;
             if (GetBool(ini, section, "guidedlogin")      is bool gl)    p.GuidedLogin        = gl;
             p.GuidedLoginPersona = ini.Get(section, "guidedloginpersona") ?? string.Empty;
             profiles.Add(p);
@@ -534,10 +561,6 @@ public static class SettingsStore
             ini.Set(section, "rememberpassword", p.RememberPassword   ? "yes" : "no");
             ini.Set(section, "telnetlogin",      p.TelnetLoginEnabled ? "yes" : "no");
             ini.Set(section, "loginname",        p.TelnetLoginName);
-            ini.Set(section, "columns",          p.MaxColumns.ToString(CultureInfo.InvariantCulture));
-            ini.Set(section, "antiidle",         p.AntiIdleSeconds.ToString(CultureInfo.InvariantCulture));
-            ini.Set(section, "keepscreenon",     p.KeepScreenOn       ? "yes" : "no");
-            ini.Set(section, "defaulthotkeys",   p.DefaultHotkeys     ? "yes" : "no");
             ini.Set(section, "guidedlogin",       p.GuidedLogin        ? "yes" : "no");
             ini.Set(section, "guidedloginpersona", p.GuidedLoginPersona);
         }

@@ -300,7 +300,6 @@ public sealed class ConnectViewModel : BaseViewModel
                 StatUpdateFrequency = saved?.StatUpdateFrequency ?? 10,
                 MuteBeepPermanently = saved?.MuteBeepPermanently ?? false,
                 LogResetDiagnostics = saved?.LogResetDiagnostics ?? false,
-                SettingsPerProfile = saved?.SettingsPerProfile ?? false,
                 FkeysPerProfile = saved?.FkeysPerProfile ?? false,
                 Fkeys = saved?.Fkeys ?? new string[36],
                 // `saved` is already hydrated from mucka.ini by LoadProfilesAsync's ApplyTo overlay,
@@ -614,20 +613,23 @@ public sealed class ConnectViewModel : BaseViewModel
     /// </summary>
     public async Task SaveProfileSettingsAsync(string profileName, ClientSettings settings, string[] fkeys)
     {
+        // Every setting but the fkeys is global, so every cached profile takes the new values.
+        foreach (var p in SavedProfiles)
+        {
+            p.FontSize            = settings.FontSize;
+            p.MaxColumns          = settings.MaxColumns;
+            p.Volume              = settings.Volume;
+            p.StatUpdateFrequency = settings.StatUpdateFrequency;
+            p.MuteBeepPermanently = settings.MuteBeepPermanently;
+            p.LogResetDiagnostics = settings.LogResetDiagnostics;
+            p.Sounds              = settings.Sounds;
+        }
         var existing = SavedProfiles.FirstOrDefault(p =>
             string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
         if (existing != null)
         {
-            existing.FontSize            = settings.FontSize;
-            existing.MaxColumns          = settings.MaxColumns;
-            existing.Volume              = settings.Volume;
-            existing.StatUpdateFrequency = settings.StatUpdateFrequency;
-            existing.MuteBeepPermanently = settings.MuteBeepPermanently;
-            existing.LogResetDiagnostics = settings.LogResetDiagnostics;
-            existing.SettingsPerProfile  = settings.SettingsPerProfile;
-            existing.FkeysPerProfile     = settings.FkeysPerProfile;
-            existing.Fkeys               = fkeys;
-            existing.Sounds              = settings.Sounds;
+            existing.FkeysPerProfile = settings.FkeysPerProfile;
+            existing.Fkeys           = fkeys;
             if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
                 MaxColumns = settings.MaxColumns;
         }
@@ -706,11 +708,20 @@ public sealed class ConnectViewModel : BaseViewModel
             SavedProfiles.Insert(0, incoming);
         }
 
+        // Columns, anti-idle and keep-screen-on are global: the other cached profiles show the same
+        // values the next time they are selected.
+        foreach (var p in SavedProfiles)
+        {
+            p.MaxColumns      = incoming.MaxColumns;
+            p.AntiIdleSeconds = incoming.AntiIdleSeconds;
+            p.KeepScreenOn    = incoming.KeepScreenOn;
+        }
+
         await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
+        await SettingsStore.SaveConnectGlobalsAsync(incoming.MaxColumns, incoming.AntiIdleSeconds, incoming.KeepScreenOn);
 
         // Keep mucka.ini in sync - it is the authoritative settings store, so a column
         // change made on this page must not be reverted by a stale ini section next launch.
-        // The save lands in whichever scope the profile loaded from (global by default).
         var settings = new ClientSettings
         {
             FontSize            = incoming.FontSize,
@@ -719,7 +730,6 @@ public sealed class ConnectViewModel : BaseViewModel
             StatUpdateFrequency = incoming.StatUpdateFrequency,
             MuteBeepPermanently = incoming.MuteBeepPermanently,
             LogResetDiagnostics = incoming.LogResetDiagnostics,
-            SettingsPerProfile  = incoming.SettingsPerProfile,
             FkeysPerProfile     = incoming.FkeysPerProfile,
             Sounds              = incoming.Sounds,
             // The Combat Rail's two flags are not here: they are single [settings] keys written only

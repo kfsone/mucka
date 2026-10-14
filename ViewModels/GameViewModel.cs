@@ -127,7 +127,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // saving its C# default back over the player's choice. Nothing in this class acts on it: the log
     // is started at connect time (ConnectViewModel), so a change here takes effect next session.
     private SoundSettings _sounds = new();
-    private bool _settingsPerProfile;
     private bool _fkeysPerProfile;
     private bool _personaInvalidated;
     // Set when the shell's "Cheerio!" farewell says this exit was the player's own doing (qq).
@@ -605,7 +604,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         MuteBeepSession     = _muteBeepSession,
         MuteBeepPermanently = _muteBeepPermanently,
         LogResetDiagnostics = _logResetDiagnostics,
-        SettingsPerProfile  = _settingsPerProfile,
         FkeysPerProfile     = _fkeysPerProfile,
         Sounds              = _sounds.Clone(),
         // Display tab globals (stored on the profile struct at load time).
@@ -718,7 +716,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _muteBeepSession     = profile.MuteBeepPermanently;
         _logResetDiagnostics = profile.LogResetDiagnostics;
         _conn.LogResetDiagnostics = _logResetDiagnostics;
-        _settingsPerProfile  = profile.SettingsPerProfile;
         _fkeysPerProfile     = profile.FkeysPerProfile;
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
@@ -846,7 +843,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // Stored, not acted on: the wire log is started at connect time, so flipping it here takes
         // effect on the next connection. Not applied live on purpose - starting a log mid-session
         // would produce a recording that silently begins in the middle of a conversation.
-        _settingsPerProfile  = settings.SettingsPerProfile;
         _fkeysPerProfile     = settings.FkeysPerProfile;
         _sounds              = settings.Sounds;
         SoundService.SetSoundSettings(_sounds);

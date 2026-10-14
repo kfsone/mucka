@@ -172,6 +172,7 @@
 		<ProjectReference Include="Mucka.Util\Mucka.Commands\Mucka.Commands.csproj" />
 		<ProjectReference Include="Mucka.Util\Mucka.Sounds\Mucka.Sounds.csproj" />
 		<ProjectReference Include="Mucka.Util\Mucka.Ui\Mucka.Ui.csproj" />
+		<ProjectReference Include="Mucka.Util\Mucka.Settings\Mucka.Settings.csproj" />
 	</ItemGroup>
 
 	<!-- Strip .pdb symbol files from the publish output. SkiaSharp's native assets ship ~220 MB
