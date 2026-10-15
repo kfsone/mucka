@@ -1152,7 +1152,7 @@ public sealed class CombatRailView : SKCanvasView
     /// Where roster row <paramref name="rosterIndex"/> is actually drawn, in dp from the panel
     /// content box's top-left, or null when that row has no slot of its own (it is in the overflow
     /// tail, or the panel has not been measured). Same contract and same reason as
-    /// <see cref="TickTrackDp"/>: this canvas lays itself out in its design space (376 units, or 296
+    /// <see cref="TickTrackDp"/>: this canvas lays itself out in its design space (384 units, or 296
     /// with the stat rows off - <see cref="RailWidthFor"/>) and scales
     /// it, so anything positioned in real dp needs the same factor and must not re-derive it.
     /// </summary>
@@ -3205,7 +3205,7 @@ public sealed class CombatRailView : SKCanvasView
     /// Where the flee pill sits, in device-independent units, for a rail rendered at
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition border/background behind this
     /// canvas has to match exactly. Same contract and same reason as <see cref="TickTrackDp"/>: the rail
-    /// lays itself out in its design space (376 units, or 296 with the stat rows off) and scales it, so
+    /// lays itself out in its design space (384 units, or 296 with the stat rows off) and scales it, so
     /// a sibling in real dp needs the same factor, and two copies of the arithmetic would silently
     /// disagree the first time this row's height or padding changed.
     ///
@@ -3333,7 +3333,7 @@ public sealed class CombatRailView : SKCanvasView
     /// <paramref name="panelWidthDp"/> wide - the geometry the Composition sweep behind this canvas
     /// has to match exactly.
     ///
-    /// <para>The rail lays itself out in a design coordinate space - 376 units, or 296 with the stat
+    /// <para>The rail lays itself out in a design coordinate space - 384 units, or 296 with the stat
     /// rows off - and scales that space to
     /// whatever width it is given (see OnPaintSurface), so a sibling element positioned in real dp
     /// has to have the same scale factor applied to it. Exposing it from here rather than restating

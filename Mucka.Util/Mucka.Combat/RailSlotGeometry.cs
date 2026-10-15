@@ -84,7 +84,7 @@ public readonly record struct RailSlotMetrics(
 ///
 /// <para><b>This is a mirror of the paint path's own arithmetic, and it has to stay one.</b>
 /// <c>CombatRailView.OnPaintSurface</c> lays the panel out from the BOTTOM edge upward in a fixed
-/// 376-unit logical space and scales that space to whatever width the panel is given; a consumer
+/// 384-unit logical space and scales that space to whatever width the panel is given; a consumer
 /// working in real dp therefore needs the same scale factor applied, exactly as
 /// <c>TickTrackDp</c>/<c>FleePillDp</c> already do for the two Composition siblings. The
 /// difference here is that the slot layout also has a CAPACITY rule (how many slots the available

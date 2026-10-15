@@ -309,14 +309,23 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
     // Below 50 cols, hide the /max for any stat with a 3-digit max (saves 4 chars per stat).
-    public string StaCurValue => $"{Stamina}";
+    public string StaCurValue => PadToMax(Stamina, MaxStamina);
     public string StaMaxValue => (_effCols < 50 && _maxStamina >= 100) ? string.Empty : $"/{MaxStamina}";
-    public string MagCurValue => $"{Magic}";
+    public string MagCurValue => PadToMax(Magic, MaxMagic);
     public string MagMaxValue => (_effCols < 50 && _maxMagic    >= 100) ? string.Empty : $"/{MaxMagic}";
-    public string StrCurValue => $"{Strength}";
+    public string StrCurValue => PadToMax(Strength, MaxStrength);
     public string StrMaxValue => (_effCols < 50 && _maxStrength  >= 100) ? string.Empty : $"/{MaxStrength}";
-    public string DexCurValue => $"{Dexterity}";
+    public string DexCurValue => PadToMax(Dexterity, MaxDexterity);
     public string DexMaxValue => (_effCols < 50 && _maxDexterity >= 100) ? string.Empty : $"/{MaxDexterity}";
+    // The current value is left-padded with spaces (as wide as a digit in the monospaced stat font) to the digit count of its max, so the
+    // stat labels keep one width as the value passes 100 or 10 and the items to their right stay put.
+    private static string PadToMax(int value, int max)
+    {
+        var text = $"{value}";
+        var digits = $"{max}".Length;
+        return text.Length >= digits ? text : new string(' ', digits - text.Length) + text;
+    }
+
     // Score number and reset-delta are separate spans so the score proper can render bold
     // while the delta stays regular weight.
     public string ScoreValue => Score <= 0 ? "-" : $"{Score}";

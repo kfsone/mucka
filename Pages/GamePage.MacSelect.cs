@@ -11,6 +11,9 @@ public partial class GamePage
 {
     private readonly List<UIGestureRecognizer> _macSelectGestures = [];
     private UIView? _macSelectView;
+    private UIContextMenuInteraction? _macCopyInteraction;
+    // Held here because UIKit keeps an interaction's delegate weakly.
+    private MacCopyMenuDelegate? _macCopyDelegate;
     private bool _macSelectHooked;
 
     private void SetUpMacSelect()
@@ -28,6 +31,10 @@ public partial class GamePage
         foreach (var gesture in _macSelectGestures)
             _macSelectView?.RemoveGestureRecognizer(gesture);
         _macSelectGestures.Clear();
+        if (_macCopyInteraction is not null)
+            _macSelectView?.RemoveInteraction(_macCopyInteraction);
+        _macCopyInteraction = null;
+        _macCopyDelegate = null;
         _macSelectView = Terminal.Handler?.PlatformView as UIView;
         if (_macSelectView is null) return;
 
@@ -41,23 +48,35 @@ public partial class GamePage
         };
         var word = new UITapGestureRecognizer(g => OnMacSelectMultiClick(g, lineWise: false)) { NumberOfTapsRequired = 2 };
         var line = new UITapGestureRecognizer(g => OnMacSelectMultiClick(g, lineWise: true)) { NumberOfTapsRequired = 3 };
-        // A right click copies the selection, as it does on Windows.
-        var copy = new UITapGestureRecognizer(_ =>
-        {
-            if (Terminal.CopySelectionToClipboard())
-                ShowToast("* Copied to clipboard");
-            RefocusAfterMacSelect();
-        }) { ButtonMaskRequired = UIEventButtonMask.Secondary };
 
-        foreach (UIGestureRecognizer gesture in new UIGestureRecognizer[] { drag, word, line, copy })
+        foreach (UIGestureRecognizer gesture in new UIGestureRecognizer[] { drag, word, line })
         {
             gesture.AllowedTouchTypes = [Foundation.NSNumber.FromInt32((int)UITouchType.IndirectPointer)];
             gesture.CancelsTouchesInView = false;
             gesture.ShouldRecognizeSimultaneously = (_, _) => true;
-            if (!ReferenceEquals(gesture, copy))
-                gesture.ShouldReceiveEvent = (_, uiEvent) => uiEvent.ButtonMask != UIEventButtonMask.Secondary;
+            gesture.ShouldReceiveEvent = (_, uiEvent) => uiEvent.ButtonMask != UIEventButtonMask.Secondary;
             _macSelectView.AddGestureRecognizer(gesture);
             _macSelectGestures.Add(gesture);
+        }
+
+        // A right click copies the selection, as it does on Windows. The system reports it as a
+        // context-menu request; the delegate copies and declines to show a menu.
+        _macCopyDelegate = new MacCopyMenuDelegate(() =>
+        {
+            if (Terminal.CopySelectionToClipboard())
+                ShowToast("* Copied to clipboard");
+            RefocusAfterMacSelect();
+        });
+        _macCopyInteraction = new UIContextMenuInteraction(_macCopyDelegate);
+        _macSelectView.AddInteraction(_macCopyInteraction);
+    }
+
+    private sealed class MacCopyMenuDelegate(Action copy) : UIContextMenuInteractionDelegate
+    {
+        public override UIContextMenuConfiguration? GetConfigurationForMenu(UIContextMenuInteraction interaction, CoreGraphics.CGPoint location)
+        {
+            copy();
+            return null;
         }
     }
 

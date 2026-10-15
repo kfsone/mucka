@@ -61,7 +61,12 @@ public static class Glyph
     /// <summary>Sun behind cloud: cloudy.</summary>
     public const string WeatherCloudy = "\u26c5\ufe0e";
     /// <summary>Umbrella: raining.</summary>
+#if MACCATALYST
+    // U+2614, umbrella with rain drops, in its emoji form: the Mac's text umbrella is a thin hook.
+    public const string WeatherRain = "\u2614\ufe0f";
+#else
     public const string WeatherRain = "\u2602\ufe0e";
+#endif
     /// <summary>Snowflake: snowing.</summary>
     public const string WeatherSnow = "\u2744\ufe0e";
     /// <summary>Cloud: overcast.</summary>

@@ -2478,7 +2478,7 @@ public partial class GamePage : ContentPage
     /// <summary>
     /// Fires once the tick sweep's native view exists. Sizes the element onto the exact track the
     /// canvas draws (<see cref="CombatRailView.TickTrackDp"/> owns that arithmetic - the rail lays
-    /// itself out in a fixed 376-unit space scaled to the panel's real width, so a sibling in dp has
+    /// itself out in a fixed 384-unit space scaled to the panel's real width, so a sibling in dp has
     /// to have the same factor applied), then attaches the Composition animator.
     /// </summary>
     private void OnCombatTickSweepHandlerChanged(object? sender, EventArgs e)

@@ -43,15 +43,15 @@ public static class CombatRailResize
     // reference that one), so there is exactly one source of truth for the width itself - what is
     // hand-kept is GamePage.xaml's WidthRequest literal, which must be this plus two strokes.
     //
-    // The two damage rows and the exchange spark are drawn in the 40 units beyond the base 336.
-    public const double CombatPanelContentWidthDp = 376.0;
+    // The two damage rows and the exchange spark are drawn in the 48 units beyond the base 336.
+    public const double CombatPanelContentWidthDp = 384.0;
     /// <summary>The content width with the stat rows and the exchange spark switched off. The
     /// operator set it: the rail was too wide for a Surface, and the stats are what the width is
     /// mostly spent on.
     ///
     /// <para>Note against the line above - the stats were the 40 units beyond a base of 336, so this
     /// takes a further 40 out of the layout that base was sized for. The flee pill is the floor at a
-    /// drawn 220, and the encounter table's headings ellipsize (they already do at 376). One
+    /// drawn 220, and the encounter table's headings ellipsize (they ellipsize at 376; not observed at 384). One
     /// constant: widen it here if anything reads cramped.</para></summary>
     public const double CombatPanelNarrowContentWidthDp = 296.0;
     // The outer Border's own WidthRequest (must match GamePage.xaml literally) - the amount of

@@ -1226,10 +1226,10 @@
              -> IsCombatPanelVisible, whose change drives GamePage's ResizeWindowForCombatPanel).
              The window never resizes itself for any other reason - not combat start, not combat end.
 
-             WidthRequest=378, not 376: this Border's own StrokeThickness=1 insets its content by 1dp
+             WidthRequest=386, not 384: this Border's own StrokeThickness=1 insets its content by 1dp
              per side (MAUI's Border.CrossPlatformMeasure subtracts Padding+StrokeThickness on each
              side, confirmed by decompiling Microsoft.Maui.Controls.dll), so the canvas/
-             Composition-sibling content area inside is 376dp - exactly the rail's design width with
+             Composition-sibling content area inside is 384dp - exactly the rail's design width with
              stats on (296 with them off, and this WidthRequest is rewritten to match). That makes the
              design space map 1:1 onto this dp content area at every DPI (see
              GamePage.xaml.cs's CombatPanelContentWidthDp/CombatPanelWidthDp, which this must keep
@@ -1243,7 +1243,7 @@
         <Border Grid.Column="2"
                 x:Name="CombatPanelBorder"
                 IsVisible="{Binding SidePanel.IsCombatPanelVisible}"
-                WidthRequest="378"
+                WidthRequest="386"
                 BackgroundColor="#101618"
                 Stroke="#2d333b" StrokeThickness="1"
                 Padding="0">
