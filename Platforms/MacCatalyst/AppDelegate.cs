@@ -14,15 +14,18 @@ public class AppDelegate : MauiUIApplicationDelegate
 	public override void BuildMenu(IUIMenuBuilder builder)
 	{
 		base.BuildMenu(builder);
-		if (builder.System == UIMenuSystem.MainSystem)
-			builder.InsertSiblingMenuAfter(MacHotkeys.Build(), UIMenuIdentifier.Edit.GetConstant()!);
+		if (builder.System != UIMenuSystem.MainSystem)
+			return;
+		builder.InsertSiblingMenuAfter(MacHotkeys.Build(), UIMenuIdentifier.Edit.GetConstant()!);
+		builder.InsertSiblingMenuAfter(MacHotkeys.BuildFkeys(), new NSString(MacHotkeys.GameMenuId));
 	}
 
 	public override void ValidateCommand(UICommand command)
 	{
 		base.ValidateCommand(command);
 		if (command is UIKeyCommand key && key.Action?.Name == MacHotkeys.Action)
-			key.Attributes = MacHotkeys.IsActive() ? 0 : UIMenuElementAttributes.Disabled;
+			key.Attributes = MacHotkeys.IsActive() || (key.PropertyList?.ToString() == "escape" && MacEscape.HasPage)
+				? 0 : UIMenuElementAttributes.Disabled;
 	}
 
 	// Copy walks the responder chain from the command box: the text field takes it when it has a

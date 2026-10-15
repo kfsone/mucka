@@ -46,11 +46,55 @@ internal static class MacHotkeys
 
     public static void Fire(UIKeyCommand command)
     {
-        if (command.PropertyList is NSString id && Handler is { } handler)
+        if (command.PropertyList is not NSString id)
+            return;
+        // A page that closes on Escape (settings, score) gets it ahead of the game, and the menu
+        // reaches it even while a text field in that page holds the keyboard.
+        if (id.ToString() == "escape" && MacEscape.HasPage)
+        {
+            MacEscape.Fire();
+            return;
+        }
+        if (Handler is { } handler)
             handler(id.ToString());
     }
 
+    internal const string GameMenuId = "org.kfs.mucka.game";
+    internal const string FkeysMenuId = "org.kfs.mucka.fkeys";
+
     public static UIMenu Build()
+    {
+        var game = new List<UIMenuElement>
+        {
+            Key("Speak Dreamword", "d", UIKeyModifierFlags.Control, "ctrl-d"),
+            Key("Speak Dreamword, Then Command", "d", UIKeyModifierFlags.Control | UIKeyModifierFlags.Shift, "ctrl-shift-d"),
+            Key("Flee", "f", UIKeyModifierFlags.Control, "ctrl-f"),
+            Key("Flee in Typed Direction", "f", UIKeyModifierFlags.Control | UIKeyModifierFlags.Shift, "ctrl-shift-f"),
+            Key("Wield Alternate Weapon", "w", UIKeyModifierFlags.Control, "ctrl-w"),
+            Key("Ctrl-1", "1", UIKeyModifierFlags.Control, "ctrl-1"),
+            Key("Ctrl-2", "2", UIKeyModifierFlags.Control, "ctrl-2"),
+            Key("Ctrl-3", "3", UIKeyModifierFlags.Control, "ctrl-3"),
+            Key("Reply to Last Tell", "r", UIKeyModifierFlags.Control, "ctrl-r"),
+            Key("Scroll Back a Page", UIKeyCommand.PageUp, 0, "pgup"),
+            Key("Scroll Forward a Page", UIKeyCommand.PageDown, 0, "pgdn"),
+            Key("Previous Command", UIKeyCommand.UpArrow, 0, "history-up"),
+            Key("Next Command", UIKeyCommand.DownArrow, 0, "history-down"),
+            Key("Clear Input", UIKeyCommand.Escape, 0, "escape"),
+        };
+        return UIMenu.Create("Game", null, new NSString(GameMenuId), (UIMenuOptions)0, game.ToArray());
+    }
+
+    private const int PreviewChars = 28;
+
+    /// <summary>The start of an Fkey's text, on one line, for its menu entry.</summary>
+    private static string Preview(string text)
+    {
+        var line = text.Trim().Replace('\r', ' ').Replace('\n', ' ');
+        return line.Length <= PreviewChars ? line : line[..PreviewChars] + "...";
+    }
+
+    /// <summary>The Fkeys menu: one entry for each Fkey that has text, showing the start of it.</summary>
+    public static UIMenu BuildFkeys()
     {
         var fkeyItems = new List<UIMenuElement>();
         var texts = Fkeys?.Invoke();
@@ -71,28 +115,10 @@ internal static class MacHotkeys
                 var slot = (prefix switch { "s" => 12, "c" => 24, _ => 0 }) + n;
                 if (texts is null || slot >= texts.Length || string.IsNullOrWhiteSpace(texts[slot]))
                     continue;
-                fkeyItems.Add(Key($"{label}{n + 1}", fkeys[n], mods, $"{prefix}f{n + 1}"));
+                fkeyItems.Add(Key($"{label}{n + 1}   {Preview(texts[slot])}", fkeys[n], mods, $"{prefix}f{n + 1}"));
             }
 
-        var game = new List<UIMenuElement>
-        {
-            Key("Speak Dreamword", "d", UIKeyModifierFlags.Control, "ctrl-d"),
-            Key("Speak Dreamword, Then Command", "d", UIKeyModifierFlags.Control | UIKeyModifierFlags.Shift, "ctrl-shift-d"),
-            Key("Flee", "f", UIKeyModifierFlags.Control, "ctrl-f"),
-            Key("Flee in Typed Direction", "f", UIKeyModifierFlags.Control | UIKeyModifierFlags.Shift, "ctrl-shift-f"),
-            Key("Wield Alternate Weapon", "w", UIKeyModifierFlags.Control, "ctrl-w"),
-            Key("Ctrl-1", "1", UIKeyModifierFlags.Control, "ctrl-1"),
-            Key("Ctrl-2", "2", UIKeyModifierFlags.Control, "ctrl-2"),
-            Key("Ctrl-3", "3", UIKeyModifierFlags.Control, "ctrl-3"),
-            Key("Reply to Last Tell", "r", UIKeyModifierFlags.Control, "ctrl-r"),
-            Key("Scroll Back a Page", UIKeyCommand.PageUp, 0, "pgup"),
-            Key("Scroll Forward a Page", UIKeyCommand.PageDown, 0, "pgdn"),
-            Key("Previous Command", UIKeyCommand.UpArrow, 0, "history-up"),
-            Key("Next Command", UIKeyCommand.DownArrow, 0, "history-down"),
-            Key("Clear Input", UIKeyCommand.Escape, 0, "escape"),
-            UIMenu.Create("Fkeys", null, UIMenuIdentifier.None, UIMenuOptions.DisplayInline, fkeyItems.ToArray()),
-        };
-        return UIMenu.Create("Game", null, new NSString("org.kfs.mucka.game"), (UIMenuOptions)0, game.ToArray());
+        return UIMenu.Create("Fkeys", null, new NSString(FkeysMenuId), (UIMenuOptions)0, fkeyItems.ToArray());
     }
 
     private static UIKeyCommand Key(string title, string input, UIKeyModifierFlags mods, string id)

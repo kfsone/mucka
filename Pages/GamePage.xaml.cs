@@ -3199,6 +3199,16 @@ public partial class GamePage : ContentPage
         if (_commandInput is null)
             return;
 
+        // Ctrl+C copies the terminal's selection when the box has none of its own to copy.
+        if (e.Key == Windows.System.VirtualKey.C && Terminal.HasSelection
+            && sender is Microsoft.UI.Xaml.Controls.TextBox { SelectionLength: 0 }
+            && ReadModifiers().HasFlag(Mucka.Input.InputModifiers.Control))
+        {
+            if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
+            e.Handled = true;
+            return;
+        }
+
         var isAccept = e.Key == Windows.System.VirtualKey.Enter;
         var keyCode = (int)e.Key;
         // Cheap pre-filter: ordinary characters are bound to nothing, so they never reach the

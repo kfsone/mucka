@@ -52,7 +52,12 @@ public static class Glyph
     // Weather, from the FES weather character. Each carries U+FE0E, the text-presentation selector,
     // so it draws as a monochrome glyph that takes the status bar's colour rather than as emoji.
     /// <summary>Sun: fine weather.</summary>
+#if MACCATALYST
+    // The Mac's text-presentation sun is a thin starburst that reads as an asterisk; its emoji form is a sun.
+    public const string WeatherFine = "\u2600\ufe0f";
+#else
     public const string WeatherFine = "\u2600\ufe0e";
+#endif
     /// <summary>Sun behind cloud: cloudy.</summary>
     public const string WeatherCloudy = "\u26c5\ufe0e";
     /// <summary>Umbrella: raining.</summary>

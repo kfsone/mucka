@@ -542,7 +542,7 @@ public sealed class CombatRailView : SKCanvasView
     /// row so the digits still align, two points down so the eye is told which figure is the one that
     /// matters without the colour having to carry it alone.</summary>
     private readonly SKFont _statSmallFont = new(
-        SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 10f);
+        SKTypeface.FromFamilyName("Cascadia Mono") ?? SKTypeface.Default, 10f * SmallTextScale);
 
     /// <summary>The swap mark on the alternate-weapon line.</summary>
     private const string SwapGlyph = Mucka.Core.Glyph.Swap;
@@ -565,13 +565,20 @@ public sealed class CombatRailView : SKCanvasView
         return typeface is null ? null : new SKFont(typeface, 12f);
     }
     private readonly SKFont _weaponFont = new(SKTypeface.Default, 13f);
-    private readonly SKFont _smallFont = new(SKTypeface.Default, 10f);
+    /// <summary>Multiplies the rail's smallest text. At the nominal 10 it reads tiny on a Mac, where
+    /// the rail is the same width in layout units but SF draws smaller than Segoe UI.</summary>
+#if MACCATALYST
+    private const float SmallTextScale = 1.25f;
+#else
+    private const float SmallTextScale = 1f;
+#endif
+    private readonly SKFont _smallFont = new(SKTypeface.Default, 10f * SmallTextScale);
     /// <summary>The dead strip's recent-ending cut: same size as <see cref="_smallFont"/>, bold face.
     /// Falls back to the regular cut where the platform has no bold face, exactly as
     /// <see cref="_pillFont"/> already does - a recent ending simply loses its emphasis rather than
     /// going missing.</summary>
     private readonly SKFont _smallFontBold = new(
-        SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 10f);
+        SKTypeface.FromFamilyName(SKTypeface.Default.FamilyName, SKFontStyle.Bold) ?? SKTypeface.Default, 10f * SmallTextScale);
     /// <summary>The flee pill's text. Bold like the dreamword chip's word, and 12f rather than the
     /// weapon line's 13f because the chip carries four things now - word, stamina, price, key - and the
     /// worst realistic string ("Flee 105 (-2.1k)" plus "^F") has to fit 152dp with padding. Falls back

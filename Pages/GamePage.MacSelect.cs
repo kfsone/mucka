@@ -41,12 +41,21 @@ public partial class GamePage
         };
         var word = new UITapGestureRecognizer(g => OnMacSelectMultiClick(g, lineWise: false)) { NumberOfTapsRequired = 2 };
         var line = new UITapGestureRecognizer(g => OnMacSelectMultiClick(g, lineWise: true)) { NumberOfTapsRequired = 3 };
+        // A right click copies the selection, as it does on Windows.
+        var copy = new UITapGestureRecognizer(_ =>
+        {
+            if (Terminal.CopySelectionToClipboard())
+                ShowToast("* Copied to clipboard");
+            RefocusAfterMacSelect();
+        }) { ButtonMaskRequired = UIEventButtonMask.Secondary };
 
-        foreach (UIGestureRecognizer gesture in new UIGestureRecognizer[] { drag, word, line })
+        foreach (UIGestureRecognizer gesture in new UIGestureRecognizer[] { drag, word, line, copy })
         {
             gesture.AllowedTouchTypes = [Foundation.NSNumber.FromInt32((int)UITouchType.IndirectPointer)];
             gesture.CancelsTouchesInView = false;
             gesture.ShouldRecognizeSimultaneously = (_, _) => true;
+            if (!ReferenceEquals(gesture, copy))
+                gesture.ShouldReceiveEvent = (_, uiEvent) => uiEvent.ButtonMask != UIEventButtonMask.Secondary;
             _macSelectView.AddGestureRecognizer(gesture);
             _macSelectGestures.Add(gesture);
         }

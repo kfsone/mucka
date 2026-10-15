@@ -42,10 +42,21 @@ internal static class MacEscape
             _current = null;
     }
 
+    /// <summary>True while a page that closes on Escape is showing with nothing presented over it.</summary>
+    public static bool HasPage => _current is { } r && r.Controller.PresentedViewController is null;
+
+    private static long _lastFireTicks;
+
+    /// <summary>Closes the showing page. Escape can arrive twice for one press - as the page's key
+    /// command and as the Game menu's - so a second call within a moment is ignored.</summary>
     public static void Fire()
     {
         if (_current is not { } registration || registration.Controller.PresentedViewController is not null)
             return;
+        var now = Environment.TickCount64;
+        if (now - _lastFireTicks < 250)
+            return;
+        _lastFireTicks = now;
         registration.OnEscape();
     }
 }
