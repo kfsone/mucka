@@ -282,8 +282,8 @@ jobs:
           if [ ! -f "$app/Contents/Resources/mucka_theme.wav" ]; then echo "$app has no sounds"; exit 1; fi
           echo "APP=$app" >> "$GITHUB_ENV"
 
-      # Ad-hoc signed: it costs no Apple account and does not expire. It is not notarized, so a zip
-      # downloaded in a browser needs "Open Anyway" in System Settings > Privacy & Security;
+      # Ad-hoc signed: it costs no Apple account and does not expire. It is not notarized, so an
+      # archive downloaded in a browser needs "Open Anyway" in System Settings > Privacy & Security;
       # an archive fetched with curl is not quarantined and opens normally.
       - name: Sign (ad-hoc) and verify
         run: |
@@ -294,18 +294,11 @@ jobs:
       - name: Archive
         run: |
           ditto -c -k --sequesterRsrc --keepParent "$APP" "mucka-macos-${{ github.ref_name }}.zip"
-          # Unversioned, so releases/latest/download/mucka-macos.tar.gz is a stable address.
-          tar -czf mucka-macos.tar.gz -C "$(dirname "$APP")" "$(basename "$APP")"
 
       - uses: actions/upload-artifact@v7
         with:
           name: macos-zip
           path: mucka-macos-${{ github.ref_name }}.zip
-
-      - uses: actions/upload-artifact@v7
-        with:
-          name: macos-tarball
-          path: mucka-macos.tar.gz
 
   # -- GitHub Release --------------------------------------------------------
   create-release:

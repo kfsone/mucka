@@ -3,7 +3,7 @@ mucka -- a muddy client -- Copyright (C) Oliver 'kfsone' Smith, 2026
 
 ![mucka logo](Resources/Images/mucka_logo.png)
 
-Mucka is a dedicated MUD2 client for Windows and Android, heavily inspired
+Mucka is a dedicated MUD2 client for Windows, Android and macOS, heavily inspired
 by Ian Peattie's "Clio".
 
 - Automatic Login,
@@ -13,6 +13,36 @@ by Ian Peattie's "Clio".
 - Dreamword capture & hotkey/tap,
 - Status bar with Sta/Mag/Str/Dex, Weather, Time to Reset, Debuffs,
 - Side Panel with player list, inventory, items, and compass,
+
+---
+
+## Installing
+
+Download from the [latest release](https://github.com/kfsone/mucka/releases/latest), under
+"Assets". Pick the file for your device:
+
+### Windows
+
+- `mucka-windows-...-setup.exe` - the installer. Run it and you are done.
+- `mucka-windows-...zip` - a portable copy with no installer, for people who know where they want
+  it. Unzip it anywhere and run it from there.
+
+### macOS
+
+- `mucka-macos-...zip` - double-click it to unpack, then drag `Mucka` to Applications (or
+  anywhere else).
+
+Mucka is not signed with an Apple developer account, so the first time you open it macOS says it
+cannot verify it is free of malware. That is expected. Open **System Settings > Privacy &
+Security**, scroll down to "Mucka was blocked to protect your Mac", and press **Open Anyway**. You
+only do this once.
+
+![Open Anyway in Privacy & Security](Screenshots/macsec.png)
+
+### Android
+
+- `mucka-android-...apk` - open it on your phone to install. Android will ask you to allow
+  installing apps from your browser or files app the first time.
 
 ---
 

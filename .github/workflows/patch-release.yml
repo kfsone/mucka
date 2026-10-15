@@ -26,7 +26,12 @@ jobs:
               v = json.load(f)
           current = v['version']
 
+          # A release candidate is released as itself, without the suffix. A patch needs no
+          # candidate: from a plain release the patch number is bumped.
           new_version = re.sub(r'-rc\d+$', '', current)
+          if new_version == current:
+              major, minor, patch = (int(x) for x in current.split('.'))
+              new_version = f"{major}.{minor}.{patch + 1}"
           print(f"Releasing: {new_version}")
 
           v['version'] = new_version
