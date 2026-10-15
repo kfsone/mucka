@@ -47,7 +47,7 @@ jobs:
 
   build-macos:
     name: Build (macOS)
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
         with:
@@ -57,10 +57,10 @@ jobs:
         with:
           global-json-file: global.json
 
-      # The MAUI Mac Catalyst packs are built against one Xcode; the runner's default may not be it.
+      # The MAUI Mac Catalyst packs are built against one Xcode: the one the operator builds with (26.6, build 17F113), on the macOS 26 image that carries it.
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: '26.6'
 
       - name: Cache NuGet packages
         uses: actions/cache@v5
@@ -70,7 +70,7 @@ jobs:
           restore-keys: nuget-macos-
 
       - name: Install MAUI Mac Catalyst workload
-        run: dotnet workload install maui-maccatalyst --skip-sign-check
+        run: dotnet workload install maui-maccatalyst --skip-sign-check --version 10.0.400
 
       - name: Build
         run: dotnet build Mucka.csproj -f net10.0-maccatalyst -c Debug
