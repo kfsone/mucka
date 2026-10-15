@@ -1,6 +1,7 @@
 # Working on Mucka
 
-FACT Mucka is a .NET MAUI client for MUD2, Windows first and Android second. `INTERNAL.md` says
+FACT Mucka is a .NET MAUI client for MUD2: Windows first, Android second, and a Mac Catalyst build
+third. `INTERNAL.md` says
 what the project is; this file says what kind of knowledge this project's knowledge is, and states
 the two invariants that outrank everything else in the code.
 
@@ -290,13 +291,14 @@ FACT Where code lives:
   (`docs/session-rec-design.md`), which is there because it answers to the buffer's idea of what one
   line is. No MAUI. Tested by `Mucka.Terminal.Tests/`.
 - `Mucka.Input/` - the command box's logic. No MAUI. Tested from `mudsharp.Tests/`.
-- `Mucka.Util/` - five small libraries, no MAUI, tested by `Mucka.Util/Mucka.Util.Tests/`:
+- `Mucka.Util/` - seven small libraries, no MAUI, tested by `Mucka.Util/Mucka.Util.Tests/`:
   `Mucka.Store` (the one database, `~/.mucka/mucka.db`: schema, the single background writer, the row
   seam - `docs/persistence-design.md` governs it), `Mucka.WireLog` (framing, the always-on wire
   writer, the reader; readable by a CLI on its own), `Mucka.Combat` (ledgers, fight history,
   encounter-log writer, tick timing, the panel's aggregator, geometry, floats and window arithmetic),
   `Mucka.Commands` (aliases, shell text, session-drop classification), `Mucka.Sounds` (sound
-  catalogue, WAV probe).
+  catalogue, WAV probe), `Mucka.Settings` (the ini file and the settings migration), `Mucka.Ui`
+  (the UI font-size steps).
 - `Core/`, `ViewModels/`, `Pages/`, `Rendering/`, `Behaviors/`, `Audio/` - the MAUI app.
 - `docs/` - governing prose and evidence. `scripts/` - tracked helper scripts.
 
@@ -312,10 +314,11 @@ enforced_by: RepoIsAsciiTests
 
 ## Build
 
-FACT The three commands:
+FACT The four commands:
 
 - Windows: `dotnet build Mucka.csproj -f net10.0-windows10.0.19041.0`
 - Android (local): `dotnet build Mucka.csproj -f net10.0-android -p:LocalAndroid=true`
+- Mac: `dotnet build Mucka.csproj -f net10.0-maccatalyst`; the build ad-hoc signs the `.app`
 - Tests: `dotnet test Mucka.slnx`
 
 FACT A running Mucka is the operator's live game session. He runs the Release build, and a Debug
