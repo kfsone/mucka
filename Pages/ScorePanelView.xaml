@@ -117,12 +117,14 @@
                    TextColor="#888888" FontSize="{core:ScaledFont 12}"
                    HorizontalOptions="Center" VerticalOptions="Center"/>
 
-            <BoxView Grid.Row="1" Color="Transparent"
-                     IsVisible="{Binding IsAnyListOpen}">
-                <BoxView.GestureRecognizers>
+            <!-- A BoxView with Color="Transparent" paints light grey over the graph on a Mac, so the
+                 tap catcher is a Grid with a one-in-255 alpha fill instead. -->
+            <Grid Grid.Row="1" BackgroundColor="#01000000"
+                  IsVisible="{Binding IsAnyListOpen}">
+                <Grid.GestureRecognizers>
                     <TapGestureRecognizer Command="{Binding CloseListsCommand}"/>
-                </BoxView.GestureRecognizers>
-            </BoxView>
+                </Grid.GestureRecognizers>
+            </Grid>
 
             <!-- The drop-downs open under the control that opened them; the view places each one
                  when it opens, since a wrapped control has no fixed column (OnGraphPropertyChanged). -->

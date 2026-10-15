@@ -18,6 +18,9 @@ public partial class ScorePanelView : ContentView
         InitializeComponent();
         // Hidden until a view model says otherwise - see OnBindingContextChanged.
         IsVisible = false;
+#if MACCATALYST
+        ResizeGrip.HandlerChanged += (_, _) => InstallMacResize();
+#endif
     }
 
     protected override void OnBindingContextChanged()
@@ -73,9 +76,12 @@ public partial class ScorePanelView : ContentView
     /// <summary>The corner grip. The panel is centred, so the width moves by twice the drag to keep
     /// its right edge under the pointer. The size is saved when the drag ends.</summary>
     private void OnScorePanelResize(object? sender, PanUpdatedEventArgs e)
+        => ResizeDrag(e.StatusType, e.TotalX, e.TotalY);
+
+    private void ResizeDrag(GestureStatus status, double totalX, double totalY)
     {
         if (_graph is null) return;
-        switch (e.StatusType)
+        switch (status)
         {
             case GestureStatus.Started:
                 _resizeStartW = _graph.PanelWidth;
@@ -83,7 +89,7 @@ public partial class ScorePanelView : ContentView
                 break;
             case GestureStatus.Running:
                 var (maxW, maxH) = Room();
-                _graph.Resize(_resizeStartW + 2 * e.TotalX, _resizeStartH + e.TotalY, maxW, maxH);
+                _graph.Resize(_resizeStartW + 2 * totalX, _resizeStartH + totalY, maxW, maxH);
                 break;
             case GestureStatus.Completed:
             case GestureStatus.Canceled:
@@ -121,4 +127,45 @@ public partial class ScorePanelView : ContentView
         var inner = graph.PanelWidth - ScorePanel.Padding.Left - ScorePanel.Padding.Right;
         SummaryTable.WidthRequest = Math.Max(0, Math.Min(SummaryWidth, inner));
     }
+
+#if MACCATALYST
+    private readonly List<UIKit.UIGestureRecognizer> _macResize = [];
+
+    // MAUI's pan recognizer takes direct touches only, which a mouse is not on a Mac, so the grip
+    // gets a native one that accepts the indirect pointer. The drag is measured in window
+    // coordinates: the panel is centred, so the grip moves under the pointer as the panel grows.
+    private void InstallMacResize()
+    {
+        if (ResizeGrip.Handler?.PlatformView is not UIKit.UIView view) return;
+        foreach (var old in _macResize)
+            view.RemoveGestureRecognizer(old);
+        _macResize.Clear();
+        var pan = new UIKit.UIPanGestureRecognizer(g =>
+        {
+            var t = g.TranslationInView(g.View?.Window);
+            switch (g.State)
+            {
+                case UIKit.UIGestureRecognizerState.Began:
+                    ResizeDrag(GestureStatus.Started, 0, 0);
+                    break;
+                case UIKit.UIGestureRecognizerState.Changed:
+                    ResizeDrag(GestureStatus.Running, t.X, t.Y);
+                    break;
+                case UIKit.UIGestureRecognizerState.Ended:
+                    ResizeDrag(GestureStatus.Completed, t.X, t.Y);
+                    break;
+                case UIKit.UIGestureRecognizerState.Cancelled:
+                case UIKit.UIGestureRecognizerState.Failed:
+                    ResizeDrag(GestureStatus.Canceled, t.X, t.Y);
+                    break;
+            }
+        })
+        {
+            AllowedTouchTypes = [Foundation.NSNumber.FromInt32((int)UIKit.UITouchType.IndirectPointer)],
+            CancelsTouchesInView = false,
+        };
+        view.AddGestureRecognizer(pan);
+        _macResize.Add(pan);
+    }
+#endif
 }

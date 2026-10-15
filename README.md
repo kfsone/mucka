@@ -1,10 +1,21 @@
-mucka -- a muddy client -- Copyright (C) Oliver 'kfsone' Smith, 2026
-====================================================================
+Mucka -- A dedicated MUD2 client for Windows, Android and MacOS
+===============================================================
 
-![mucka logo](Resources/Images/mucka_logo.png)
+<table>
+<tr>
+<td><img src="Resources/Images/mucka_logo.png" alt="mucka logo" width="256"></td>
+<td>
 
-Mucka is a dedicated MUD2 client for Windows, Android and macOS, heavily inspired
-by Ian Peattie's "Clio".
+- [Screenshots](#screenshots)
+- [Install: Windows](#install-windows)
+- [Install: Mac](#install-mac)
+- [Install: Android](#install-android)
+
+</td>
+</tr>
+</table>
+
+Mucka is heavily inspired by Ian Peattie's "Clio".
 
 - Automatic Login,
 - MUD2 client mode,
@@ -13,36 +24,8 @@ by Ian Peattie's "Clio".
 - Dreamword capture & hotkey/tap,
 - Status bar with Sta/Mag/Str/Dex, Weather, Time to Reset, Debuffs,
 - Side Panel with player list, inventory, items, and compass,
-
----
-
-## Installing
-
-Download from the [latest release](https://github.com/kfsone/mucka/releases/latest), under
-"Assets". Pick the file for your device:
-
-### Windows
-
-- `mucka-windows-...-setup.exe` - the installer. Run it and you are done.
-- `mucka-windows-...zip` - a portable copy with no installer, for people who know where they want
-  it. Unzip it anywhere and run it from there.
-
-### macOS
-
-- `mucka-macos-...zip` - double-click it to unpack, then drag `Mucka` to Applications (or
-  anywhere else).
-
-Mucka is not signed with an Apple developer account, so the first time you open it macOS says it
-cannot verify it is free of malware. That is expected. Open **System Settings > Privacy &
-Security**, scroll down to "Mucka was blocked to protect your Mac", and press **Open Anyway**. You
-only do this once.
-
-![Open Anyway in Privacy & Security](Screenshots/macsec.png)
-
-### Android
-
-- `mucka-android-...apk` - open it on your phone to install. Android will ask you to allow
-  installing apps from your browser or files app the first time.
+- Combat side panel showing what you've fought, what you're fighting,
+- Score graphing,
 
 ---
 
@@ -64,3 +47,32 @@ mucka is Copyright (C) Oliver 'kfsone' Smith, 2026. https://github.com/kfsone/mu
 ![Screenshot 4](Screenshots/mucka4.png)
 ![Screenshot 5](Screenshots/mucka5.png)
 
+---
+
+## Installing
+
+Download from the [latest release](https://github.com/kfsone/mucka/releases/latest), under
+"Assets". Pick the file for your device:
+
+### Install: Windows
+
+- `mucka-windows-...-setup.exe` - the installer. Run it and you are done.
+- `mucka-windows-...zip` - a portable copy with no installer, for people who know where they want
+  it. Unzip it anywhere and run it from there.
+
+### Install: Mac
+
+- `mucka-macos-...zip` - double-click it to unpack, then drag `Mucka` to Applications (or
+  anywhere else).
+
+Mucka is not signed with an Apple developer account, so the first time you open it macOS says it
+cannot verify it is free of malware. That is expected. Open **System Settings > Privacy &
+Security**, scroll down to "Mucka was blocked to protect your Mac", and press **Open Anyway**. You
+only do this once.
+
+![Open Anyway in Privacy & Security](Screenshots/macsec.png)
+
+### Install: Android
+
+- `mucka-android-...apk` - open it on your phone to install. Android will ask you to allow
+  installing apps from your browser or files app the first time.
