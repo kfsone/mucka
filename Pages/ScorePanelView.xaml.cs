@@ -12,12 +12,15 @@ public partial class ScorePanelView : ContentView
     private ScoreGraphViewModel? _graph;
     private VisualElement? _host;
     private double _resizeStartW, _resizeStartH;
+    private bool _resizing;
 
     public ScorePanelView()
     {
         InitializeComponent();
         // Hidden until a view model says otherwise - see OnBindingContextChanged.
         IsVisible = false;
+        // A resize or a font change can re-wrap the controls while a list is open.
+        ScoreControls.SizeChanged += (_, _) => ReplaceOpenList();
 #if MACCATALYST
         ResizeGrip.HandlerChanged += (_, _) => InstallMacResize();
 #endif
@@ -65,10 +68,19 @@ public partial class ScorePanelView : ContentView
             PlaceList(ScaleList, ScaleControl);
     }
 
-    /// <summary>Opens a drop-down under the control that opened it. The controls wrap, so where a
-    /// control sits is known only once it is laid out; it is read when the list opens.</summary>
+    private void ReplaceOpenList()
+    {
+        if (_graph is null) return;
+        if (_graph.IsCharactersOpen) PlaceList(CharactersList, CharactersControl);
+        if (_graph.IsServersOpen) PlaceList(ServersList, ServersControl);
+        if (_graph.IsScaleOpen) PlaceList(ScaleList, ScaleControl);
+    }
+
+    /// <summary>Opens a drop-down directly under the control that opened it. The controls wrap, so
+    /// where a control sits is known only once it is laid out; it is read when the list opens. The
+    /// lists span the controls' row and the graph's, with the controls' origin as theirs.</summary>
     private static void PlaceList(View list, View control)
-        => list.Margin = new Thickness(Math.Max(0, control.X), 0, 0, 0);
+        => list.Margin = new Thickness(Math.Max(0, control.X), Math.Max(0, control.Y + control.Height + control.Margin.Bottom), 0, 0);
 
     /// <summary>The summary table's widest: its columns' sum on a desktop.</summary>
     private const double SummaryWidth = 616;
@@ -81,6 +93,10 @@ public partial class ScorePanelView : ContentView
     private void ResizeDrag(GestureStatus status, double totalX, double totalY)
     {
         if (_graph is null) return;
+        // A click on the grip that never becomes a drag ends without starting; it saves nothing.
+        if (status == GestureStatus.Started) _resizing = true;
+        else if (!_resizing) return;
+        if (status is GestureStatus.Completed or GestureStatus.Canceled) _resizing = false;
         switch (status)
         {
             case GestureStatus.Started:

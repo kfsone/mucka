@@ -126,19 +126,22 @@
                 </Grid.GestureRecognizers>
             </Grid>
 
-            <!-- The drop-downs open under the control that opened them; the view places each one
-                 when it opens, since a wrapped control has no fixed column (OnGraphPropertyChanged). -->
-            <Border x:Name="CharactersList" Grid.Row="1"
+            <!-- The drop-downs open directly under the control that opened them, over the slider's line
+                 when the controls wrap; the view places each one when it opens, since a wrapped
+                 control has no fixed position (OnGraphPropertyChanged). The character and server lists
+                 fill the width to the panel's right edge, as WinUI draws them (their ScrollView takes it); the Mac's rows get the room WinUI's
+                 taller text gives them. -->
+            <Border x:Name="CharactersList" Grid.Row="0" Grid.RowSpan="2"
                     IsVisible="{Binding IsCharactersOpen}"
-                    HorizontalOptions="Start" VerticalOptions="Start"
+                    HorizontalOptions="Fill" VerticalOptions="Start"
                     BackgroundColor="#161b22" Stroke="#3d4f5c" StrokeThickness="1"
-                    Padding="6,2,10,2">
+                    Padding="{OnPlatform MacCatalyst='8,4,10,4', Default='6,2,10,2'}">
                 <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                <ScrollView MaximumHeightRequest="240">
+                <ScrollView MaximumHeightRequest="240" VerticalScrollBarVisibility="{OnPlatform MacCatalyst=Never, Default=Default}">
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding Characters}">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ScoreChoice">
-                                <HorizontalStackLayout Spacing="4" Padding="0,2">
+                                <HorizontalStackLayout Spacing="4" Padding="{OnPlatform MacCatalyst='0,4', Default='0,2'}">
                                     <HorizontalStackLayout.GestureRecognizers>
                                         <TapGestureRecognizer Command="{Binding ToggleCommand}"/>
                                     </HorizontalStackLayout.GestureRecognizers>
@@ -153,17 +156,17 @@
                 </ScrollView>
             </Border>
 
-            <Border x:Name="ServersList" Grid.Row="1"
+            <Border x:Name="ServersList" Grid.Row="0" Grid.RowSpan="2"
                     IsVisible="{Binding IsServersOpen}"
-                    HorizontalOptions="Start" VerticalOptions="Start"
+                    HorizontalOptions="Fill" VerticalOptions="Start"
                     BackgroundColor="#161b22" Stroke="#3d4f5c" StrokeThickness="1"
-                    Padding="6,2,10,2">
+                    Padding="{OnPlatform MacCatalyst='8,4,10,4', Default='6,2,10,2'}">
                 <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                <ScrollView MaximumHeightRequest="240">
+                <ScrollView MaximumHeightRequest="240" VerticalScrollBarVisibility="{OnPlatform MacCatalyst=Never, Default=Default}">
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding Servers}">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ScoreChoice">
-                                <HorizontalStackLayout Spacing="4" Padding="0,2">
+                                <HorizontalStackLayout Spacing="4" Padding="{OnPlatform MacCatalyst='0,4', Default='0,2'}">
                                     <HorizontalStackLayout.GestureRecognizers>
                                         <TapGestureRecognizer Command="{Binding ToggleCommand}"/>
                                     </HorizontalStackLayout.GestureRecognizers>
@@ -178,16 +181,16 @@
                 </ScrollView>
             </Border>
 
-            <Border x:Name="ScaleList" Grid.Row="1"
+            <Border x:Name="ScaleList" Grid.Row="0" Grid.RowSpan="2"
                     IsVisible="{Binding IsScaleOpen}"
                     HorizontalOptions="Start" VerticalOptions="Start"
                     BackgroundColor="#161b22" Stroke="#3d4f5c" StrokeThickness="1"
-                    Padding="6,2,10,2">
+                    Padding="{OnPlatform MacCatalyst='8,4,10,4', Default='6,2,10,2'}">
                 <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                 <VerticalStackLayout BindableLayout.ItemsSource="{Binding Scales}">
                     <BindableLayout.ItemTemplate>
                         <DataTemplate x:DataType="vm:ScoreScaleChoice">
-                            <HorizontalStackLayout Spacing="4" Padding="0,2">
+                            <HorizontalStackLayout Spacing="4" Padding="{OnPlatform MacCatalyst='0,4', Default='0,2'}">
                                 <HorizontalStackLayout.GestureRecognizers>
                                     <TapGestureRecognizer Command="{Binding SelectCommand}"/>
                                 </HorizontalStackLayout.GestureRecognizers>
