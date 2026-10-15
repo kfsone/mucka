@@ -16,7 +16,7 @@ namespace Mucka.Behaviors;
 /// before any dimming, and the dim only appears when an expected update is genuinely late. When
 /// the heartbeat is disabled (interval 0) staleness is meaningless, so we never dim.
 ///
-/// On a Mac the same fade is a Core Animation opacity animation (<see cref="MacLayerFade"/>), which
+/// On a Mac the same fade is a Core Animation opacity animation (<c>MacLayerFade</c>), which
 /// the render server carries out - also off the UI thread.
 ///
 /// Set <see cref="Source"/> to "Few" (Online) or "Fei" (Here/Carrying). No-op on Android.

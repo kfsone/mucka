@@ -24,6 +24,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private string _statusText = string.Empty;
     private string _progressText = string.Empty;
     private bool _passwordFetchAttempted;
+    private bool _passwordFetchFailed;
     private Profile? _selectedProfile;
     private bool _isConnecting;
     private bool _hasError;
@@ -365,9 +366,12 @@ public sealed class ConnectViewModel : BaseViewModel
 
             // After the session has been handed over, not before: a keychain that stops to ask the
             // player's permission would otherwise hold the whole login while the server waits.
-            // Not with an empty password while remembering: that is a stored password that was not
-            // fetched (denied, locked), and saving "nothing" would delete it.
-            if (!IsDirectConnectMode && !(RememberPassword && string.IsNullOrEmpty(resolvedPassword)))
+            // Not with an empty password that was never fetched (denied, locked, or not yet asked
+            // for): saving "nothing" would delete a stored password. A box the player cleared, with
+            // the fetch having succeeded, does clear it.
+            var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(resolvedPassword)
+                && (_passwordFetchFailed || RememberedPasswordUnfetched);
+            if (!IsDirectConnectMode && !storedPasswordUnread)
                 _ = SavePasswordAsync(profile.Name, RememberPassword ? resolvedPassword : null);
         }
         catch (Exception ex)
@@ -401,6 +405,7 @@ public sealed class ConnectViewModel : BaseViewModel
         _selectedProfile = p;
         OnPropertyChanged(nameof(SelectedProfile));
         _passwordFetchAttempted = false;
+        _passwordFetchFailed = false;
         Password = string.Empty;
         ProfileName = p.Name;
         Host = p.Host;
@@ -480,6 +485,7 @@ public sealed class ConnectViewModel : BaseViewModel
                 // Guard against a stale load completing after the user switched profiles.
                 if (ProfileName == p.Name)
                 {
+                    _passwordFetchFailed = true;
                     Password = string.Empty;
                     StatusText = "Password could not be retrieved from secure storage. Please re-enter your password or check your device security settings.";
                     HasError = true;

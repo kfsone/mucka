@@ -15,7 +15,7 @@ namespace Mucka.Behaviors;
 /// entries just vanished. Instead the view-model sets <see cref="WhoEntry.IsDeparting"/> and keeps
 /// the entry in the list; we fade it out here, and the view-model removes it once the fade has
 /// finished (and cancels both if the player reappears). On a Mac the fades are Core Animation opacity
-/// animations (<see cref="MacLayerFade"/>), run by the render server. No-op on Android.
+/// animations (<c>MacLayerFade</c>), run by the render server. No-op on Android.
 /// </summary>
 public sealed class WhoEntryFadeBehavior : Behavior<Label>
 {

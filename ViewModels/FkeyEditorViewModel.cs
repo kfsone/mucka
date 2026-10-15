@@ -202,6 +202,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         });
     }
 #else
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding StorePasswordsSecurely}); a binding cannot resolve a static member.")]
     public bool StorePasswordsSecurely { get => false; set { } }
 #endif
 
