@@ -932,7 +932,7 @@ public sealed class CombatRailView : SKCanvasView
 
             _text.Color = Ink;
             canvas.DrawText(
-                Ellipsize(ending.Name, DeadNameWidth, font), Pad, nameBaseline, SKTextAlign.Left,
+                Ellipsize(ending.Label, DeadNameWidth, font), Pad, nameBaseline, SKTextAlign.Left,
                 font, _text);
 
             var outcomeColor = ending.Outcome == FightOutcome.Died ? Hostile : OutcomeTint(InkDim, ending.Outcome);
@@ -1225,7 +1225,7 @@ public sealed class CombatRailView : SKCanvasView
                 return null;
             top = (float)slot.Top;
             // The badge is titled by the word as a subject, and its floats sit beside that title.
-            name = rows[rosterIndex].IsUnseen ? (AnonymousOpponent.Subject(rows[rosterIndex].Name) ?? rows[rosterIndex].Name) : rows[rosterIndex].Name;
+            name = rows[rosterIndex].IsUnseen ? (AnonymousOpponent.Subject(rows[rosterIndex].Name) ?? rows[rosterIndex].Name) : rows[rosterIndex].Label;
             tookDamage = rows[rosterIndex].TookDamageThisTick;
         }
 
@@ -1290,7 +1290,7 @@ public sealed class CombatRailView : SKCanvasView
         //
         // The badge's title is the word MUD2 used, capitalised as the game prints it as a subject.
         var nameFont = row.TookDamageThisTick ? _nameBoldFont : _nameFont;
-        var title = row.IsUnseen ? (AnonymousOpponent.Subject(row.Name) ?? row.Name) : row.Name;
+        var title = row.IsUnseen ? (AnonymousOpponent.Subject(row.Name) ?? row.Name) : row.Label;
         DrawMarkedText(
             canvas, Ellipsize(title, SlotNameWidth, nameFont), TileTextLeft, y + TileNameBaseline,
             SKTextAlign.Left, nameFont,

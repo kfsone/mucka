@@ -171,7 +171,9 @@ public enum FightOutcome
     /// <summary>
     /// An Unseen opponent's word row ("someone" / "something") retired because the Creature behind
     /// it was named after sight returned - see <c>CombatEventKind.UnseenNamed</c>. Not a kill and not
-    /// a loss: the fight goes on under the Creature's own name. Display-side only, exactly as
+    /// a loss: the fight goes on under the Creature's own name. Only the case where the word stood for
+    /// more than one opponent ends here; a word that stood for one is renamed in place
+    /// (<see cref="FightAccumulator.IdentifyAs"/>) and never reaches this outcome. Display-side only, exactly as
     /// <see cref="Interrupted"/> is: the live aggregator resolves to this so the rail stops drawing
     /// the badge; FightHistoryRecorder keeps the word's fight <see cref="Unresolved"/>, because the
     /// record never says which unknown became which name.
@@ -246,8 +248,22 @@ public sealed class FightAccumulator
         ScoreAtEnd = scoreAtStart;
     }
 
-    public string NpcName { get; }
-    public string NpcGroup { get; }
+    public string NpcName { get; private set; }
+    public string NpcGroup { get; private set; }
+
+    /// <summary>True once this fight, opened under an anonymous word, has been given the Creature's own
+    /// name by <see cref="IdentifyAs"/>: the opening blows were thrown while the player could not tell
+    /// who it was. Drawn as a trailing mark on the name.</summary>
+    public bool WasUnseen { get; private set; }
+
+    /// <summary>Renames this fight to the Creature that stood behind its anonymous word, keeping every
+    /// blow already counted. The caller owns the re-keying of whatever indexes fights by name.</summary>
+    public void IdentifyAs(string npcName)
+    {
+        NpcName = npcName;
+        NpcGroup = NpcGroups.Normalize(npcName);
+        WasUnseen = true;
+    }
     public DateTime StartedUtc { get; }
     public DateTime? EndedUtc { get; private set; }
     public FightOutcome Outcome { get; private set; } = FightOutcome.Unresolved;

@@ -101,7 +101,9 @@ public sealed record FightSnapshot(
     double DealtMaxHigh = 0,
     // The incoming counterpart to TheirDamage.Max. Zero is a legal value (a blow that took nothing
     // off), so read TheirDamage.Samples to ask whether anything was measured.
-    double MinDamageTaken = 0);
+    double MinDamageTaken = 0,
+    // This fight opened under an anonymous word and was named later - see FightAccumulator.WasUnseen.
+    bool WasUnseen = false);
 
 public sealed class CombatStatsAggregator
 {
@@ -467,8 +469,13 @@ public sealed class CombatStatsAggregator
                 break;
 
             case CombatEventKind.UnseenNamed:
-                // The word's row retires: the Creature it stood for is now fighting under its own
-                // name, on its own row. The blows already on the word stay there - see the kind.
+                // The word stood for one Creature and now has its name: the same fight carries on
+                // under it, blows and all. Anything else retires the word's row and the Creature
+                // opens its own - see the kind.
+                if (combatEvent.IdentifiedAs is { } identified
+                    && combatEvent.NpcName is { } anonymousWord
+                    && IdentifyFight(anonymousWord, identified))
+                    break;
                 ResolveFight(combatEvent, FightOutcome.Named);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
@@ -647,7 +654,8 @@ public sealed class CombatStatsAggregator
                 fight.DealtSamples,
                 fight.DealtMinHigh,
                 fight.DealtMaxHigh,
-                fight.MinDamageTaken));
+                fight.MinDamageTaken,
+                fight.WasUnseen));
         }
 
         return result;
@@ -740,6 +748,32 @@ public sealed class CombatStatsAggregator
         _fights[npcName] = fight;
         _fightOrder.Add(fight);
         return fight;
+    }
+
+    /// <summary>Re-files the open fight of an anonymous word under the Creature's name, in the same
+    /// roster position. False - and nothing touched - when there is no open fight under the word, or
+    /// the name already has an open one that two fights would collide in.</summary>
+    private bool IdentifyFight(string word, string name)
+    {
+        if (!_fights.TryGetValue(word, out var fight) || fight.IsResolved)
+            return false;
+        if (_fights.TryGetValue(name, out var existing) && !existing.IsResolved)
+            return false;
+
+        _fights.Remove(word);
+        _fights[name] = fight;
+        fight.IdentifyAs(name);
+
+        if (_activeNpcSet.Remove(word))
+        {
+            _activeNpcSet.Add(name);
+            var at = _activeNpcOrder.FindIndex(n => string.Equals(n, word, StringComparison.OrdinalIgnoreCase));
+            if (at >= 0)
+                _activeNpcOrder[at] = name;
+        }
+        if (_npcWeapons.Remove(word, out var weapon))
+            _npcWeapons[name] = weapon;
+        return true;
     }
 
     private void ResolveFight(CombatEvent combatEvent, FightOutcome outcome)

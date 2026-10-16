@@ -152,7 +152,8 @@ public readonly record struct ParticipantFact(
     ExchangeLine Taken = default,
     IReadOnlyList<SwingMark>? Exchange = null,
     bool TookDamageThisTick = false,
-    SomeKind? Kind = null);
+    SomeKind? Kind = null,
+    bool WasUnseen = false);
 
 /// <summary>
 /// One row of the opposition list as actually drawn. <see cref="IsCurrentTarget"/> marks the ONE live
@@ -218,8 +219,15 @@ public readonly record struct RosterRow(
     // into it while the player could not see, then one "???" per Unseen opponent that announced
     // itself and was never named: "rat3, ???, ???". A string rather than a list so the row keeps
     // value equality (RosterPlan.Equals relies on it to skip repaints).
-    string? UnseenLabel = null)
+    string? UnseenLabel = null,
+    // This row opened under "someone"/"something" and was named later - see FightAccumulator.WasUnseen.
+    // Name stays the bare identity; only Label carries the mark.
+    bool WasUnseen = false)
 {
+    /// <summary>The name as drawn: <see cref="Name"/>, with <see cref="ParticipantRoster.WasUnseenMark"/>
+    /// after it for a Creature that was unseen for part of the fight.</summary>
+    public string Label => WasUnseen ? Name + ParticipantRoster.WasUnseenMark : Name;
+
     /// <summary>True for the row that stands for every Unseen opponent of one word - the rail draws
     /// it as the unknown badge. See <see cref="ParticipantRoster.Build"/>.</summary>
     public bool IsUnseen => UnseenLabel is not null;
@@ -364,6 +372,9 @@ public static class ParticipantRoster
     /// <summary>What the unknown badge lists for an Unseen opponent nobody has named.</summary>
     public const string UnknownMark = "???";
 
+    /// <summary>Follows the name of a Creature that was "someone"/"something" for part of the fight.</summary>
+    public const string WasUnseenMark = "*";
+
     /// <summary>
     /// Live participants first (in their original first-engaged order), then the unknown badges, then
     /// resolved ones, capped at <see cref="MaxRows"/>, so a truncated pack fight always
@@ -476,5 +487,6 @@ public static class ParticipantRoster
             fact.Vitality, fact.NextBlow, fact.BlowAfter, fact.YourTempo, fact.Reach,
             fact.Novelty, fact.StaminaRead,
             RosterRow.StaminaReadIsStale(fact.StaminaRead, fact.StaminaReadAgeSeconds), fact.Value,
-            fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick);
+            fact.Dealt, fact.Taken, fact.Exchange, fact.TookDamageThisTick,
+            WasUnseen: fact.WasUnseen);
 }

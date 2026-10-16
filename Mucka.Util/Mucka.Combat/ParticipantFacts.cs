@@ -155,7 +155,8 @@ public static class ParticipantFacts
                 TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, tickAnchor),
                 // Which word this species gets when Unseen, if learned. Null for the anonymous words
                 // themselves (they are not a species) and for anything never fought unseen.
-                someKinds?.Known(fight.NpcName));
+                someKinds?.Known(fight.NpcName),
+                fight.WasUnseen);
         }
         return facts;
     }

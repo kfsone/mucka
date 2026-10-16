@@ -299,9 +299,13 @@ public enum CombatEventKind
     /// row retires. <see cref="CombatEvent.NpcName"/> is the WORD whose row retires;
     /// <see cref="CombatEvent.RawText"/> is <c>(&lt;name&gt; was the &lt;word&gt;)</c>. Synthesised by
     /// <c>CombatTracker</c>, not a classified line - a consumer that treats kinds as wire evidence
-    /// must exclude this one, as it does <see cref="EncounterForceEnded"/>. The blows that landed on
-    /// the word stay on the word's record: the operator's rule is that the record never says which
-    /// unknown became which name, only that the display stops showing an unknown.
+    /// must exclude this one, as it does <see cref="EncounterForceEnded"/>.
+    ///
+    /// <para><see cref="CombatEvent.IdentifiedAs"/> is set when the word stood for exactly ONE Unseen
+    /// opponent for the whole encounter: the word's blows are then that Creature's, and the live
+    /// display carries them over to its name instead of leaving a second row. Without it (two or more
+    /// opened under the word, or the identity came from a kill line) the word's row retires on its own
+    /// and the blows stay on the word. The stored history never merges either way.</para>
     /// </summary>
     UnseenNamed,
 
@@ -351,4 +355,7 @@ public sealed record CombatEvent(
     // game named it ("glass bottle6"). Kept because the weight consequence of a container move
     // depends on whether that container is itself being carried, which the line does not say and
     // the clog's "contents" rows do - see InventoryChangeLines.
-    string? Container = null);
+    string? Container = null,
+    // Only set on UnseenNamed, and only when the word's blows can be carried over to this name - see
+    // CombatEventKind.UnseenNamed.
+    string? IdentifiedAs = null);

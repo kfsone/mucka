@@ -129,6 +129,8 @@ public sealed record SessionCombatTotals(
 /// this row. Zero for a row that stands for one engagement.</param>
 /// <param name="PersonaSessionId">The login (persona session) this ending belongs to
 /// (<c>SidePanelViewModel.OnGameModeEntered</c>).</param>
+/// <param name="WasUnseen">The fight opened under "someone"/"something" and was named part-way; the
+/// row is drawn with <see cref="MudSharp.Combat.ParticipantRoster.WasUnseenMark"/> after the name.</param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0,
@@ -137,7 +139,12 @@ public readonly record struct CombatEnding(
     int? ScoreAwarded = null,
     TimeSpan Duration = default,
     int Retries = 0,
-    long? PersonaSessionId = null);
+    long? PersonaSessionId = null,
+    bool WasUnseen = false)
+{
+    /// <summary>The name as drawn - see <see cref="MudSharp.Combat.RosterRow.Label"/>.</summary>
+    public string Label => WasUnseen ? Name + MudSharp.Combat.ParticipantRoster.WasUnseenMark : Name;
+}
 
 /// <summary>
 /// Folds a flight and what continues it against the same creature into one dead-strip row - see

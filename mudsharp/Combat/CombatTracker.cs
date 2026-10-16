@@ -519,6 +519,12 @@ public sealed class CombatTracker
     /// is itself invisible, and stays the word however many named Creatures join.</summary>
     private readonly int[] _unseenBlind = new int[2];
 
+    /// <summary>How many Unseen participants per word have EVER opened this encounter, kills and
+    /// namings included. <see cref="_unseenOpen"/> falls as they leave; this does not. It is what says
+    /// the word's blows all belong to one Creature: a word that has only ever stood for one opponent
+    /// can hand its row to that opponent's name.</summary>
+    private readonly int[] _unseenEver = new int[2];
+
     /// <summary>The timestamp of the line being observed, for an event synthesised part-way through
     /// handling it (<see cref="NameAnUnseen"/>).</summary>
     private DateTime _now;
@@ -1359,6 +1365,7 @@ public sealed class CombatTracker
         {
             var kind = (int)SomeKinds.FromWord(npc);
             _unseenOpen[kind]++;
+            _unseenEver[kind]++;
             if (_cannotSee)
                 _unseenBlind[kind]++;
             PublishUnseen();
@@ -1383,7 +1390,7 @@ public sealed class CombatTracker
         {
             _unseenBlind[(int)kind]--;
             _unseenOpen[(int)kind]--;
-            RetireUnseen(npc, kind);
+            RetireUnseen(npc, kind, carriesBlows: true);
             return;
         }
 
@@ -1397,7 +1404,7 @@ public sealed class CombatTracker
         {
             _unseenOpen[(int)SomeKind.Someone] = 0;
             _unseenBlind[(int)SomeKind.Someone] = 0;
-            RetireUnseen(npc, SomeKind.Someone);
+            RetireUnseen(npc, SomeKind.Someone, carriesBlows: true);
         }
     }
 
@@ -1425,13 +1432,22 @@ public sealed class CombatTracker
     /// <summary>One Unseen opponent of <paramref name="kind"/> has been identified as
     /// <paramref name="npc"/> and its slot is spent - the caller has already taken it off the counts.
     /// The identification teaches the species its word, and the word's own row retires once the last
-    /// opponent standing behind it has been identified.</summary>
-    private void RetireUnseen(string npc, SomeKind kind)
+    /// opponent standing behind it has been identified.
+    ///
+    /// <para><paramref name="carriesBlows"/> is true when the identification arrives as the Creature's
+    /// first named line, so its fight opens on the next event. The event then names the Creature
+    /// (<see cref="CombatEvent.IdentifiedAs"/>) provided the word only ever stood for one opponent
+    /// this encounter - with two or more, which blows were whose is not known.</para></summary>
+    private void RetireUnseen(string npc, SomeKind kind, bool carriesBlows)
     {
         Knowledge.Learn(npc, kind);
         var word = SomeKinds.Word(kind);
         if (_unseenOpen[(int)kind] == 0 && _active.Remove(word))
-            Emit(_now, CombatEventKind.UnseenNamed, CombatActor.Npc, word, null, null, null, $"({npc} was the {word})");
+        {
+            var identified = carriesBlows && _unseenEver[(int)kind] == 1 ? npc : null;
+            Emit(_now, CombatEventKind.UnseenNamed, CombatActor.Npc, word, null, null, null,
+                $"({npc} was the {word})", identified);
+        }
         PublishUnseen();
     }
 
@@ -1447,7 +1463,9 @@ public sealed class CombatTracker
         _unseenOpen[(int)kind]--;
         if (_unseenBlind[(int)kind] > _unseenOpen[(int)kind])
             _unseenBlind[(int)kind] = _unseenOpen[(int)kind];
-        RetireUnseen(npc, kind);
+        // A kill line has already closed the Creature's own fight, in the event stream, ahead of this
+        // retirement: there is no open row under the new name for the word's blows to join.
+        RetireUnseen(npc, kind, carriesBlows: false);
     }
 
     private void End(string npc)
@@ -1502,14 +1520,15 @@ public sealed class CombatTracker
         _episode = null;
         Array.Clear(_unseenOpen);
         Array.Clear(_unseenBlind);
+        Array.Clear(_unseenEver);
         PublishUnseen();
         InCombatChanged?.Invoke(false);
     }
 
     private void Emit(DateTime ts, CombatEventKind kind, CombatActor? actor, string? npc, string? weapon,
-        int? lo, int? hi, string raw)
+        int? lo, int? hi, string raw, string? identifiedAs = null)
     {
-        EventOccurred?.Invoke(new CombatEvent(ts, kind, actor, npc, weapon, lo, hi, raw));
+        EventOccurred?.Invoke(new CombatEvent(ts, kind, actor, npc, weapon, lo, hi, raw, IdentifiedAs: identifiedAs));
         LearnFrom(kind, npc, raw);
     }
 

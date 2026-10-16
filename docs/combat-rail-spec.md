@@ -212,7 +212,11 @@ see or the Creature was seen to fade) land on the word's own row, and that row i
   either word; with both open it folds into the `SomeKinds.Default` word's badge.
 - **Derived every refresh from what is open now** (`ParticipantRoster.Build`), never accumulated.
   When sight returns, a Creature joining by name is the opponent that announced itself blind
-  (`CombatEventKind.UnseenNamed` retires the word's row once its last one is named); folded names
+  (`CombatEventKind.UnseenNamed` retires the word's row once its last one is named). A word that
+  only ever stood for one opponent in the encounter does not retire a row: its fight is renamed in
+  place (`CombatStatsAggregator` calling `FightAccumulator.IdentifyAs`) with every blow kept, and
+  drawn as the name followed by `ParticipantRoster.WasUnseenMark` (`RosterRow.Label`); a word that
+  stood for two or more retires as before and the name opens its own row. Folded names
   un-fold on their own; an opponent that announced itself while the player could see is invisible
   itself and stays a `???` until it is killed or the encounter ends.
 - **Frame**: a still dashed edge in the caution colour on every platform (`CombatRailView.DrawUnseenFrame`).

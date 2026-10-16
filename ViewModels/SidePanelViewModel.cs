@@ -1525,7 +1525,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
             ExchangeLines.DealtLine(fight), ExchangeLines.TakenLine(fight),
             AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc), fight.Duration,
-            PersonaSessionId: _personaSessionId);
+            PersonaSessionId: _personaSessionId, WasUnseen: fight.WasUnseen);
 
     /// <summary>The award paired to one ending - see <see cref="KillAwardLedger"/>, which owns the
     /// pairing and the reason it is scoped to the frame that produced the ending.</summary>
