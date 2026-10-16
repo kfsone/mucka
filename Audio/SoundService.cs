@@ -112,19 +112,26 @@ internal static class SoundService
 #if WINDOWS
         var player = GetPreparedPlayer(assetName);
         if (player is null)
+        {
+            Mucka.Core.TickDiag.Log($"audio    no prepared player for '{assetName}'");
             return;
+        }
         player.Volume = Math.Clamp(volumePercent ?? s_volumePercent, 0, 100) / 100.0;
         try
         {
             // Position is only settable once the session knows the
             // duration; if it is not ready yet, Play() from wherever it sits still sounds, and the
             // next click will be exact.
-            if (player.PlaybackSession.CanSeek)
+            var canSeek = player.PlaybackSession.CanSeek;
+            if (canSeek)
                 player.PlaybackSession.Position = TimeSpan.Zero;
             player.Play();
+            Mucka.Core.TickDiag.Log(
+                $"audio    Play() on '{assetName}' canSeek={canSeek} state={player.PlaybackSession.PlaybackState} vol={player.Volume:F2}");
         }
         catch (Exception ex)
         {
+            Mucka.Core.TickDiag.Log($"audio    PlayPrepared threw for '{assetName}': {ex}");
             System.Diagnostics.Debug.WriteLine($"[SoundService] PlayPrepared failed for '{assetName}': {ex.Message}");
         }
 #elif MACCATALYST

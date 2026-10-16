@@ -298,7 +298,10 @@ internal sealed class CombatMetronome : IDisposable
         // tear it down, so that it is still correct for the ticks the player cannot see any text for -
         // which is the whole reason this instrument exists. Silence, not desynchronisation.
         if (stillInCombat is null || !stillInCombat())
+        {
+            Mucka.Core.TickDiag.Log("beat     silent: no longer in combat");
             return;
+        }
 
         PlayTimed(afterTick ? AfterTickClick : PreTickClick, afterTick ? "after" : "pre");
     }
@@ -340,6 +343,8 @@ internal sealed class CombatMetronome : IDisposable
     {
         if (SoundService.MasterEnabled)
             SoundService.PlayPrepared(asset);
+        else
+            Mucka.Core.TickDiag.Log("beat     silent: master sounds off");
     }
 
     public void Dispose()

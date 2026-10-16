@@ -1882,6 +1882,11 @@ public partial class GamePage : ContentPage
         // timer while this driver only learns a fight ended after a UI-thread hop, so between those
         // two instants the predicate is the only thing that knows to stay quiet.
         _metronomeRunning = shouldRun && _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
+        Mucka.Core.TickDiag.Log(
+            $"gate     want={shouldRun} armed={_metronomeRunning} enabled={_vm.SidePanel.IsCombatMetronomeEnabled} "
+            + $"anchor={(anchor is null ? "none" : "set")} settled={_vm.SidePanel.IsTickPhaseSettled} "
+            + $"meaningful={TickIsMeaningful()} panelVisible={_vm.SidePanel.IsCombatPanelVisible} "
+            + $"inCombat={_vm.SidePanel.Live.InCombat} grace={_vm.SidePanel.IsCombatGracePeriod}");
     }
 
     // -- Damage floats -----------------------------------------------------------------------
