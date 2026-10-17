@@ -142,7 +142,20 @@ public partial class ScorePanelView : ContentView
 
         var inner = graph.PanelWidth - ScorePanel.Padding.Left - ScorePanel.Padding.Right;
         SummaryTable.WidthRequest = Math.Max(0, Math.Min(SummaryWidth, inner));
+        SummaryRows.MaximumHeightRequest = (narrow ? MinSummaryRows : SummaryRowsFor(graph.PanelHeight)) * SummaryRowHeight;
     }
+
+    /// <summary>The XAML's header and row height (the HeightRequest of the header grid and of the row
+    /// template, and the Y2 of their rules).</summary>
+    private const double SummaryRowHeight = 18;
+    private const int MinSummaryRows = 3;
+    private const double SummaryShareOfPanel = 0.3;
+
+    /// <summary>How many summary rows show before the table scrolls: <see cref="MinSummaryRows"/>,
+    /// or as many as fit in <see cref="SummaryShareOfPanel"/> of the panel's height once the header
+    /// row is taken out. A narrow room (a phone) always gets <see cref="MinSummaryRows"/>.</summary>
+    private static int SummaryRowsFor(double panelHeight)
+        => Math.Max(MinSummaryRows, (int)((panelHeight * SummaryShareOfPanel - SummaryRowHeight) / SummaryRowHeight));
 
 #if MACCATALYST
     private readonly List<UIKit.UIGestureRecognizer> _macResize = [];

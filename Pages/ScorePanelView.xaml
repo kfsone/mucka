@@ -204,7 +204,8 @@
                 </VerticalStackLayout>
             </Border>
 
-            <!-- Per-character summary, bottom right. Three 18-high rows show; more scroll.
+            <!-- Per-character summary, bottom right. Rows are ScorePanelView.SummaryRowHeight high; how many
+                 show before the rest scroll is ScorePanelView.SummaryRowsFor.
                  Three groups - the score's range, its movement, the net - parted by dotted
                  rules. Each row draws its own 18-high piece of each rule, so the pieces meet.
                  Proportional columns inside a width the view sets (ScorePanelView.SummaryWidth at
@@ -225,7 +226,7 @@
                     <BoxView Grid.Row="1" Grid.Column="5" Grid.ColumnSpan="2" Color="#21262d"/>
                     <BoxView Grid.Row="1" Grid.Column="8" Color="#21262d"/>
                 </Grid>
-                <ScrollView MaximumHeightRequest="54">
+                <ScrollView x:Name="SummaryRows" MaximumHeightRequest="54">
                     <VerticalStackLayout BindableLayout.ItemsSource="{Binding Stats}">
                         <BindableLayout.ItemTemplate>
                             <DataTemplate x:DataType="vm:ScoreStatRow">
