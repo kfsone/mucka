@@ -849,10 +849,14 @@ internal sealed class Mud2C1Decoder
                 {
                     case 0x9B when count <= 1:
                         Apply(BLACK, GREEN);
+                        _parser.NoteRoomIdFrame();
                         break;
                     case 0x9C when count == 1:
                         Apply(LT_GREEN, BLACK);
                         _parser.EnterGameMode();
+                        // A "[id]" tag from the room-id task may already be on the line.
+                        if (!_parser.AtLineStart && _parser.TryConsumeRoomIdPrefix())
+                            _parser.SetLineStart();
                         // Fire RoomEntered if C02+C01 arrived at line start (column 0).
                         // This applies on game-entry too - the first C02+C01 from the server
                         // is the room-short line for the room the player logged in to.

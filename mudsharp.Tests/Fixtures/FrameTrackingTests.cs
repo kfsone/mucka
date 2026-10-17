@@ -81,6 +81,66 @@ public class FrameTrackingTests
         Assert.Equal(1, h.RoomEnteredCount);
     }
 
+    // Verbatim from the room-id task: AF A8 FF FF, 9D 9B FF FF "[thinlg]" FF FF " ", 9D 9C FF FF
+    // "Thin ledge" FF FF ".".
+    private static readonly byte[] RoomIdTaggedShort =
+    [
+        0xAF, 0xA8, 0xFF, 0xFF,
+        0x9D, 0x9B, 0xFF, 0xFF, ..System.Text.Encoding.Latin1.GetBytes("[thinlg]"), 0xFF, 0xFF, (byte)' ',
+        0x9D, 0x9C, 0xFF, 0xFF, ..System.Text.Encoding.Latin1.GetBytes("Thin ledge"), 0xFF, 0xFF, (byte)'.',
+    ];
+
+    [Fact]
+    public void RoomEntered_FiresForRoomShortBehindRoomIdTag()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You attack.\n"));
+        h.Feed(RoomIdTaggedShort);
+        h.Feed("\n");
+        Assert.Equal(1, h.RoomEnteredCount);
+        Assert.Equal(["Thin ledge."], h.RoomShorts);
+    }
+
+    [Fact]
+    public void RoomIdTaggedShort_KeepsTheTagInTheDisplayedLine()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You attack.\n"));
+        h.Feed(RoomIdTaggedShort);
+        h.Feed("\n");
+        Assert.Equal("[thinlg] Thin ledge.", h.Lines[^1].PlainText);
+    }
+
+    [Theory]
+    [InlineData("hello ")]
+    [InlineData("[a b] ")]
+    [InlineData("[] ")]
+    [InlineData("[id] x")]
+    public void RoomEntered_NotFiredWhenFramedTextBeforeRoomShortIsNotARoomIdTag(string framedText)
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You attack.\n"));
+        h.Feed(0x9D, 0x9B, 0xFF, 0xFF);
+        h.Feed(framedText);
+        h.Feed(0xFF, 0xFF);
+        h.Feed(RoomShort);
+        Assert.Equal(0, h.RoomEnteredCount);
+    }
+
+    [Fact]
+    public void RoomEntered_NotFiredWhenTheTagFrameWasOnAnEarlierLine()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You attack.\n"));
+        h.Feed(0x9D, 0x9B, 0xFF, 0xFF);
+        h.Feed("[thinlg]");
+        h.Feed(0xFF, 0xFF);
+        h.Feed("\n");
+        h.Feed("[x] ");
+        h.Feed(RoomShort);
+        Assert.Equal(0, h.RoomEnteredCount);
+    }
+
     [Fact]
     public void RoomEntered_NotFiredForMidLineRoomShort()
     {

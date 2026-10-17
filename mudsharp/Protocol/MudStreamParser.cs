@@ -296,6 +296,7 @@ public sealed class MudStreamParser
     //   - By SetLineStart() - called from ClosePromptContext when the captured prompt
     //     partial line is shown, marking the start of the next game-output frame.
     //   - After each real '\n' line is emitted (end of EmitChar newline path).
+    //   - By the C02+C01 dispatch when TryConsumeRoomIdPrefix finds only a room-id tag before it.
     //
     // Set to false:
     //   - When any printable text character is appended (_text.Append or _feiLine.Append).
@@ -312,6 +313,37 @@ public sealed class MudStreamParser
     // yet ended. Cleared (and RoomShortReady fired) when '\n' is processed.
     private bool _pendingRoomShort;
     internal void SetPendingRoomShort() => _pendingRoomShort = true;
+
+    // The room-id task puts "[mfrst1]" in a C02.00 frame at column 0, then a space, then the usual
+    // C02.01 room short: 9D 9B FF FF [thinlg] FF FF ' ' 9D 9C FF FF Thin ledge FF FF '.'. The id is
+    // text, so by the time C02.01 arrives the line is no longer at line start.
+    private bool _roomIdFrameAtLineStart;
+    private int _roomIdPrefixLen;
+    internal void NoteRoomIdFrame() { if (_atLineStart) _roomIdFrameAtLineStart = true; }
+
+    /// <summary>
+    /// True when everything on the current line so far is a room-id tag ("[id]" plus spaces) that a
+    /// C02.00 frame opened at column 0. The caller then treats the C02.01 that follows as a line-start
+    /// room short; <see cref="RoomShortReady"/> carries the name without the tag.
+    /// </summary>
+    internal bool TryConsumeRoomIdPrefix()
+    {
+        if (!_roomIdFrameAtLineStart) return false;
+        FlushSpan();
+        var sb = new StringBuilder();
+        foreach (var span in _spans) sb.Append(span.Text);
+        var text = sb.ToString();
+        if (text.Length < 3 || text[0] != '[') return false;
+        var close = text.IndexOf(']');
+        if (close < 2) return false;
+        for (int i = 1; i < close; i++)
+            if (char.IsWhiteSpace(text[i])) return false;
+        for (int i = close + 1; i < text.Length; i++)
+            if (!char.IsWhiteSpace(text[i])) return false;
+        _roomIdPrefixLen = text.Length;
+        _roomIdFrameAtLineStart = false;
+        return true;
+    }
 
     // -- C1 stream scopes ------------------------------------------------------
     // The decoder's colour stack is the single source of truth for the semantic scopes the
@@ -767,6 +799,8 @@ public sealed class MudStreamParser
         ClearStatValues();
         _atLineStart = true;
         _pendingRoomShort = false;
+        _roomIdFrameAtLineStart = false;
+        _roomIdPrefixLen = 0;
         _chatOpenAtLineStart = false;
         _chatTextOnLine = false;
         _plainTextOnLine = false;
@@ -923,7 +957,9 @@ public sealed class MudStreamParser
                 if (_pendingRoomShort)
                 {
                     _pendingRoomShort = false;
-                    RoomShortReady?.Invoke(line.PlainText);
+                    var shortText = line.PlainText;
+                    RoomShortReady?.Invoke(_roomIdPrefixLen > 0 && _roomIdPrefixLen <= shortText.Length
+                        ? shortText[_roomIdPrefixLen..] : shortText);
                 }
                 // "Too dark" signals the player has entered a room they cannot see.
                 // Treat it as a room transition so the Here list is cleared.
@@ -943,6 +979,8 @@ public sealed class MudStreamParser
                     TryEmitExitLine(line);
             }
             _atLineStart = true;    // next line starts at column 0
+            _roomIdFrameAtLineStart = false;
+            _roomIdPrefixLen = 0;
             LineReady?.Invoke(line);
         }
         else if (ch is '\r' or '\0')
@@ -1074,6 +1112,8 @@ public sealed class MudStreamParser
         FlushSpan();
         if (_spans.Count == 0) return;
         var line = new StyledLine(_spans.ToArray(), isPartial: true);
+        _roomIdFrameAtLineStart = false;
+        _roomIdPrefixLen = 0;
         _spans.Clear();   // snapshot: next text accumulates fresh so the complete line only holds new content
         LineReady?.Invoke(line);
     }
@@ -1122,6 +1162,8 @@ public sealed class MudStreamParser
         // The C89 capture likewise: a reading from the session just ended is not this one's.
         ClearStatValues();
         _pendingRoomShort = false;
+        _roomIdFrameAtLineStart = false;
+        _roomIdPrefixLen = 0;
         _chatOpenAtLineStart = false;
         _chatTextOnLine = false;
         _plainTextOnLine = false;
