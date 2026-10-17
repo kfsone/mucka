@@ -1234,11 +1234,12 @@ public sealed class ParserGapTests
     {
         var tracker = new CombatTracker();
 
+        tracker.Observe(FightStartLine("You attack the zombie5, using the croquet mallet as a weapon."), T0.AddSeconds(-5));
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0);
         tracker.Observe(Line("The zombie5 hits you (100/120)."), T0.AddSeconds(2));
 
-        // Run 49: the player could see, so the someone is invisible itself. A zombie joining by name
-        // is a second Creature, not the someone revealed.
+        // Run 49: the player could see, so the someone is invisible itself. The zombie announced
+        // itself with its own start, so it is a second Creature, not the someone revealed.
         Assert.Equal(1, tracker.Unseen.Someone);
         Assert.Null(tracker.Knowledge.Known("zombie5"));
     }

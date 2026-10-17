@@ -1325,14 +1325,14 @@ public sealed class CombatTracker
         CloseEncounter();
     }
 
-    private void Begin(string npc)
+    private void Begin(string npc, bool byStart = false)
     {
         if (_active.Add(npc))
         {
             ParticipantJoined?.Invoke(npc);
             if (!AnonymousOpponent.IsAnonymous(npc))
             {
-                NameAnUnseen(npc);
+                NameAnUnseen(npc, byStart);
                 // Named while the player cannot see: the episode's engaged set grows by it. (Named
                 // after sight returned, LearnFrom tells the episode a survivor instead.)
                 if (_cannotSee)
@@ -1370,7 +1370,7 @@ public sealed class CombatTracker
                 _unseenBlind[kind]++;
             PublishUnseen();
         }
-        Begin(npc);
+        Begin(npc, byStart: true);
     }
 
     /// <summary>
@@ -1382,7 +1382,7 @@ public sealed class CombatTracker
     /// naming teaches the species its kind, and the word's row retires (<see cref="CombatEventKind.UnseenNamed"/>)
     /// once its last opponent has been named.
     /// </summary>
-    private void NameAnUnseen(string npc)
+    private void NameAnUnseen(string npc, bool byStart)
     {
         if (_cannotSee)
             return;
@@ -1405,6 +1405,21 @@ public sealed class CombatTracker
             _unseenOpen[(int)SomeKind.Someone] = 0;
             _unseenBlind[(int)SomeKind.Someone] = 0;
             RetireUnseen(npc, SomeKind.Someone, carriesBlows: true);
+            return;
+        }
+
+        // Every opponent announces itself with its own coded start (BeginAtStart), named or not. A
+        // Creature that first appears on a SWING line has therefore not been counted as anyone: it
+        // can only be one of the Unseen already counted, and that is the 1-for-1 the count exists
+        // for, blind or not (a Creature that turned invisible mid-fight, or one hunted while
+        // invisible, is anonymous with the player sighted). Same word choice as above - the species'
+        // known kind, else the one word with an Unseen open - and one opponent of the word is spent.
+        // With two of the word open the name cannot say which, and nothing is claimed.
+        if (!byStart && UnseenKindOf(npc, _unseenOpen) is SomeKind sighted && _unseenOpen[(int)sighted] == 1)
+        {
+            _unseenOpen[(int)sighted] = 0;
+            _unseenBlind[(int)sighted] = 0;
+            RetireUnseen(npc, sighted, carriesBlows: true);
         }
     }
 

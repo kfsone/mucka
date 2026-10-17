@@ -69,6 +69,41 @@ public sealed class UnseenIdentifiedFightTests
     }
 
     [Fact]
+    public void AHuntedInvisibleMan_NamedWhileSighted_IsOneFight_ThatFlees()
+    {
+        var (tracker, aggregator, _) = Wired();
+        tracker.Observe(FightStartLine("You attack someone."), T0);
+        tracker.Observe(Line("You miss someone."), T0.AddSeconds(1));
+        tracker.Observe(Line("Someone hits you (94/105)."), T0.AddSeconds(1));
+
+        tracker.Observe(Line("You hit the man (10-14)."), T0.AddSeconds(5));
+        tracker.Observe(Line("The man hits you (62/105)."), T0.AddSeconds(6));
+        tracker.Observe(Line("The man has fled by going east."), T0.AddSeconds(9));
+
+        var fight = Assert.Single(aggregator.Snapshot(T0.AddSeconds(10)).Fights);
+        Assert.Equal("man", fight.NpcName);
+        Assert.True(fight.WasUnseen);
+        Assert.Equal(FightOutcome.CFled, fight.Outcome);
+        Assert.Equal(1, fight.YouMisses);
+        Assert.Equal(1, fight.YouHits);
+    }
+
+    [Fact]
+    public void ACreatureThatAnnouncedItselfWithItsOwnStart_IsNotTheUnseenOne()
+    {
+        var (tracker, aggregator, _) = Wired();
+        tracker.Observe(FightStartLine("Someone is about to attack you."), T0);
+        tracker.Observe(Line("Someone hits you (81/105)."), T0.AddSeconds(1));
+
+        tracker.Observe(FightStartLine("The man is moving towards you ferociously."), T0.AddSeconds(6));
+        tracker.Observe(Line("The man hits you (62/105)."), T0.AddSeconds(7));
+
+        var fights = aggregator.Snapshot(T0.AddSeconds(8)).Fights;
+        Assert.Equal(2, fights.Count);
+        Assert.DoesNotContain(fights, f => f.WasUnseen);
+    }
+
+    [Fact]
     public void TheRenamedFight_EndsAsOneRow_WithTheMarkOnTheEnding()
     {
         var (tracker, aggregator, _) = Wired();
