@@ -126,7 +126,8 @@ internal static class SoundService
             if (canSeek)
                 player.PlaybackSession.Position = TimeSpan.Zero;
             player.Play();
-            Mucka.Core.TickDiag.Log(
+            if (Mucka.Core.TickDiag.Enabled)
+                Mucka.Core.TickDiag.Log(
                 $"audio    Play() on '{assetName}' canSeek={canSeek} state={player.PlaybackSession.PlaybackState} vol={player.Volume:F2}");
         }
         catch (Exception ex)

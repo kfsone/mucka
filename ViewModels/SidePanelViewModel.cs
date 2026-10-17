@@ -522,6 +522,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             if (inCombat)
             {
                 _combatStats.BeginEncounter(DateTime.UtcNow);
+                _combatStartGuessUtc = DateTime.UtcNow;
                 _hasCombatData = true;
                 // A fresh encounter is about to start filling _combatStats.Fights again, so its
                 // endings are no longer represented anywhere until THIS encounter closes and folds
@@ -615,21 +616,25 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
 
     /// <summary>The tick boundary both instruments align to - the bar's zero crossing and the click's
-    /// bracket - or null until the estimate has enough swings to be worth publishing.
+    /// bracket. Null outside a fight on a session that has seen no swing.
     ///
-    /// <para>An estimate over the session's accumulated swings. Fed from swing lines rather than the
-    /// combat-start line: the combat-start line is the reply to the player's own <c>kill</c> command,
-    /// so its phase is the keystroke's rather than the server's, while a swing line is emitted BY the
-    /// tick. See <see cref="Mucka.Combat.TickPhase"/>: a single-sample anchor was off by over 150 ms in
-    /// 19% of encounters and by up to 963 ms - half a tick - matching the symptom that the indicator
-    /// did not seem to coincide with the server's combat tick.</para></summary>
-    public DateTime? TickPhaseUtc => _tickPhase.Anchor;
+    /// <para>In order of preference: the session's estimate over its accumulated swings
+    /// (<see cref="Mucka.Combat.TickPhase.Anchor"/>); else the first swing seen, which pins the phase
+    /// the moment the server shows it; else, for a fight whose first swing has not yet arrived, the
+    /// instant combat started. That last one is a guess: combat start is the reply to the player's own
+    /// <c>kill</c> command, so its phase is the keystroke's rather than the server's. It is carried
+    /// until the first swing replaces it. See <see cref="Mucka.Combat.TickPhase"/> for why a single
+    /// swing is itself replaced by the estimate once there are two.</para></summary>
+    public DateTime? TickPhaseUtc => _tickPhase.Anchor ?? _tickPhase.FirstSample ?? _combatStartGuessUtc;
 
-    /// <summary>Whether the phase estimate is trusted enough to make a SOUND. The bar takes
-    /// <see cref="TickPhaseUtc"/> as soon as it exists and accepts a visible correction; the click waits
-    /// for this. See Mucka.Combat.TickPhase.SettledSamples - a briefly-wrong bar explains itself, a
-    /// confidently-wrong click does not.</summary>
-    public bool IsTickPhaseSettled => _tickPhase.IsSettled;
+    /// <summary>The session's estimate once it has enough swings behind it to be trusted
+    /// (<see cref="Mucka.Combat.TickPhase.IsSettled"/>), else null - never the combat-start guess or a
+    /// single swing. For consumers that act on the phase rather than display it.</summary>
+    public DateTime? SettledTickPhaseUtc => _tickPhase.IsSettled ? _tickPhase.Anchor : null;
+
+    /// <summary>When the current or latest encounter opened - the provisional phase before any swing has
+    /// been seen. Never consulted once <see cref="Mucka.Combat.TickPhase"/> holds a sample.</summary>
+    private DateTime? _combatStartGuessUtc;
 
     /// <summary>Session-scoped, on purpose - it is not reset per encounter. Reset only belongs to a
     /// genuinely different lattice (another server), not to another fight.</summary>
@@ -645,7 +650,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // EVERY swing refines the phase, not just the first one of an encounter. The estimator
             // decides when the anchor has actually moved enough to be worth republishing - each
             // republish restarts the bar's animation, so it must not happen per swing.
-            if (IsSwing(combatEvent.Kind) && _tickPhase.Observe(combatEvent.TimestampUtc))
+            //
+            // The very first swing publishes too, although the estimator does not yet: it replaces the
+            // combat-start guess with the phase the server actually showed.
+            if (IsSwing(combatEvent.Kind)
+                && (_tickPhase.Observe(combatEvent.TimestampUtc) || _tickPhase.Samples == 1))
                 OnPropertyChanged(nameof(TickPhaseUtc));
             // Queued BEFORE the aggregator sees it, so the ending is waiting by the time the award line
             // that follows it arrives (KillAwardLedger). The event's own stamp is what the fight will

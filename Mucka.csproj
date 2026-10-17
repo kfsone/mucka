@@ -57,14 +57,6 @@
 		<DefineConstants>$(DefineConstants);INPUT_DIAG</DefineConstants>
 	</PropertyGroup>
 
-	<!-- Combat-tick phase diagnostics: build with `dotnet build -p:TickDiag=true` (Windows) to log
-	     what the click and the tick bar were each told to do versus when they actually did it.
-	     Writes to %TEMP%\mucka-tick.txt. Off by default -> zero cost (the instrumented paths include a
-	     thread-pool timer whose entire job is punctuality). See Core/TickDiag.cs. -->
-	<PropertyGroup Condition="'$(TickDiag)' == 'true'">
-		<DefineConstants>$(DefineConstants);TICK_DIAG</DefineConstants>
-	</PropertyGroup>
-
 	<!-- Focus diagnostics: build with `dotnet build -p:FocusDiag=true` (Windows) to log every
 	     focus transition (app-wide FocusManager events plus our own veto/redirect decisions) to
 	     %TEMP%\mucka-focus.txt. Use it when something steals keyboard focus from the command box

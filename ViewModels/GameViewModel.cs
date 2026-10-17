@@ -751,7 +751,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         // MudSession.ScheduleInventoryProbeLocked). The panel owns the only lattice estimate in the
         // client; this hands the session a read of it rather than letting a second one grow. Gated
         // on IsSettled so an unconverged phase yields null and the probe keeps its plain delay.
-        _conn.CombatTickAnchorProvider = () => SidePanel.IsTickPhaseSettled ? SidePanel.TickPhaseUtc : null;
+        _conn.CombatTickAnchorProvider = () => SidePanel.SettledTickPhaseUtc;
         // Fire-and-forget: neither is needed until a fight starts, and reading them must never sit on
         // the UI thread (Invariant #1). Both swallow their own I/O failures.
         _ = LoadCombatHistoryAsync();
@@ -1647,6 +1647,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 OpenRawConsole();
             else if (string.Equals(name, "SID", StringComparison.OrdinalIgnoreCase))
                 PrintSessionId();
+            else if (string.Equals(name, "DEBUG", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("DEBUG ", StringComparison.OrdinalIgnoreCase))
+                ApplyDebug(name.Length > 5 ? name[6..] : string.Empty);
             else if (string.Equals(name, "CHATTEST", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("CHATTEST ", StringComparison.OrdinalIgnoreCase))
                 RunChatTest(name.Length > 8 ? name[9..] : string.Empty);
@@ -1762,6 +1765,36 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             AddSystemLine($"[watchword] nothing queued for ${slotName}", 14);
     }
 
+    /// <summary>$debug tick [on|off] - combat-tick diagnostics (<see cref="TickDiag"/>), toggled with no
+    /// argument. Not persisted: every launch starts with them off.</summary>
+    private void ApplyDebug(string args)
+    {
+        var parts = args.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length == 0 || !string.Equals(parts[0], "tick", StringComparison.OrdinalIgnoreCase))
+        {
+            AddSystemLine($"[debug] usage: $debug tick [on|off]   (tick diagnostics are {(TickDiag.Enabled ? "on" : "off")})", 14);
+            return;
+        }
+
+        bool on;
+        if (parts.Length == 1)
+            on = !TickDiag.Enabled;
+        else if (string.Equals(parts[1], "on", StringComparison.OrdinalIgnoreCase))
+            on = true;
+        else if (string.Equals(parts[1], "off", StringComparison.OrdinalIgnoreCase))
+            on = false;
+        else
+        {
+            AddSystemLine("[debug] usage: $debug tick [on|off]", 9);
+            return;
+        }
+
+        TickDiag.SetEnabled(on);
+        AddSystemLine(on
+            ? $"[debug] tick diagnostics on, logging to {TickDiag.LogPath}"
+            : "[debug] tick diagnostics off", 14);
+    }
+
     /// <summary>Raised by $f&lt;n&gt; with a finished annotation line to drop above the live prompt.
     /// GamePage applies it to the terminal buffer (see TerminalView.InjectAnnotation).</summary>
     public event Action<StyledLine>? AnnotationReady;
@@ -1779,6 +1812,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $fkeys [shift|ctrl]   list your Fkeys", 14);
         AddSystemLine("  $f<n>                 annotate output with fkey n's text (1-36)", 14);
         AddSystemLine("  $SID                  print the current session id (server/run/persona/login)", 14);
+        AddSystemLine("  $debug tick [on|off]  log combat-tick timing to ~/.mucka/mucka-tick.txt (off at launch)", 14);
         AddSystemLine("  $CHATTEST             play a scripted chat into the output (sends nothing)", 14);
         AddSystemLine("  $CHATTEST slow|stop   play it one line at a time, ~1.5s apart / stop that", 14);
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);

@@ -169,13 +169,36 @@ public class TickPhaseTests
     [Theory]
     [InlineData(1000.0, 1000.0)]   // sum to exactly one tick: the two beats coincide
     [InlineData(1400.0, 700.0)]    // sum past a tick: they cross
-    [InlineData(0.0, 50.0)]        // an after-tick that is not after
-    [InlineData(-50.0, 50.0)]
+    [InlineData(-50.0, 50.0)]      // the after-tick starts with the pre-tick: no order
+    [InlineData(-60.0, 50.0)]      // ...or before it
     [InlineData(50.0, 0.0)]        // a pre-tick that is not before
     [InlineData(50.0, -50.0)]
     public void NextBeat_RejectsOffsetsThatWouldNotBracket(double afterOffset, double preLead)
         => Assert.Throws<ArgumentOutOfRangeException>(
             () => CombatTiming.NextBeat(Anchor, Anchor, afterOffset, preLead));
+
+    /// <summary>A clip padded longer than the gap starts its after-click BEFORE the boundary. The beat
+    /// order within a cycle is then pre-click, after-click, boundary, and each is still found.</summary>
+    [Fact]
+    public void NextBeat_HonoursAnAfterClickStartedBeforeTheBoundary()
+    {
+        const double preLead = 136.0;
+        const double afterOffset = -5.0;
+
+        var (delay, afterTick) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(1000), afterOffset, preLead);
+        Assert.False(afterTick);
+        Assert.Equal(Tick - preLead - 1000, delay, 6);
+
+        // Just past the pre-click: the after-click is 131 ms later, still before the boundary.
+        (delay, afterTick) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(Tick - preLead + 1), afterOffset, preLead);
+        Assert.True(afterTick);
+        Assert.Equal(preLead + afterOffset - 1, delay, 6);
+
+        // Just past the after-click: the next pre-click, a whole tick less the two.
+        (delay, afterTick) = CombatTiming.NextBeat(Anchor, Anchor.AddMilliseconds(Tick + afterOffset + 1), afterOffset, preLead);
+        Assert.False(afterTick);
+        Assert.Equal(Tick - preLead - (afterOffset + 1), delay, 6);
+    }
 
     /// <summary>
     /// The asymmetric case the shipping code actually uses: the pre-click is started early by its own

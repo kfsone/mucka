@@ -77,12 +77,12 @@ public class WavProbeTests
     /// <summary>A run of silence, then a short loud body, then a long quiet tail - the shape of the real
     /// Perc_Stick assets after padding.</summary>
     private static List<double> ClickEnvelope(
-        int silenceFrames, int bodyFrames, int tailFrames, double tailLevel = 0.02)
+        int silenceFrames, int bodyFrames, int tailFrames, double tailLevel = 0.0005)
     {
         var f = new List<double>(silenceFrames + bodyFrames + tailFrames);
         f.AddRange(Enumerable.Repeat(0.0, silenceFrames));
         f.AddRange(Enumerable.Repeat(1.0, bodyFrames));
-        f.AddRange(Enumerable.Repeat(tailLevel, tailFrames));   // well under -20 dB of peak
+        f.AddRange(Enumerable.Repeat(tailLevel, tailFrames));   // -66 dBFS, under the silence floor
         return f;
     }
 
@@ -114,7 +114,8 @@ public class WavProbeTests
     {
         // Silence at 128, not 0. Read as signed, a silent 8-bit lead-in looks like full scale and the
         // probe would report no leading silence for every 8-bit asset in the game.
-        var span = WavProbe.Parse(Wav(ClickEnvelope(220, 220, 220), sampleRate: 22050, bits: 8));
+        // Tail of true silence: one 8-bit step is about -42 dBFS, so any nonzero 8-bit tail is above the floor.
+        var span = WavProbe.Parse(Wav(ClickEnvelope(220, 220, 220, tailLevel: 0.0), sampleRate: 22050, bits: 8));
 
         Assert.NotNull(span);
         // 220 frames at 22.05 kHz. The END is the LAST audible frame (index 439), not the first silent
@@ -132,19 +133,15 @@ public class WavProbeTests
     }
 
     /// <summary>
-    /// Content below the relative floor does not extend the span. The peak itself defines the floor, so
-    /// this needs a loud frame plus a quiet region rather than a uniformly quiet clip.
-    ///
-    /// <para>Deliberately does NOT test a level of exactly 0.1 (the floor). At 16-bit,
-    /// <c>0.1 * 32767</c> rounds to 3277, which is a hair ABOVE a floor derived from a peak of
-    /// 32767/32768 - so an exactly-at-floor test would assert a property of the builder's rounding
-    /// rather than of the probe.</para>
+    /// Content at or below <see cref="WavProbe.SilenceFloorDbfs"/> does not extend the span, and content
+    /// above it does. Levels are kept clear of the floor itself: at 16-bit the builder's rounding would
+    /// make an exactly-at-floor test assert the builder rather than the probe.
     /// </summary>
     [Theory]
-    [InlineData(0.09)]
-    [InlineData(0.05)]
+    [InlineData(0.0005)]
+    [InlineData(0.0001)]
     [InlineData(0.0)]
-    public void ContentBelowTheFloorIsNotAudible(double level)
+    public void ContentBelowTheFloorIsSilence(double level)
     {
         var frames = new List<double> { 1.0 };
         frames.AddRange(Enumerable.Repeat(level, 480));
@@ -153,6 +150,48 @@ public class WavProbeTests
         // Only the single loud frame counts, so the span collapses to ~0 ms.
         Assert.Equal(0.0, span.AudibleStartMs, 1);
         Assert.Equal(0.0, span.AudibleEndMs, 1);
+    }
+
+    [Theory]
+    [InlineData(0.002)]    // -54 dBFS
+    [InlineData(0.02)]     // -34 dBFS
+    public void ContentAboveTheFloorIsSound(double level)
+    {
+        var frames = new List<double> { 1.0 };
+        frames.AddRange(Enumerable.Repeat(level, 480));
+        var span = WavProbe.Parse(Wav(frames))!.Value;
+
+        Assert.Equal(480 * 1000.0 / 48000, span.AudibleEndMs, 1);
+    }
+
+    // -- BracketPlacement: the formulas the metronome schedules by --
+
+    private static readonly ClipSpan RealClick = new(199.6, 30.0, 110.0);
+
+    [Fact]
+    public void PreClickEndsItsSoundAtTheGapBeforeTheBoundary()
+    {
+        var lead = BracketPlacement.PreLeadMs(25.0, RealClick);
+        // Started `lead` before the boundary, its last non-silent sample is at lead - AudibleEnd.
+        Assert.Equal(25.0, lead - RealClick.AudibleEndMs, 6);
+    }
+
+    [Fact]
+    public void AfterClickBeginsItsSoundAtTheGapAfterTheBoundary()
+    {
+        var offset = BracketPlacement.AfterOffsetMs(25.0, RealClick);
+        Assert.Equal(25.0, offset + RealClick.AudibleStartMs, 6);
+    }
+
+    [Fact]
+    public void AnAfterClickPaddedLongerThanTheGapStartsBeforeTheBoundary()
+        => Assert.Equal(-5.0, BracketPlacement.AfterOffsetMs(25.0, RealClick), 6);
+
+    [Fact]
+    public void WithoutASpanTheGapIsUsedAsIs()
+    {
+        Assert.Equal(25.0, BracketPlacement.PreLeadMs(25.0, null));
+        Assert.Equal(25.0, BracketPlacement.AfterOffsetMs(25.0, null));
     }
 
     // -- Refusals. Each of these silently degrades the metronome if it returns a wrong answer. --
@@ -193,8 +232,4 @@ public class WavProbeTests
     public void ReadReturnsNullForAMissingFile()
         => Assert.Null(WavProbe.Read(Path.Combine(Path.GetTempPath(), "mucka-no-such-file-9d3f.wav")));
 
-    // The metronome's two offset formulas are not testable from here: they live in
-    // Audio/CombatMetronome.cs, inside the MAUI assembly no test project references. A test that
-    // hand-copies them asserts its own arithmetic - every term cancels - and says nothing about the
-    // production expressions. Moving them beside WavProbe is what would make them assertable.
 }

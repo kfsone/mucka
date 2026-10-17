@@ -67,12 +67,8 @@ public sealed class TickPhase
     private const int MinimumSamples = 2;
 
     /// <summary>
-    /// Samples before the estimate is trusted enough to make a SOUND - see <see cref="IsSettled"/>.
-    ///
-    /// <para><b>The bar and the click get different gates on purpose:</b> a briefly-wrong timer that
-    /// visibly corrects itself is honest in a way a confidently-wrong sound is not. A bar that jumps
-    /// once early in a fight is self-explaining; a click bracketing a boundary that is not there is
-    /// just wrong, twice a second, with nothing on screen to show why.</para>
+    /// Samples before the estimate is trusted enough to ACT on - see <see cref="IsSettled"/>. The bar
+    /// and the click do not wait for it; the in-combat inventory probe does.
     ///
     /// <para>Five: the very first sample becomes the REFERENCE, so it sits at angle zero by
     /// construction and always votes for itself. At three samples it still carries about a third of
@@ -97,12 +93,16 @@ public sealed class TickPhase
     /// confidently wrong beat is worse than a late one.</para></summary>
     public DateTime? Anchor => _samples >= MinimumSamples ? _reference : null;
 
+    /// <summary>The first swing's own instant, available as soon as one swing has been seen - a point on
+    /// the lattice, though a single sample (see the class remarks). Null before any swing.</summary>
+    public DateTime? FirstSample => _samples >= 1 ? _reference : null;
+
     /// <summary>Swings folded into the estimate. Diagnostics, and the gate behind
     /// <see cref="Anchor"/>.</summary>
     public int Samples => _samples;
 
-    /// <summary>True once the estimate has enough swings behind it to drive a SOUND rather than only a
-    /// visual - see <see cref="SettledSamples"/> for why those are different thresholds.</summary>
+    /// <summary>True once the estimate has enough swings behind it to act on rather than only display -
+    /// see <see cref="SettledSamples"/>.</summary>
     public bool IsSettled => _samples >= SettledSamples;
 
     /// <summary>How tightly the observed swings agree about the phase, 0 (no agreement) to 1 (all

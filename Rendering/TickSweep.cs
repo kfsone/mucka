@@ -7,8 +7,8 @@ using Microsoft.UI.Xaml.Hosting;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The Combat Rail's tick meter, animated on WinUI Composition - a bar that fills left to right over
-/// one MUD2 combat tick, empties, and fills again for as long as the fight lasts.
+/// The Combat Rail's tick meter, animated on WinUI Composition - a bar that counts down one MUD2
+/// combat tick, refills, and counts down again for as long as the fight lasts.
 ///
 /// <para><b>Linear, and it has to be said out loud.</b> Composition applies a cubic ease-in-out to
 /// keyframes that carry no easing function of their own, which makes a constant-rate countdown crawl
@@ -20,20 +20,26 @@ namespace Mucka.Rendering;
 /// second would compete directly with typing (Invariant #1) - and a 2-second progress bar is the
 /// single most repaint-hungry thing on the panel. The whole motion therefore lives on the
 /// compositor, where it costs the UI thread nothing at all: one <c>Vector3KeyFrameAnimation</c> on a
-/// Visual's Scale, started once per fight and left alone. The canvas draws only the still parts (the
+/// Visual's Scale, started once per anchor and left alone. The canvas draws only the still parts (the
 /// track, the opponent count over it); this element is the fill inside that track, sitting behind the
 /// transparent canvas exactly as <see cref="PulseLayer"/>'s glow does.</para>
 ///
-/// <para><b>Phase.</b> MUD2's combat tick is exactly 2.000 s and phase-locked - measured gaps are
-/// exact multiples of 2000 ms - so a sweep aligned to the fight's first swing stays in phase with the
-/// game for the whole fight without ever being resynced.</para>
+/// <para><b>One animation, phase in its keyframes.</b> The loop is a single endless cycle whose
+/// keyframes begin at the fraction of the tick already elapsed, so there is no partial animation to
+/// hand off from. A handoff runs from a callback on the UI thread, and its lateness became the bar's
+/// permanent offset: measured at 30 to 95 ms late on every restart, with nothing to correct it.</para>
+///
+/// <para><b>The start is where the phase is won or lost.</b> The loop keeps its own time once begun, so
+/// whatever lies between "time left was computed" and "the compositor began" is the bar's error for the
+/// rest of the fight. Two things are measured: the compositor itself takes 32 to 44 ms to begin, and a
+/// UI-thread stall between the two instants added about 570 ms once. So the time left is computed as the
+/// LAST step before starting, after every object is built, and advanced by the measured start lag
+/// (<see cref="_startLagMs"/>). A 1 ms probe animation in the same batch then reports when the
+/// compositor really began, and a start more than <see cref="ToleranceMs"/> off is redone.</para>
 ///
 /// <para>Alignment is to an ANCHOR INSTANT, not to the moment <see cref="Restart"/> happens to be
-/// called: the click is armed from the swing's feed-thread timestamp, and starting the animation
-/// wherever the call lands instead - after a <c>BeginInvokeOnMainThread</c> hop, a PropertyChanged
-/// fan-out and a wait for the next compositor frame - adds latency that is variable and worst during
-/// a swing burst, which is exactly when both instruments are being read. Taking the anchor makes the
-/// two genuinely one clock rather than two that were merely started near each other.</para>
+/// called: the click is armed from the same anchor, which makes the two one clock rather than two
+/// that were merely started near each other.</para>
 ///
 /// <para>The sweep is not a prediction of the next swing: it is never labelled or coloured by
 /// judgement on those grounds. A timer is not a verdict.</para>
@@ -49,16 +55,33 @@ internal sealed class TickSweep
     /// independently drift apart.</summary>
     private const double TickMilliseconds = Mucka.Combat.CombatTiming.TickMilliseconds;
 
+    /// <summary>How long the bar takes to jump from empty back to full at the rollover, as a fraction of
+    /// a tick. One frame at 60 Hz is about 0.8% of a tick; this is 1 ms.</summary>
+    private const float RefillFraction = (float)(1.0 / TickMilliseconds);
+
+    /// <summary>A start whose observed lag differs from the assumed lag by more than this is redone.</summary>
+    private const double ToleranceMs = 15.0;
+
+    /// <summary>Starts attempted for one <see cref="Restart"/>. A third failure is left standing: the bar
+    /// is then off by a stall that keeps recurring, and chasing it would only make the bar jump.</summary>
+    private const int MaxStartAttempts = 3;
+
+    /// <summary>Observed lags above this are one-off stalls, not the compositor's start latency, and are
+    /// not learned from.</summary>
+    private const double MaxLearnableLagMs = 100.0;
+
     private readonly FrameworkElement _host;
     private readonly Visual _visual;
 
-    /// <summary>Bumped by every <see cref="Restart"/> and every <see cref="Stop"/>, and captured by
-    /// the pending partial-tick handoff. A CompositionScopedBatch cannot be cancelled once ended, so
-    /// its Completed WILL fire even if the fight ended or a better anchor arrived while the partial
-    /// tick was still running; a stale handoff would then either revive a bar Stop() had emptied or
-    /// stamp the endless loop over an alignment the newer Restart had just established - putting the
-    /// bar back out of phase with the click, which is the one thing this class must not do.</summary>
+    /// <summary>Bumped by every <see cref="Restart"/> and every <see cref="Stop"/>. A scoped batch cannot
+    /// be cancelled once ended, so its Completed fires even after the fight ended or a newer start
+    /// replaced it; a stale completion must neither redo a start nor touch the log as if current.</summary>
     private int _generation;
+
+    /// <summary>How long the compositor takes to begin an animation started now, as last observed. The
+    /// first value is the middle of the 32 to 44 ms measured on the first run of the probe; each start
+    /// then nudges it.</summary>
+    private double _startLagMs = 38.0;
 
     /// <summary>Set once a Composition call against <see cref="_visual"/> has thrown - which means the
     /// compositor behind it is gone and every later call would throw the same way. The Visual is a
@@ -81,13 +104,12 @@ internal sealed class TickSweep
     public static TickSweep Attach(FrameworkElement host) => new(host);
 
     /// <summary>Starts the sweep in phase with <paramref name="anchorUtc"/>, resetting it if it was
-    /// already running. Call with the encounter's first-swing timestamp - the same instant the
-    /// metronome is armed from, which is the entire point (see the class remarks on Phase).</summary>
+    /// already running. The metronome is armed from the same anchor, which is the entire point (see the
+    /// class remarks).</summary>
     /// <param name="anchorUtc">A known tick boundary. The bar picks up the tick ALREADY IN PROGRESS at
-    /// the fraction it has actually reached, rather than restarting the countdown from full: at the
-    /// first swing we are typically a few tens of milliseconds past a boundary, but this is also
-    /// called when the panel is toggled on mid-fight, where starting from full would put the bar up to
-    /// a whole tick out and the click would be heard landing in the middle of the sweep.</param>
+    /// the fraction it has actually reached, rather than restarting the countdown from full: this is
+    /// also called when the panel is toggled on mid-fight, where starting from full would put the bar
+    /// up to a whole tick out.</param>
     public void Restart(DateTime anchorUtc)
     {
         // Nothing to drive. Reachable only after Stop() found the compositor already gone; the host
@@ -95,96 +117,86 @@ internal sealed class TickSweep
         if (_detached)
             return;
 
+        Start(anchorUtc, ++_generation, attempt: 1);
+    }
+
+    private void Start(DateTime anchorUtc, int generation, int attempt)
+    {
         // Scale about the left edge, so the bar's LEFT end stays pinned and its right end is what
         // moves - the bar drains leftward rather than growing or shrinking about its middle.
         _visual.CenterPoint = Vector3.Zero;
-        var generation = ++_generation;
 
+        // Everything that can take time is built BEFORE the clock is read; see the class remarks.
+        var compositor = _visual.Compositor;
+        var linear = compositor.CreateLinearEasingFunction();
+        var sweep = compositor.CreateVector3KeyFrameAnimation();
+        sweep.Duration = TimeSpan.FromMilliseconds(TickMilliseconds);
+        sweep.IterationBehavior = AnimationIterationBehavior.Forever;
+        var dummy = compositor.CreateContainerVisual();
+        var probe = compositor.CreateScalarKeyFrameAnimation();
+        probe.InsertKeyFrame(1.0f, 0f);
+        probe.Duration = TimeSpan.FromMilliseconds(1);
+        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+
+        var assumedLagMs = _startLagMs;
+        var calledAt = DateTime.UtcNow;
         // Shared with the metronome - see CombatTiming.MillisecondsToNextBoundary, which owns this
-        // computation.
-        var remaining = Mucka.Combat.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+        // computation. Evaluated where the compositor will have begun, not where the call is made.
+        var remaining = Mucka.Combat.CombatTiming.MillisecondsToNextBoundary(
+            anchorUtc, calledAt.AddMilliseconds(assumedLagMs));
+        // Clamped off the ends so the four keyframe times stay strictly increasing; costs at most 2 ms.
+        var left = Math.Clamp((float)(remaining / TickMilliseconds), 2f * RefillFraction, 1f - (2f * RefillFraction));
 
-        // The number to compare against the metronome's own "boundary at +N ms" line: if the two
-        // instruments disagree on where the boundary is, they disagree HERE, and the log says so
-        // directly instead of leaving it to be judged by ear against a moving bar.
-        Mucka.Core.TickDiag.Log(
-            $"bar restart  from {remaining / TickMilliseconds * 100,5:F1}% ({remaining,6:F0} ms left)  "
-            + $"anchor {anchorUtc:HH:mm:ss.fff}  gen {generation}");
-
-        // Less than a couple of frames of this tick left. Animating it would be a flicker at the far
-        // left edge and the handoff would land late; wait it out empty and begin cleanly on the
-        // boundary instead.
-        if (remaining < 40.0)
-        {
-            Mucka.Core.TickDiag.Log($"bar restart  too little left ({remaining:F0} ms) - waiting out empty");
-            Rest();
-            StartLoopAfter(remaining, generation);
-            return;
-        }
-
-        var compositor = _visual.Compositor;
-        var linear = compositor.CreateLinearEasingFunction();
-
-        // The partial tick: from wherever this one has got to, down to empty exactly on the boundary.
-        var partial = compositor.CreateVector3KeyFrameAnimation();
-        partial.InsertKeyFrame(0.0f, new Vector3((float)(remaining / TickMilliseconds), 1f, 1f), linear);
-        partial.InsertKeyFrame(1.0f, new Vector3(0f, 1f, 1f), linear);
-        partial.Duration = TimeSpan.FromMilliseconds(remaining);
-
-        // A scoped batch is how the handoff stays on the compositor's own clock. Timing it with a
-        // Timer or a Task.Delay would reintroduce the very scheduling latency this class exists to
-        // remove, and on the UI thread it would also be a repeating hop near the typing path
-        // (Invariant #1). Completed fires ONCE PER FIGHT, not once per tick.
-        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-        _visual.StartAnimation("Scale", partial);
+        // One endless cycle of exactly one tick, starting mid-count: from what is left, down to empty on
+        // the boundary, a one-millisecond refill, then down again to the same fraction at the cycle's
+        // end - which is where it began, so the loop closes on itself with no seam. The last segment's
+        // slope is the same as the first's: (1 - left) over (1 - left) of a tick.
+        sweep.InsertKeyFrame(0.0f, new Vector3(left, 1f, 1f), linear);
+        sweep.InsertKeyFrame(left, new Vector3(0f, 1f, 1f), linear);
+        sweep.InsertKeyFrame(Math.Min(1f, left + RefillFraction), new Vector3(1f, 1f, 1f), linear);
+        sweep.InsertKeyFrame(1.0f, new Vector3(left, 1f, 1f), linear);
+        _visual.StartAnimation("Scale", sweep);
+        dummy.StartAnimation("Opacity", probe);
         batch.End();
-        batch.Completed += (_, _) => StartLoop(generation);
+        batch.Completed += (_, _) =>
+        {
+            dummy.Dispose();
+            OnStarted(anchorUtc, generation, attempt, calledAt, assumedLagMs, remaining);
+        };
+
+        if (Mucka.Core.TickDiag.Enabled)
+            Mucka.Core.TickDiag.Log(
+                $"bar restart  attempt {attempt}  from {left * 100,5:F1}% ({remaining,6:F0} ms left)  "
+                + $"assumed lag {assumedLagMs:F0} ms  anchor {anchorUtc:HH:mm:ss.fff}");
     }
 
-    /// <summary>Begins the endless on-phase sweep after <paramref name="delayMs"/> of stillness, for
-    /// the case where the current tick has too little left to be worth drawing.</summary>
-    private void StartLoopAfter(double delayMs, int generation)
+    /// <summary>The probe completed, so the compositor has begun. Compares how long that took with how
+    /// long it was assumed to take, learns from it, and redoes the start if it was off by more than
+    /// <see cref="ToleranceMs"/>.</summary>
+    private void OnStarted(
+        DateTime anchorUtc, int generation, int attempt, DateTime calledAt, double assumedLagMs, double remaining)
     {
-        var compositor = _visual.Compositor;
-        var hold = compositor.CreateVector3KeyFrameAnimation();
-        hold.InsertKeyFrame(1.0f, new Vector3(0f, 1f, 1f), compositor.CreateLinearEasingFunction());
-        hold.Duration = TimeSpan.FromMilliseconds(Math.Max(delayMs, 1.0));
-
-        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
-        _visual.StartAnimation("Scale", hold);
-        batch.End();
-        batch.Completed += (_, _) => StartLoop(generation);
-    }
-
-    /// <summary>The steady state: full at the start of each tick, empty at the end - a countdown, not
-    /// a progress bar. It shows how much time is LEFT before the next swing, which is the question
-    /// being asked, and it matches the health pips (lit = remaining) rather than inverting between two
-    /// gauges on one panel.</summary>
-    private void StartLoop(int generation)
-    {
-        // See _generation: this handoff was scheduled a partial tick ago and cannot be cancelled, so
-        // it has to check on arrival that it is still the current one.
-        if (generation != _generation)
-        {
-            Mucka.Core.TickDiag.Log($"bar loop     handoff gen {generation} is stale (now {_generation}) - dropped");
+        if (generation != _generation || _detached)
             return;
+
+        // Includes the probe's own 1 ms, and the time for this callback to be dispatched.
+        var lag = (DateTime.UtcNow - calledAt).TotalMilliseconds - 1.0;
+        var error = lag - assumedLagMs;
+        var redo = Math.Abs(error) > ToleranceMs && attempt < MaxStartAttempts;
+
+        if (Mucka.Core.TickDiag.Enabled)
+        {
+            var nowLeft = Mucka.Combat.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
+            Mucka.Core.TickDiag.Log(
+                $"bar probe    attempt {attempt}  start lag {lag,6:F1} ms vs assumed {assumedLagMs:F0} ms "
+                + $"(error {error,6:F1} ms; told {remaining:F0} ms left, lattice now {nowLeft:F0})"
+                + (redo ? "  - redoing" : string.Empty));
         }
 
-        // Worth logging because this is the one moment the bar's phase stops being derived from the
-        // anchor and starts being whatever the compositor's batch-completed callback happened to run
-        // at: the endless loop below is never resynced, so any lateness here becomes the bar's
-        // permanent offset for the rest of the fight.
-        Mucka.Core.TickDiag.Log($"bar loop     endless sweep begins (gen {generation})");
-
-        var compositor = _visual.Compositor;
-        var linear = compositor.CreateLinearEasingFunction();
-        var animation = compositor.CreateVector3KeyFrameAnimation();
-        animation.InsertKeyFrame(0.0f, new Vector3(1f, 1f, 1f), linear);
-        animation.InsertKeyFrame(1.0f, new Vector3(0f, 1f, 1f), linear);
-        animation.Duration = TimeSpan.FromMilliseconds(TickMilliseconds);
-        animation.IterationBehavior = AnimationIterationBehavior.Forever;
-
-        _visual.StartAnimation("Scale", animation);
+        if (lag <= MaxLearnableLagMs)
+            _startLagMs = (0.7 * _startLagMs) + (0.3 * Math.Max(0.0, lag));
+        if (redo)
+            Start(anchorUtc, generation, attempt + 1);
     }
 
     /// <summary>Stops the sweep and empties the bar. Out of combat there is no tick to show: the
@@ -192,9 +204,8 @@ internal sealed class TickSweep
     /// a fight that never ended.</summary>
     public void Stop()
     {
-        // Bump BEFORE stopping, and outside the guard below, so a handoff already queued for this
-        // fight's partial tick finds itself stale rather than restarting the sweep a frame after the bar
-        // was emptied. That has to happen even if the Composition calls fail.
+        // Bumped first, and outside the guard below, so a start completing after this finds itself
+        // stale instead of redoing itself a frame after the bar was emptied.
         _generation++;
         if (_detached)
             return;

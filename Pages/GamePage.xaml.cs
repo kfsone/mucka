@@ -1849,18 +1849,11 @@ public partial class GamePage : ContentPage
     /// </summary>
     private void UpdateCombatMetronome()
     {
-        // No anchor means the phase is unknown, and silence is the only honest option: the bracket's
-        // whole meaning is "either side of the boundary", and clicking either side of a boundary we have
-        // guessed at would be theatre.
-        //
-        // The click additionally waits for the estimate to have SETTLED, which the bar does not. That
-        // asymmetry is the spec's own: a briefly-wrong timer that visibly corrects itself is honest in a
-        // way a confidently-wrong sound is not. It also keeps the two gates from being tuned against
-        // each other: raising the bar's threshold to protect the click would leave the ticker dark for
-        // the opening of a fight, which reads as a broken client.
+        // Runs on the same anchor as the bar, guess included: from combat start until the first swing
+        // pins the phase, then on the session's estimate. The operator's rule.
         var anchor = _vm.SidePanel.TickPhaseUtc;
         var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null
-            && _vm.SidePanel.IsTickPhaseSettled && TickIsMeaningful();
+            && TickIsMeaningful();
 
         // Two copies of "the player armed the click" exist - the view model's property and the
         // metronome's own Enabled. Reconciling them here, rather than relying on the rail's own
@@ -1882,9 +1875,10 @@ public partial class GamePage : ContentPage
         // timer while this driver only learns a fight ended after a UI-thread hop, so between those
         // two instants the predicate is the only thing that knows to stay quiet.
         _metronomeRunning = shouldRun && _combatMetronome.Start(anchor!.Value, TickIsMeaningful);
-        Mucka.Core.TickDiag.Log(
+        if (Mucka.Core.TickDiag.Enabled)
+            Mucka.Core.TickDiag.Log(
             $"gate     want={shouldRun} armed={_metronomeRunning} enabled={_vm.SidePanel.IsCombatMetronomeEnabled} "
-            + $"anchor={(anchor is null ? "none" : "set")} settled={_vm.SidePanel.IsTickPhaseSettled} "
+            + $"anchor={(anchor is null ? "none" : "set")} "
             + $"meaningful={TickIsMeaningful()} panelVisible={_vm.SidePanel.IsCombatPanelVisible} "
             + $"inCombat={_vm.SidePanel.Live.InCombat} grace={_vm.SidePanel.IsCombatGracePeriod}");
     }
@@ -2492,8 +2486,7 @@ public partial class GamePage : ContentPage
         // uses the same line: TickSweep only self-stops on Unloaded, and a platform view can be
         // recreated without the page unloading, which would strand a running Scale animation on a
         // visual whose native object is going away (the RO_E_CLOSED class this class's own remarks
-        // describe). Stop() also bumps its generation counter, so a partial-tick handoff already queued
-        // for the old visual finds itself stale instead of firing into it.
+        // describe).
         var previousSweep = _combatTickSweep;
         _combatTickSweep = null;
         previousSweep?.Stop();

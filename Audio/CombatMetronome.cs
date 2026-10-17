@@ -11,9 +11,9 @@ namespace Mucka.Audio;
 /// earns that most in the case the text itself cannot cover, where many ticks pass with no swing at
 /// all and the player is otherwise blind to whether the fight is still running to schedule.</para>
 ///
-/// <para>The two offsets are SYMMETRIC and CLOSE - 50 ms either side, a 100 ms gap - producing a
-/// "tik-tok" centred on the cycle with neither click landing on it: the boundary is the silence
-/// between the two sounds, not a warning announcement.</para>
+/// <para>The two SOUNDS sit symmetrically either side of the boundary - see
+/// <see cref="OffsetMilliseconds"/> - producing a "tik-tok" with neither click landing on it: the
+/// boundary is the silence between the two sounds, not a warning announcement.</para>
 ///
 /// <para><b>One alternating chain, not two independent schedules.</b> Each beat's own job is to
 /// schedule the next, and every delay is recomputed from the ANCHOR rather than from the instant the
@@ -41,49 +41,29 @@ namespace Mucka.Audio;
 /// </summary>
 internal sealed class CombatMetronome : IDisposable
 {
-    /// <summary>One MUD2 combat tick - shared with <c>Mucka.Rendering.TickSweep</c> via
-    /// <see cref="Mucka.Combat.CombatTiming.TickMilliseconds"/> so the click and the bar can never
-    /// independently drift apart.</summary>
-    private const int TickMilliseconds = (int)Mucka.Combat.CombatTiming.TickMilliseconds;
-
     /// <summary>
-    /// How far either side of the rollover the two clicks sit - the pre-tick at <c>boundary - N</c>,
-    /// the after-tick at <c>boundary + N</c>.
+    /// How far either side of the rollover the two sounds sit - the pre-tick's last non-silent sample at
+    /// <c>boundary - N</c>, the after-tick's first non-silent sample at <c>boundary + N</c>. Operator-set:
+    /// 25 ms, for a 50 ms silence centred on the boundary.
     ///
-    /// <para>50 ms, for a 100 ms gap: a "tik-tok" centred on the cycle, with neither click landing
-    /// directly ON it. A bracketing effect - the two sounds are heard as one gesture straddling the
-    /// boundary, and the boundary is the silence between them.</para>
-    ///
-    /// <para><b>N is measured to the AUDIBLE edges, not to the files.</b> The pre-click's audible content
-    /// ends at <c>boundary - N</c> and the after-click's begins at <c>boundary + N</c>, so the silence a
-    /// listener perceives is exactly <c>2N</c> and the boundary is its midpoint. Getting that from the
-    /// files themselves needs each clip's audible span - see <see cref="_preSpan"/>.</para>
-    ///
-    /// <para><b>The offsets pace a beat around the CYCLE, not the swing text.</b> The model is a pacing
-    /// beat to help the player judge when to decide to flee, so the swing text's arrival distribution is
-    /// not what the offsets answer to.</para>
-    ///
-    /// <para><b>Known consequence at 50 ms:</b> the after-tick click lands where the swing text lands
-    /// (within 25 ms of the boundary 88% of the time), and <c>clio.0801</c> - the hit sound - is about
-    /// 13 dB hotter than either click, so on a tick carrying a landed hit the low click will likely be
-    /// masked. That is a level problem, not a timing one.</para>
+    /// <para><b>N is measured to the non-silent edges, not to the files.</b> The clips'
+    /// leading and trailing silence is subtracted by <see cref="Mucka.Sounds.BracketPlacement"/>, using
+    /// each clip's span - see <see cref="_preSpan"/>.</para>
     ///
     /// <para>Must stay under half a tick - <see cref="Mucka.Combat.CombatTiming.NextBeat"/> throws
     /// otherwise, since past that the two beats cross and the lattice stops being a bracket.</para>
     /// </summary>
-    private const int OffsetMilliseconds = 50;
+    private const int OffsetMilliseconds = 25;
 
     /// <summary>Pre-tick: "the rollover is about to happen".</summary>
     private const string PreTickClick = "sounds/Perc_Stick_hi.wav";
 
     /// <summary>
-    /// Where each click's AUDIBLE content sits inside its file, so the two can be scheduled by what a
-    /// listener hears rather than by where the files begin and end.
+    /// Where each click's non-silent content sits inside its file, so the two can be scheduled by the
+    /// sound rather than by where the files begin and end.
     ///
-    /// <para>The bracket wanted is 100 ms of silence between the end of the first sound and the start
-    /// of the second, centred on the boundary. Delivering that needs three numbers per clip, not one:
-    /// these assets run 199.6 ms but their audible content spans only 30-66 ms - 30 ms of deliberate
-    /// leading pad, ~36 ms of body, then ~134 ms of inaudible tail.</para>
+    /// <para>The shipped assets run 199.6 ms, with their first non-silent sample at 30 ms and their last
+    /// near 110 ms - see <see cref="Mucka.Sounds.WavProbe.SilenceFloorDbfs"/>.</para>
     ///
     /// <para>Resolved ONCE, on the thread pool, in <see cref="SetEnabled"/>. The scheduling path only
     /// reads these fields - it must not resolve them, because <see cref="Start"/> runs on the UI thread
@@ -92,30 +72,27 @@ internal sealed class CombatMetronome : IDisposable
     private volatile object? _preSpan;
     private volatile object? _afterSpan;
 
-    /// <summary>Where the pre-tick clip is STARTED, before the boundary, so its audible content ENDS at
-    /// <c>boundary - N</c>.</summary>
+    /// <summary>Where the pre-tick clip is STARTED, before the boundary, so its last non-silent sample
+    /// lands at <c>boundary - N</c>.</summary>
     private double PreTickLeadMilliseconds()
-        => _preSpan is Mucka.Sounds.ClipSpan span
-            ? OffsetMilliseconds + span.AudibleEndMs
-            : OffsetMilliseconds;
+        => Mucka.Sounds.BracketPlacement.PreLeadMs(OffsetMilliseconds, _preSpan as Mucka.Sounds.ClipSpan?);
 
-    /// <summary>Where the after-tick clip is STARTED, past the boundary, so its audible content BEGINS at
-    /// <c>boundary + N</c>. Its leading pad is subtracted, which is why this is smaller than N.
-    ///
-    /// <para>Floored at 1 ms rather than allowed negative: a clip whose leading silence exceeded N would
-    /// need to START before the boundary to have its body land after it, which
-    /// <see cref="Mucka.Combat.CombatTiming.NextBeat"/> has no way to express. At the shipping values
-    /// (N=50, pad=30) this is 20 ms and the floor is unreachable; it exists so replacing an asset with a
-    /// heavily-padded one degrades to a tight bracket instead of throwing.</para></summary>
+    /// <summary>Where the after-tick clip is STARTED relative to the boundary, so its first non-silent
+    /// sample lands at <c>boundary + N</c>. Negative when its leading silence is longer than N: it then
+    /// starts before the boundary (the shipping asset's 30 ms of lead against N=25 is -5 ms).</summary>
     private double AfterTickOffsetMilliseconds()
-        => _afterSpan is Mucka.Sounds.ClipSpan span
-            ? Math.Max(1.0, OffsetMilliseconds - span.AudibleStartMs)
-            : OffsetMilliseconds;
+        => Mucka.Sounds.BracketPlacement.AfterOffsetMs(OffsetMilliseconds, _afterSpan as Mucka.Sounds.ClipSpan?);
 
     /// <summary>After-tick: "it has happened - whatever this turn did is on screen now".</summary>
     private const string AfterTickClick = "sounds/Perc_Stick_lo.wav";
 
+    /// <summary>How long before a beat's due instant its timer fires; the rest is spun out in
+    /// <see cref="Beat"/>. EVIDENCE: a pre-click timer without it fired 12 ms after its target on Windows.
+    /// </summary>
+    private const double SpinLeadMilliseconds = 20.0;
+
     private readonly object _gate = new();
+    private DateTime _dueUtc;
     private Timer? _timer;
     private DateTime _anchorUtc;
     private bool _disposed;
@@ -234,11 +211,14 @@ internal sealed class CombatMetronome : IDisposable
                 tickAnchorUtc, DateTime.UtcNow, AfterTickOffsetMilliseconds(), PreTickLeadMilliseconds());
             _nextIsAfterTick = afterTick;
 
-            Mucka.Core.TickDiag.Log(
+            if (Mucka.Core.TickDiag.Enabled)
+                Mucka.Core.TickDiag.Log(
                 $"anchor   metronome armed on {tickAnchorUtc:HH:mm:ss.fff} (gen {generation}); "
                 + $"first beat {(afterTick ? "after" : "pre")}-tick in {delay:F0} ms, N={OffsetMilliseconds}");
 
-            _timer = new Timer(_ => Beat(generation), null, (int)Math.Round(delay), Timeout.Infinite);
+            _dueUtc = DateTime.UtcNow.AddMilliseconds(delay);
+            _timer = new Timer(_ => Beat(generation), null,
+                Math.Max(0, (int)Math.Round(delay - SpinLeadMilliseconds)), Timeout.Infinite);
             return true;
         }
     }
@@ -268,6 +248,20 @@ internal sealed class CombatMetronome : IDisposable
     /// after-tick is just the two offsets.</remarks>
     private void Beat(int generation)
     {
+        DateTime dueUtc;
+        lock (_gate)
+        {
+            if (_disposed || _timer is null || generation != _generation)
+                return;
+            dueUtc = _dueUtc;
+        }
+
+        // The timer fires up to SpinLeadMilliseconds early and the remainder is waited out here, because
+        // a thread-pool timer resolves to the OS clock tick and only ever fires late. Off the UI thread.
+        var spin = new SpinWait();
+        while (DateTime.UtcNow < dueUtc && (dueUtc - DateTime.UtcNow).TotalMilliseconds < SpinLeadMilliseconds * 2)
+            spin.SpinOnce(-1);
+
         Func<bool>? stillInCombat;
         bool afterTick;
         lock (_gate)
@@ -288,10 +282,12 @@ internal sealed class CombatMetronome : IDisposable
             var (next, nextAfterTick) = Mucka.Combat.CombatTiming.NextBeat(
                 _anchorUtc, DateTime.UtcNow, AfterTickOffsetMilliseconds(), PreTickLeadMilliseconds());
             _nextIsAfterTick = nextAfterTick;
-            Mucka.Core.TickDiag.Log(
-                $"beat {(afterTick ? "after" : "pre  ")}  drift={DriftMilliseconds(_anchorUtc, afterTick),6:F1} ms   "
+            if (Mucka.Core.TickDiag.Enabled)
+                Mucka.Core.TickDiag.Log(
+                $"beat {(afterTick ? "after" : "pre  ")}  late={(DateTime.UtcNow - dueUtc).TotalMilliseconds,6:F1} ms   "
                 + $"next {(nextAfterTick ? "after" : "pre  ")}-tick in {next,6:F0} ms");
-            _timer.Change((int)Math.Round(next), Timeout.Infinite);
+            _dueUtc = DateTime.UtcNow.AddMilliseconds(next);
+            _timer.Change(Math.Max(0, (int)Math.Round(next - SpinLeadMilliseconds)), Timeout.Infinite);
         }
 
         // Checked after re-arming, deliberately: a lull must leave the chain ON the lattice rather than
@@ -306,33 +302,19 @@ internal sealed class CombatMetronome : IDisposable
         PlayTimed(afterTick ? AfterTickClick : PreTickClick, afterTick ? "after" : "pre");
     }
 
-    /// <summary>How far this beat ran from the instant it was scheduled for - positive is late.
-    /// Diagnostics only: nothing corrects on it. A value that stays small confirms the chain is holding
-    /// the lattice; one that grows across a fight means the anchor is being replaced underneath it,
-    /// which is a driver problem rather than a timer one.</summary>
-    private static double DriftMilliseconds(DateTime anchorUtc, bool afterTick)
-    {
-        var toNext = Mucka.Combat.CombatTiming.MillisecondsToNextBoundary(anchorUtc, DateTime.UtcNow);
-        // The after-tick beat should sit OffsetMilliseconds past the previous boundary; the pre-tick
-        // beat should sit OffsetMilliseconds before the next one.
-        return afterTick ? (TickMilliseconds - toNext) - OffsetMilliseconds : OffsetMilliseconds - toNext;
-    }
-
-    /// <summary>Plays a click and, under TICK_DIAG, records how long the audio call took to return.
-    ///
-    /// <para>Worth measuring rather than assuming: the offsets are only 200 ms, so a play path costing
-    /// a comparable amount collapses the bracket onto the boundary and erases the very distinction the
-    /// player is listening for. A quick return is not proof the sound was audible on time, but a slow
-    /// return IS proof it was not.</para></summary>
+    /// <summary>Plays a click and, with tick diagnostics on, records how long the audio call took to
+    /// return. A quick return is not proof the sound was audible on time, but a slow return IS proof it
+    /// was not.</summary>
     private static void PlayTimed(string asset, string label)
     {
-#if TICK_DIAG
+        if (!Mucka.Core.TickDiag.Enabled)
+        {
+            Play(asset);
+            return;
+        }
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Play(asset);
         Mucka.Core.TickDiag.Log($"beat audio   {label,-5} play call returned in {sw.Elapsed.TotalMilliseconds,6:F1} ms");
-#else
-        Play(asset);
-#endif
     }
 
     /// <summary>Master mute wins over the toggle, matching how every other client-initiated sound in

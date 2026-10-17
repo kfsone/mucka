@@ -17,17 +17,16 @@ public readonly record struct ClipSpan(double TotalMs, double AudibleStartMs, do
 ///
 /// <para><b>Why this exists as its own class.</b> The combat metronome brackets a tick boundary with two
 /// clicks, and what a player perceives as the bracket is where the SOUND is, not where the FILE is. The
-/// click assets run 199.6 ms while their audible content spans 30-66 ms, so anything scheduling by file
-/// length is out by the ~134 ms of inaudible tail. It is separate
+/// click assets run 199.6 ms while their non-silent content ends near 110 ms, so anything scheduling by
+/// file length is out by the ~90 ms of silent tail. It is separate
 /// from <c>SoundService</c> because that class is Windows-only and full of WinRT, whereas this is pure
 /// byte arithmetic that the test project can link and exercise directly. The thing the metronome's
 /// timing now depends on ought to be testable.</para>
 ///
-/// <para><b>The audible floor is a perceptual judgement, named as one:</b> -20 dB relative to the
-/// clip's OWN peak (<see cref="AudibleFloor"/>). Relative rather than absolute so it keeps its meaning
-/// if an asset is re-levelled. Deliberately not the digital-silence floor used to detect padding
-/// (~-54 dBFS): these clicks decay into a long tail that is present in the data and inaudible in a
-/// room, and counting that tail as content is the error above.</para>
+/// <para><b>The silence floor is an absolute level</b>, <see cref="SilenceFloorDbfs"/>, not a fraction
+/// of the clip's peak. Counting every nonzero sample as sound is not usable: the shipped Perc_Stick
+/// assets carry dither-level noise to the last sample of the file, so the "last sample" is the file
+/// end and says nothing about when the click stopped.</para>
 ///
 /// <para>File I/O, so call it once and off the UI thread. Deterministic and correct on the first call,
 /// unlike WinRT's <c>PlaybackSession.NaturalDuration</c>, which is null until an async media-open lands
@@ -35,9 +34,12 @@ public readonly record struct ClipSpan(double TotalMs, double AudibleStartMs, do
 /// </summary>
 public static class WavProbe
 {
-    /// <summary>Amplitude ratio to the clip's own peak below which a sample is treated as inaudible.
-    /// 0.1 is -20 dB.</summary>
-    internal const double AudibleFloor = 0.1;
+    /// <summary>Level in dB relative to full scale at or below which a sample counts as silence.
+    /// EVIDENCE: the shipped Perc_Stick_hi and Perc_Stick_lo peak at about -14 dBFS; at this floor their
+    /// last non-silent sample is at about 112 ms and 109 ms of 199.6 ms, and their first at 30 ms.</summary>
+    public const double SilenceFloorDbfs = -60.0;
+
+    private static readonly double SilenceFloor = Math.Pow(10.0, SilenceFloorDbfs / 20.0);
 
     /// <summary>Reads <paramref name="path"/>, or null if it is missing or unparseable.</summary>
     public static ClipSpan? Read(string path)
@@ -123,11 +125,10 @@ public static class WavProbe
         if (peak <= 0)
             return null;                                       // silent throughout
 
-        var floor = peak * AudibleFloor;
         int first = -1, last = -1;
         for (var i = 0; i < frames; i++)
         {
-            if (Level(data, i, channels, bits, blockAlign) <= floor)
+            if (Level(data, i, channels, bits, blockAlign) <= SilenceFloor)
                 continue;
             if (first < 0) first = i;
             last = i;

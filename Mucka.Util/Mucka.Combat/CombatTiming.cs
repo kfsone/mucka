@@ -65,7 +65,9 @@ public static class CombatTiming
     /// beat falls rather than of what the last beat was - a toggled flag would go on alternating even
     /// after a skip and would then have every subsequent click on the wrong sample.</para>
     /// </summary>
-    /// <param name="afterOffsetMs">How far PAST a boundary the after-tick beat sounds.</param>
+    /// <param name="afterOffsetMs">How far PAST a boundary the after-tick beat is STARTED. Negative when
+    /// the clip's leading silence is longer than the gap wanted: its start then falls BEFORE the boundary
+    /// so that its first non-silent sample still lands after it.</param>
     /// <param name="preLeadMs">How far BEFORE a boundary the pre-tick beat is STARTED. Deliberately
     /// independent of <paramref name="afterOffsetMs"/> rather than its mirror: the pre-click is started
     /// early by its own clip length so that it FINISHES at the bracket's edge instead of starting there,
@@ -77,12 +79,12 @@ public static class CombatTiming
     public static (double Delay, bool AfterTick) NextBeat(
         DateTime anchorUtc, DateTime nowUtc, double afterOffsetMs, double preLeadMs, double minDelayMs = 2.0)
     {
-        if (afterOffsetMs <= 0)
-            throw new ArgumentOutOfRangeException(nameof(afterOffsetMs), afterOffsetMs,
-                "The after-tick beat must sound after the boundary.");
         if (preLeadMs <= 0)
             throw new ArgumentOutOfRangeException(nameof(preLeadMs), preLeadMs,
                 "The pre-tick beat must start before the boundary.");
+        if (afterOffsetMs <= -preLeadMs)
+            throw new ArgumentOutOfRangeException(nameof(afterOffsetMs), afterOffsetMs,
+                "The after-tick beat must start after the pre-tick beat.");
         if (afterOffsetMs + preLeadMs >= TickMilliseconds)
             throw new ArgumentOutOfRangeException(nameof(preLeadMs), preLeadMs,
                 "The two beats cross: a cycle cannot hold an after-tick and the next pre-tick.");
@@ -93,15 +95,20 @@ public static class CombatTiming
         if (intoCycle < 0)
             intoCycle += TickMilliseconds;
 
-        // Two beats per cycle, in order: the after-tick of the boundary just gone, then the pre-tick of
-        // the boundary coming up.
-        if (intoCycle + minDelayMs <= afterOffsetMs)
-            return (afterOffsetMs - intoCycle, true);
-        if (intoCycle + minDelayMs <= TickMilliseconds - preLeadMs)
-            return (TickMilliseconds - preLeadMs - intoCycle, false);
+        // Two beats per cycle, each a phase within it. Whichever comes next after now (and after
+        // minDelayMs) wins, so a negative afterOffsetMs - a start just before the boundary - falls out
+        // of the same arithmetic as a positive one.
+        var afterDelay = DelayToPhase(afterOffsetMs, intoCycle, minDelayMs);
+        var preDelay = DelayToPhase(TickMilliseconds - preLeadMs, intoCycle, minDelayMs);
+        return afterDelay <= preDelay ? (afterDelay, true) : (preDelay, false);
+    }
 
-        // Past both: the after-tick of the next boundary.
-        return (TickMilliseconds + afterOffsetMs - intoCycle, true);
+    private static double DelayToPhase(double phaseMs, double intoCycleMs, double minDelayMs)
+    {
+        var delay = (phaseMs - intoCycleMs) % TickMilliseconds;
+        if (delay < 0)
+            delay += TickMilliseconds;
+        return delay < minDelayMs ? delay + TickMilliseconds : delay;
     }
 
     /// <summary>

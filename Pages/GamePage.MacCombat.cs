@@ -259,12 +259,10 @@ public partial class GamePage
 
     private void UpdateMacMetronome()
     {
-        // No anchor means the phase is unknown, and silence is the honest option. The click also waits
-        // for the estimate to have settled, which the bar does not: a briefly wrong timer that visibly
-        // corrects itself is honest in a way a confidently wrong sound is not.
+        // The same anchor as the bar, guess included.
         var anchor = _vm.SidePanel.TickPhaseUtc;
         var shouldRun = _vm.SidePanel.IsCombatMetronomeEnabled && anchor is not null
-            && _vm.SidePanel.IsTickPhaseSettled && MacTickIsMeaningful();
+            && MacTickIsMeaningful();
 
         _macMetronome.SetEnabled(_vm.SidePanel.IsCombatMetronomeEnabled);
         if (shouldRun == _macMetronomeRunning && anchor == _macMetronomeAnchorUtc)

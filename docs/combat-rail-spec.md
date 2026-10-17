@@ -375,20 +375,29 @@ unchanged whether the toggle is lit or not.
 - Drawn **always**, in and out of combat: it is a control, not a readout.
 - Armed: lit, with the pendulum leaning. Idle: outline, pendulum upright.
 - When armed, **two clicks per tick, bracketing the boundary**: a high click **N ms before** and
-  a low click **N ms after**, where N is one number for both sides. **N = 50 ms**, for a 100 ms
-  gap centred on the boundary with neither click on it - close enough that the two read as one
-  gesture straddling the rollover.
+  a low click **N ms after**, where N is one number for both sides. **N is `CombatMetronome.OffsetMilliseconds`, 25 ms** (operator-set),
+  for a 50 ms gap centred on the boundary with neither click on it - close enough that the two
+  read as one gesture straddling the rollover.
 - **The purpose is to bookmark the ROLLOVER, nothing more.** MUD2 is not a reaction game and
   there is no hotkey to hit on the beat; every decision must be typed *and transmitted* before
   the boundary, so a single on-the-beat click would announce a deadline already missed. What the
   tick delivers is a **status update** - swing lines, health rung, stamina change - and the pair
   brackets the interval in which that information lands: the high click says "it is about to
   arrive", the low click says "it has, and this is your turn now."
-- **N is measured to the AUDIBLE edges of the clips, not to their files.** The pre-click's
-  audible content ends at `boundary - N`; the after-click's begins at `boundary + N`, so the
-  silence a listener perceives is exactly `2N` and the boundary is its midpoint. `WavProbe`
-  reads the audible span from the asset and schedules `preLead = N + audibleEnd` and
-  `afterOffset = max(1, N - audibleStart)`.
+- **N is measured to the first and last NON-SILENT samples of the clips, not to their files.**
+  The pre-click's last non-silent sample lands at `boundary - N`; the after-click's first lands
+  at `boundary + N`, so the silence between them is exactly `2N` and the boundary is its
+  midpoint. `WavProbe` reads that span from the asset (silence is `WavProbe.SilenceFloorDbfs`)
+  and `BracketPlacement` schedules `preLead = N + lastNonSilent` and
+  `afterOffset = N - firstNonSilent`. The latter is negative when the clip's leading silence is
+  longer than N, and the after-click is then started before the boundary.
+- **Each beat is timed to the instant, not to the timer.** A thread-pool timer only fires late,
+  to the OS clock tick; the timer is set `CombatMetronome.SpinLeadMilliseconds` early and the
+  rest is spun out on the pool thread.
+- **The bar's start is timed the same way.** `TickSweep` computes the time left as the last step
+  before starting its compositor animation, advanced by the compositor's measured start lag, then
+  checks with a 1 ms probe when the animation really began and redoes a start that was more than
+  `TickSweep.ToleranceMs` off. `$debug tick` logs each of those starts.
 - **Scheduling is one alternating chain**, not two independent schedules: each beat's own job is
   to schedule the next, armed from the same anchor and in the same synchronous block as the tick
   bar, both locating the boundary through the one shared `CombatTiming`. A fixed-period timer is
@@ -408,11 +417,10 @@ unchanged whether the toggle is lit or not.
   only to a genuinely different lattice. **Re-anchoring does not yank the bar** - the estimate
   re-publishes only when it moves more than 15 ms, so corrections are frequent for the first few
   swings of a session and then effectively stop.
-- **The click stays silent until the phase is known.** A bracket means "either side of the
-  boundary"; clicking either side of a *guess* would be theatre. The bar is treated differently
-  on purpose - it runs from combat start and re-aligns when the first swing arrives, because a
-  briefly-wrong timer that visibly corrects itself is honest in a way a confidently-wrong sound
-  is not.
+- **Bar and click share one anchor, guess included** (`SidePanelViewModel.TickPhaseUtc`). With
+  no swing yet seen in the session, they run from the instant combat started; the first swing
+  replaces that guess and pins the phase, and the estimate takes over from the second. A session
+  that already holds swings never guesses: its lattice carries into the next fight.
 - Arming mid-fight joins the bracket already running rather than starting a new one from the
   button press.
 - Driven by a **thread-pool timer, never a UI-thread one** (Invariant #1). Master mute wins over
