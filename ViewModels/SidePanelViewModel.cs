@@ -1250,7 +1250,13 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // just with a different stale source (see LiveObjectsCarried). It re-latches on the next
         // list that actually arrives.
         if (!_isInventoryExpanded && !_isItemsHereExpanded)
+        {
             _feiEverCompleted = false;
+            // Whatever the lists hold on reopening differs from this frozen one by everything that
+            // changed meanwhile; none of that is an arrival.
+            _inventoryArrivals.Reset();
+            _roomArrivals.Reset();
+        }
         SubscriptionOptionsChanged?.Invoke(_isOnlineExpanded, _isInventoryExpanded || _isItemsHereExpanded);
     }
 
@@ -1259,13 +1265,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     {
         get => _isAboutVisible;
         set => Set(ref _isAboutVisible, value);
-        {
     }
-            // Whatever the lists hold on reopening differs from this frozen one by everything that
-            // changed meanwhile; none of that is an arrival.
-            _inventoryArrivals.Reset();
-            _roomArrivals.Reset();
-        }
 
     public string CurrentRoom
     {
@@ -1304,7 +1304,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     private readonly List<string> _pendingExits = new();
 
     // -- Inventory / room items ------------------------------------------------
+    /// <summary>What FEI reports as carried, in the game's own order. The combat frame and the
+    /// carried count read this; the panel draws <see cref="InventoryRows"/>.</summary>
     public ObservableCollection<string> InventoryList { get; } = new();
+
+    /// <summary>The Carrying list as drawn: newest arrivals first, see <see cref="ArrivalLedger"/>.</summary>
+    public ObservableCollection<InventoryEntry> InventoryRows { get; } = new();
+
+    private readonly ArrivalLedger _inventoryArrivals = new();
+    private readonly ArrivalLedger _roomArrivals = new();
 
     /// <summary>The "Here" list. Rows rather than bare strings, because a name on the floor may be a
     /// creature and the panel draws those differently - see <see cref="RoomEntry"/> and
@@ -1313,15 +1321,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
     /// <summary>The game's own creature-presence sentences for the room the player is standing in.
     /// The only thing that can tell a rat from a vial in an FEI list.</summary>
-    /// <summary>What FEI reports as carried, in the game's own order. The combat frame and the
-    /// carried count read this; the panel draws <see cref="InventoryRows"/>.</summary>
     private readonly MudSharp.Models.RoomCreatures _roomCreatures = new();
-
-    /// <summary>The Carrying list as drawn: newest arrivals first, see <see cref="ArrivalLedger"/>.</summary>
-    public ObservableCollection<InventoryEntry> InventoryRows { get; } = new();
-
-    private readonly ArrivalLedger _inventoryArrivals = new();
-    private readonly ArrivalLedger _roomArrivals = new();
 
     /// <summary>Every NPC in an OPEN fight right now, refreshed from each combat snapshot. Second,
     /// independent source of "this is a creature" - and the only source of "and you are fighting it".
@@ -1484,6 +1484,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // named object in the next one as alive.
             _roomCreatures.Clear();
             RoomItemsList.Clear();
+            // A new room's contents are not arrivals: the next FEI list is read as a baseline.
+            _roomArrivals.Reset();
             OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
         });
 
@@ -1493,8 +1495,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// the two arrive on different clocks and must not race.
     /// </summary>
     public void OnCreatureText(string sentence)
-            // A new room's contents are not arrivals: the next FEI list is read as a baseline.
-            _roomArrivals.Reset();
         => MainThread.BeginInvokeOnMainThread(() =>
         {
             _roomCreatures.Observe(sentence);
@@ -1966,6 +1966,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
 
             if (roomChanged)
             {
+                // A slot that survives keeps its row, so its classification is not lost.
+                var kept = RoomItemsList.ToDictionary(e => e.Slot);
                 RoomItemsList.Clear();
                 foreach (var slot in roomSlots)
                     RoomItemsList.Add(kept.TryGetValue(slot, out var row)
@@ -1977,9 +1979,16 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // Same names as last beat, so no rebuild - but a creature sentence or a fight may have
                 // landed since, and both change how an unchanged row is drawn. Two bindable properties
                 // at most per row, only where they actually changed: no re-templating.
-                // A slot that survives keeps its row, so its classification is not lost.
-                var kept = RoomItemsList.ToDictionary(e => e.Slot);
                 ReclassifyRoomEntries();
+            }
+
+            var invSlots = _inventoryArrivals.Reconcile(snapInv, nowUtc);
+            if (!SameSlots(InventoryRows, invSlots, e => e.Slot))
+            {
+                var kept = InventoryRows.ToDictionary(e => e.Slot);
+                InventoryRows.Clear();
+                foreach (var slot in invSlots)
+                    InventoryRows.Add(kept.TryGetValue(slot, out var row) ? row : new InventoryEntry(slot));
             }
 
             if (!snapInv.SequenceEqual(InventoryList))
@@ -1991,15 +2000,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             }
 
             if (roomChanged)
-            var invSlots = _inventoryArrivals.Reconcile(snapInv, nowUtc);
-            if (!SameSlots(InventoryRows, invSlots, e => e.Slot))
-            {
-                var kept = InventoryRows.ToDictionary(e => e.Slot);
-                InventoryRows.Clear();
-                foreach (var slot in invSlots)
-                    InventoryRows.Add(kept.TryGetValue(slot, out var row) ? row : new InventoryEntry(slot));
-            }
-
                 OnPropertiesChanged(nameof(HasRoomItems), nameof(NoRoomItems));
 
             // Latched, never cleared: it distinguishes "FEI says you carry nothing" from "FEI has
@@ -2011,15 +2011,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         });
     }
 
-    /// <summary>
-    /// Whether an FEI room entry names a living thing. Two independent sources, unioned:
-    ///
-    /// <para>The game's own C1 taxonomy (code 04 = creature), captured per room - see
-    /// <see cref="MudSharp.Models.RoomCreatures"/> for why that is the only classification available
-    /// and what it costs.</para>
-    ///
-    /// <para>And the fight tracker: whatever is currently being swung at is a creature, whether or not
-    /// a description was ever seen for it. This is what covers the case the first source cannot - a
     /// <summary>Whether the rows on screen already draw exactly these slots in this order; rebuilding
     /// re-templates every native label, so an unchanged list must not be touched.</summary>
     private static bool SameSlots<T>(IList<T> shown, IReadOnlyList<ArrivalSlot> want, Func<T, ArrivalSlot> slotOf)
@@ -2031,6 +2022,15 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         return true;
     }
 
+    /// <summary>
+    /// Whether an FEI room entry names a living thing. Two independent sources, unioned:
+    ///
+    /// <para>The game's own C1 taxonomy (code 04 = creature), captured per room - see
+    /// <see cref="MudSharp.Models.RoomCreatures"/> for why that is the only classification available
+    /// and what it costs.</para>
+    ///
+    /// <para>And the fight tracker: whatever is currently being swung at is a creature, whether or not
+    /// a description was ever seen for it. This is what covers the case the first source cannot - a
     /// client attached mid-room, with no room description behind it.</para>
     /// </summary>
     private bool IsCreatureName(string name)
