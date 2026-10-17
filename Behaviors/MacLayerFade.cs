@@ -38,6 +38,22 @@ internal static class MacLayerFade
         layer.AddAnimation(fade, Key);
     }
 
+    /// <summary>Plays <paramref name="values"/> as evenly spaced opacity keyframes over
+    /// <paramref name="seconds"/>, interpolating linearly between them. Replaces any fade running.</summary>
+    public static void AnimateCurve(UIView view, float[] values, double seconds)
+    {
+        var layer = view.Layer;
+        layer.RemoveAnimation(Key);
+
+        var fade = CAKeyFrameAnimation.FromKeyPath("opacity");
+        fade.Values = values.Select(v => (NSObject)NSNumber.FromFloat(v)).ToArray();
+        fade.Duration = seconds;
+        fade.CalculationMode = CAAnimation.AnimationLinear;
+
+        layer.Opacity = values[^1];
+        layer.AddAnimation(fade, Key);
+    }
+
     /// <summary>Gives the view up: no fade, fully opaque.</summary>
     public static void Release(UIView view) => Set(view, 1f);
 

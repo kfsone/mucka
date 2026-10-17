@@ -84,9 +84,19 @@ public sealed class RoomEntry : INotifyPropertyChanged
     public Color SwordsColor
         => Swords == MudSharp.Models.HereSwords.Engaged ? CreatureColor : IdleSwordsColor;
 
-    public RoomEntry(string name, bool isCreature, bool isEngaged)
+    /// <summary>The ledger slot this row draws; the row lives exactly as long as the slot does.</summary>
+    public Mucka.Ui.ArrivalSlot Slot { get; }
+
+    /// <summary>When this object arrived in the list, for the arrival glow; null if it was already
+    /// there when the list was read.</summary>
+    public DateTime? GlowStartedUtc => Slot.ArrivedUtc;
+
+    public bool IsGlowing => Slot.ArrivedUtc is not null;
+
+    public RoomEntry(Mucka.Ui.ArrivalSlot slot, bool isCreature, bool isEngaged)
     {
-        Name = name;
+        Slot = slot;
+        Name = slot.Name;
         _isCreature = isCreature;
         _isEngaged = isEngaged;
     }

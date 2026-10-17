@@ -1076,12 +1076,26 @@
                                                    TextColor="#555555" FontSize="{core:ScaledFont Size=11, Tight=True}" FontAttributes="Italic"
                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"/>
                                             <VerticalStackLayout Spacing="1" IsVisible="{Binding SidePanel.HasInventory}"
-                                                                 BindableLayout.ItemsSource="{Binding SidePanel.InventoryList}">
+                                                                 BindableLayout.ItemsSource="{Binding SidePanel.InventoryRows}">
                                                 <BindableLayout.ItemTemplate>
-                                                    <DataTemplate x:DataType="x:String">
-                                                        <Label Text="{Binding .}" TextColor="#cccccc" FontSize="{core:ScaledFont Size=11, Tight=True}"
-                                                               HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                    <!-- Plain row, with a gold bold copy of it stacked on top while the object is
+                                                         new. The copy fades out on the compositor (ArrivalGlowBehavior), which
+                                                         is what turns gold-bold into grey-regular without a UI-thread timer. -->
+                                                    <DataTemplate x:DataType="vm:InventoryEntry">
+                                                        <Grid>
+                                                            <Label Text="{Binding Name}" TextColor="#cccccc" FontSize="{core:ScaledFont Size=11, Tight=True}"
+                                                                   HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                            <Label Text="{Binding Name}" TextColor="#FFD700" FontAttributes="Bold"
+                                                                   IsVisible="{Binding IsGlowing}" InputTransparent="True"
+                                                                   FontSize="{core:ScaledFont Size=11, Tight=True}"
+                                                                   HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+                                                                <Label.Behaviors>
+                                                                    <beh:ArrivalGlowBehavior/>
+                                                                </Label.Behaviors>
+                                                            </Label>
+                                                        </Grid>
                                                     </DataTemplate>
                                                 </BindableLayout.ItemTemplate>
                                             </VerticalStackLayout>
@@ -1122,6 +1136,17 @@
                                                                    VerticalOptions="Center"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
                                                                    FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                            <!-- Arrival glow: see the Carrying template. -->
+                                                            <Label Grid.Column="0" Text="{Binding Name}" TextColor="#FFD700" FontAttributes="Bold"
+                                                                   IsVisible="{Binding IsGlowing}" InputTransparent="True"
+                                                                   FontSize="{core:ScaledFont Size=11, Tight=True}"
+                                                                   VerticalOptions="Center"
+                                                                   HorizontalOptions="Fill" HorizontalTextAlignment="End"
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+                                                                <Label.Behaviors>
+                                                                    <beh:ArrivalGlowBehavior/>
+                                                                </Label.Behaviors>
+                                                            </Label>
                                                             <!-- Crossed swords, as vector path data rather than a bitmap: the
                                                                  glyph has to be recoloured per row (grey = not fighting it,
                                                                  red = fighting it) and a MauiImage cannot be tinted, so a
