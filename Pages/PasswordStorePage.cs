@@ -1,4 +1,6 @@
 #if MACCATALYST
+using Mucka.Core;
+
 namespace Mucka.Pages;
 
 /// <summary>
@@ -61,26 +63,26 @@ public sealed class PasswordStorePage : ContentPage
                 new Label
                 {
                     Text = "Saving your passwords",
-                    TextColor = Colors.White, FontSize = 20, FontAttributes = FontAttributes.Bold,
-                },
+                    TextColor = Colors.White, FontAttributes = FontAttributes.Bold,
+                }.Scaled(20),
                 new Label
                 {
                     Text = "Mucka can remember your MUD2 passwords so it can log you in automatically. "
                         + "To do that securely, it needs permission to use your Mac's password keychain.",
-                    TextColor = Color.FromArgb("#cccccc"), FontSize = 14,
-                },
+                    TextColor = Color.FromArgb("#cccccc"),
+                }.Scaled(14),
                 new Label
                 {
                     Text = "Please choose one:",
-                    TextColor = Colors.White, FontSize = 14, FontAttributes = FontAttributes.Bold,
-                },
+                    TextColor = Colors.White, FontAttributes = FontAttributes.Bold,
+                }.Scaled(14),
                 _insecure,
                 _secure,
                 new Label
                 {
                     Text = "You can change this later in Settings > General > Store Passwords Securely.",
-                    TextColor = Color.FromArgb("#999999"), FontSize = 12, FontAttributes = FontAttributes.Italic,
-                },
+                    TextColor = Color.FromArgb("#999999"), FontAttributes = FontAttributes.Italic,
+                }.Scaled(12),
                 _accept,
             },
         };
@@ -103,9 +105,9 @@ public sealed class PasswordStorePage : ContentPage
                 Spacing = 4,
                 Children =
                 {
-                    new Label { Text = heading, TextColor = Chosen, FontSize = 17, FontAttributes = FontAttributes.Bold },
-                    new Label { Text = "(" + hint + ")", TextColor = Color.FromArgb("#999999"), FontSize = 12, FontAttributes = FontAttributes.Italic },
-                    new Label { Text = detail, TextColor = Color.FromArgb("#cccccc"), FontSize = 13, Margin = new Thickness(0, 4, 0, 0) },
+                    new Label { Text = heading, TextColor = Chosen, FontAttributes = FontAttributes.Bold }.Scaled(17),
+                    new Label { Text = "(" + hint + ")", TextColor = Color.FromArgb("#999999"), FontAttributes = FontAttributes.Italic }.Scaled(12),
+                    new Label { Text = detail, TextColor = Color.FromArgb("#cccccc"), Margin = new Thickness(0, 4, 0, 0) }.Scaled(13),
                 },
             },
         };

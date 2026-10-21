@@ -107,7 +107,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // its own/other verdict on every continuation line (StyledLine.ContinuesChat), not just the first.
     // Self-heals to default on the next non-continuation line, so it need not be reset on disconnect.
     private ChatColorizer.Carry _chatCarry;
-    private int _defaultFontSize;
     private int _defaultMaxColumns;
     // The saved "Float online by default" global. Tracked separately from the live pin state
     // (SidePanel.IsOnlinePinned) so the setting only drags the live state when the two are in sync.
@@ -616,7 +615,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         FkeysPerProfile     = _fkeysPerProfile,
         Sounds              = _sounds.Clone(),
         // Display tab globals (stored on the profile struct at load time).
-        DefaultFontSize     = _defaultFontSize,
         UiFontStep          = UiFontScaleState.Current.Step,
         DefaultMaxColumns   = _defaultMaxColumns,
         DreamwordSizeOffset = _dreamwordSizeOffset,
@@ -716,9 +714,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
-        _fontSize = profile.FontSize > 0 ? profile.FontSize
-                  : profile.DefaultFontSize > 0 ? profile.DefaultFontSize
-                  : DefaultFontSizePx;
+        _fontSize = profile.FontSize > 0 ? profile.FontSize : DefaultFontSizePx;
         _volume = Math.Clamp(profile.Volume, 0, 100);
         _statUpdateFrequency = Math.Clamp(profile.StatUpdateFrequency, 0, 30);
         _muteBeepPermanently = profile.MuteBeepPermanently;
@@ -729,7 +725,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
         SetChatColors(profile.ChatTheme, profile.EmoteColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
-        _defaultFontSize     = profile.DefaultFontSize;
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
         _floatCompass        = profile.FloatCompass;
@@ -882,7 +877,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         SetChatColors(settings.ChatTheme, settings.EmoteColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
-        _defaultFontSize     = settings.DefaultFontSize;
         _defaultMaxColumns   = settings.DefaultMaxColumns;
         OnPropertyChanged(nameof(DreamwordFontSize));
     }

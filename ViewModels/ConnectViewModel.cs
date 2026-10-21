@@ -247,9 +247,7 @@ public sealed class ConnectViewModel : BaseViewModel
             // Auto used to reach the connection as 0 and be clamped to 20.
             var fontPx = SavedProfiles.FirstOrDefault(p =>
                     string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase)) is { } font
-                ? (font.FontSize > 0 ? font.FontSize
-                   : font.DefaultFontSize > 0 ? font.DefaultFontSize
-                   : GameViewModel.DefaultFontSizePx)
+                ? (font.FontSize > 0 ? font.FontSize : GameViewModel.DefaultFontSizePx)
                 : GameViewModel.DefaultFontSizePx;
 #if MACCATALYST
             // The game page's terminal sits beside the side panel, so the page's width overstates
@@ -316,7 +314,6 @@ public sealed class ConnectViewModel : BaseViewModel
                 // looks like in the hands: a value saved in [settings] is read into `saved` at
                 // startup, dropped here, and the live default is what the session runs on, so the
                 // ini keeps the player's answer and the client keeps ignoring it.
-                DefaultFontSize = saved?.DefaultFontSize ?? 0,
                 DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
                 DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
                 EmoteColor = saved?.EmoteColor ?? MudSharp.Models.ChatTheme.Default.EmoteHex,
@@ -744,11 +741,11 @@ public sealed class ConnectViewModel : BaseViewModel
         // fkeys: null - hotkeys are not editable on this page, so their sections are never rewritten.
         // writeSounds: false - sounds are not editable here either; rewriting them from a profile
         // blob assembled on this page would overwrite the stored per-sound volume overrides.
-        // writeDisplayGlobals: false - nothing in that block (default font/columns, dreamword
-        // offset, the Show* toggles, online display options, float defaults, chat colours) is
+        // writeDisplayGlobals: false - nothing in that block (UI font step, default columns,
+        // dreamword offset, the Show* toggles, online display options, float defaults, chat colours) is
         // editable on this page; this partial ClientSettings leaves each of them at its C# default,
         // so writing the block unconditionally would reset a player's saved globals to those
-        // defaults (DefaultFontSize -> 0, OnlineForgetWindow -> 0 killing the Recent list,
+        // defaults (OnlineForgetWindow -> 0 killing the Recent list,
         // the chat colours -> the built-in colours, etc.).
         await SettingsStore.SaveProfileAsync(incoming.Name, settings, fkeys: null,
             writeSounds: false, writeDisplayGlobals: false);

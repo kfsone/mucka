@@ -35,8 +35,6 @@ public sealed record ClientSettings
     // dialog's Save and theirs is one click on a menu row. See Profile.ShowCombatRail.
 
     // -- Display tab settings (always global, never per-profile) --------------
-    /// <summary>Global default terminal font size in pixels; 0 = use built-in default.</summary>
-    public int DefaultFontSize { get; init; }
     /// <summary>UI font size step for the chrome (<see cref="Mucka.Ui.UiFontScale"/>): 0 Normal,
     /// 1 Large, 2 Larger. The live value is <see cref="UiFontScaleState.Step"/>.</summary>
     public int UiFontStep { get; init; }

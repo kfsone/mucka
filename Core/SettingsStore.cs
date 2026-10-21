@@ -20,7 +20,7 @@ namespace Mucka.Core;
 /// them.
 ///
 ///   [settings]            ; globals - the only save target for settings
-///   fontsize=15
+///   fontsize=15            ; the Game Font size (Display tab)
 ///   columns=80
 ///   volume=75
 ///   statupdate=10
@@ -74,7 +74,6 @@ public static class SettingsStore
         string[]? Fkeys,
         bool FkeysPerProfile,
         // Display tab - always read/written to the global [settings] section.
-        int? DefaultFontSize    = null,
         int? DefaultMaxColumns  = null,
         int? DreamwordSizeOffset = null,
         bool? ShowOnline        = null,
@@ -109,7 +108,6 @@ public static class SettingsStore
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
             profile.FkeysPerProfile    = FkeysPerProfile;
             // Display tab - always from the global [settings] section.
-            if (DefaultFontSize   is int dfs)  profile.DefaultFontSize   = dfs;
             if (DefaultMaxColumns is int dmc)  profile.DefaultMaxColumns = dmc;
             if (DreamwordSizeOffset is int dso) profile.DreamwordSizeOffset = dso;
             if (ShowOnline    is bool so)  profile.ShowOnline    = so;
@@ -195,7 +193,6 @@ public static class SettingsStore
                 Fkeys:               fkeys,
                 FkeysPerProfile:     fkeysPerProfile,
                 // Display tab settings always come from the global [settings] section.
-                DefaultFontSize:    ini.HasSection("settings") ? GetInt (ini, "settings", "defaultfontsize")    : null,
                 DefaultMaxColumns:  ini.HasSection("settings") ? GetInt (ini, "settings", "defaultcolumns")     : null,
                 DreamwordSizeOffset: ini.HasSection("settings") ? GetInt(ini, "settings", "dreamwordsizeoffset") : null,
                 ShowOnline:         ini.HasSection("settings") ? GetBool(ini, "settings", "showonline")         : null,
@@ -235,8 +232,8 @@ public static class SettingsStore
     /// purges the whole <c>sound*</c> family before rewriting it, so passing a
     /// <see cref="ClientSettings"/> whose <see cref="ClientSettings.Sounds"/> was not deliberately
     /// populated silently erases the player's volume overrides. Mirrors <c>fkeys: null</c>.</param>
-    /// <param name="writeDisplayGlobals">False leaves the whole always-global block (default
-    /// font/columns, dreamword offset, the Show* section toggles, online display options, the float
+    /// <param name="writeDisplayGlobals">False leaves the whole always-global block (UI font
+    /// step, default columns, dreamword offset, the Show* section toggles, online display options, the float
     /// defaults, the chat colours, the wire-log switch) untouched. Pass false from callers that cannot edit any of
     /// those fields (the connect page): unlike <paramref name="writeSounds"/>'s block, this one has
     /// no per-key purge-then-rewrite, but a <see cref="ClientSettings"/> assembled without deliberately
@@ -267,7 +264,6 @@ public static class SettingsStore
             if (writeDisplayGlobals)
             {
                 // Display tab settings always go to the global [settings] section.
-                ini.Set("settings", "defaultfontsize",    settings.DefaultFontSize.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", Mucka.Ui.UiFontScale.IniKey, Mucka.Ui.UiFontScale.Format(settings.UiFontStep));
                 ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString(CultureInfo.InvariantCulture));

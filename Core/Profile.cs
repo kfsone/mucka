@@ -73,7 +73,6 @@ public class Profile
     public bool FkeysPerProfile { get; set; }
 
     // -- Display tab settings (global, loaded from [settings] section at connect time) --
-    public int DefaultFontSize { get; set; }
     public int DefaultMaxColumns { get; set; }
     public int DreamwordSizeOffset { get; set; }
     /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line and act/emote text.</summary>

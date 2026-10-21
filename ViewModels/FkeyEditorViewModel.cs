@@ -27,7 +27,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _fkeysToProfileOnly;
     private bool _soundsEnabled;
     // -- Display tab (always global) -------------------------------------------
-    private double _displayFontSize;
     private int _uiFontStep;
     private double _displayColumns;
     private double _displayDreamwordOffset;
@@ -83,7 +82,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public double FontSize
     {
         get => _fontSize;
-        set => SetAndNotify(ref _fontSize, value, [nameof(FontSizeDisplay)]);
+        set => SetAndNotify(ref _fontSize, Math.Clamp(Math.Round(value), 9, 24), [nameof(FontSizeDisplay)]);
     }
 
     public double Columns
@@ -249,14 +248,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
 
     // -- Display tab properties ------------------------------------------------
 
-    public double DisplayFontSize
-    {
-        get => _displayFontSize;
-        set => SetAndNotify(ref _displayFontSize, Math.Clamp(Math.Round(value), 9, 24),
-            [nameof(DisplayFontSizeDisplay)]);
-    }
-    public int DisplayFontSizeDisplay => (int)Math.Round(_displayFontSize);
-
     /// <summary>The UI font size step being edited (<see cref="Mucka.Ui.UiFontScale"/>).</summary>
     public int UiFontStep
     {
@@ -411,8 +402,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand DecrStatFreqCommand { get; }
     public ICommand IncrUiFontStepCommand { get; }
     public ICommand DecrUiFontStepCommand { get; }
-    public ICommand IncrDisplayFontSizeCommand { get; }
-    public ICommand DecrDisplayFontSizeCommand { get; }
     public ICommand IncrDisplayColumnsCommand { get; }
     public ICommand DecrDisplayColumnsCommand { get; }
     public ICommand IncrDisplayDreamwordOffsetCommand { get; }
@@ -443,7 +432,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _onSave   = onSave;
         CanSave   = onSave != null;
 
-        _fontSize = Math.Clamp(settings.FontSize, 9, 24);
+        _fontSize = settings.FontSize > 0 ? Math.Clamp(settings.FontSize, 9, 24) : GameViewModel.DefaultFontSizePx;
         _columnsIsAuto = settings.MaxColumns <= 0;
         // Auto starts from the columns the terminal is using, so +/- steps from what is on screen.
         _columns  = Math.Clamp(
@@ -458,7 +447,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _fkeysToProfileOnly    = settings.FkeysPerProfile;
         _soundsEnabled         = settings.Sounds.MasterEnabled;
         // Display tab
-        _displayFontSize       = settings.DefaultFontSize > 0 ? Math.Clamp(settings.DefaultFontSize, 9, 24) : 15;
         _uiFontStep            = Mucka.Ui.UiFontScale.Clamp(settings.UiFontStep);
         _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
         _chatThemeIndex = Math.Max(0, ChatTheme.All.ToList().IndexOf(settings.ChatTheme));
@@ -580,8 +568,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         DecrStatFreqCommand = new Command(() => StatUpdateFrequency -= 5);
         IncrUiFontStepCommand              = new Command(() => UiFontStep += 1);
         DecrUiFontStepCommand              = new Command(() => UiFontStep -= 1);
-        IncrDisplayFontSizeCommand         = new Command(() => DisplayFontSize         += 1);
-        DecrDisplayFontSizeCommand         = new Command(() => DisplayFontSize         -= 1);
         IncrDisplayColumnsCommand          = new Command(() => DisplayColumns          += 1);
         DecrDisplayColumnsCommand          = new Command(() => DisplayColumns          -= 1);
         IncrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  += 1);
@@ -604,7 +590,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         LogResetDiagnostics = _logResetDiagnostics,
         FkeysPerProfile     = _fkeysToProfileOnly,
         Sounds              = CollectSounds(),
-        DefaultFontSize     = DisplayFontSizeDisplay,
         UiFontStep          = _uiFontStep,
         DefaultMaxColumns   = (int)Math.Round(_displayColumns),
         DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),

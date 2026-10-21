@@ -76,10 +76,26 @@ public sealed class ScaledFontExtension : IMarkupExtension<BindingBase>
     public double Size { get; set; }
     public bool Tight { get; set; }
 
-    public BindingBase ProvideValue(IServiceProvider serviceProvider)
-        => new Binding(nameof(UiFontScaleState.Step), BindingMode.OneWay,
-            Tight ? UiFontScaleConverter.Tight : UiFontScaleConverter.Normal, Size,
-            source: UiFontScaleState.Current);
+    public BindingBase ProvideValue(IServiceProvider serviceProvider) => ScaledFont.For(Size, Tight);
 
     object IMarkupExtension.ProvideValue(IServiceProvider serviceProvider) => ProvideValue(serviceProvider);
+}
+
+/// <summary>
+/// The same live binding as <see cref="ScaledFontExtension"/>, for pages built in code:
+/// <c>label.SetBinding(Label.FontSizeProperty, ScaledFont.For(12))</c>.
+/// </summary>
+public static class ScaledFont
+{
+    public static BindingBase For(double size, bool tight = false)
+        => new Binding(nameof(UiFontScaleState.Step), BindingMode.OneWay,
+            tight ? UiFontScaleConverter.Tight : UiFontScaleConverter.Normal, size,
+            source: UiFontScaleState.Current);
+
+    /// <summary>Gives <paramref name="label"/> the authored <paramref name="size"/>, scaled live.</summary>
+    public static Label Scaled(this Label label, double size, bool tight = false)
+    {
+        label.SetBinding(Label.FontSizeProperty, For(size, tight));
+        return label;
+    }
 }

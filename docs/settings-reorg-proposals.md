@@ -7,9 +7,9 @@ implemented; this document describes the shapes only.
 
 Four tabs. Every setting except the F-key set is global (`GlobalSettingsMigration`).
 
-- Settings: Font Size, Columns, Volume, Stat Update (FES), beep mute (session, permanent, "hear
+- Settings: Columns, Volume, Stat Update (FES), beep mute (session, permanent, "hear
   it"), Advanced (Debug builds).
-- Display: General (Default Font Size, UI Font Size, Default Column Width, Store Passwords Securely
+- Display: General (Game Font, UI Font, Default Column Width, Store Passwords Securely
   on Mac, Dreamword Pill Size), Chat colours (theme, four colour rows with own/other faces, example
   lines), Side Panel (Online and its sub-settings, Inventory, Items here, Map / Compass and its
   float).
@@ -18,17 +18,16 @@ Four tabs. Every setting except the F-key set is global (`GlobalSettingsMigratio
 
 Defects the layouts below address:
 
-- Font Size and Default Font Size, and Columns and Default Column Width, are two fields each for
-  one global concept, on two tabs.
+- Columns and Default Column Width are two fields for one global concept, on two tabs.
 - The chat colours are about 100 lines of the Display tab, between General and Side Panel.
-- Store Passwords Securely and UI Font Size sit among terminal-text fields.
+- Store Passwords Securely and UI Font sit among terminal-text fields.
 - Field order inside a tab is neither alphabetical nor by use.
 
 ## Proposal A: split Display, keep four-plus tabs
 
 Tabs: General, Display, Chat, Hotkeys, Sounds.
 
-- General: Terminal font size, Terminal columns, UI font size, Volume (master), Stat Update (FES),
+- General: Game Font, Terminal columns, UI Font, Volume (master), Stat Update (FES),
   Mute beep (session, permanent, hear it), Store passwords securely (Mac only, last row, under a
   "This Mac" heading that is absent elsewhere), Advanced (Debug).
 - Display: Side Panel (Online with sub-settings, Inventory, Items here, Map / Compass with float),
@@ -37,8 +36,8 @@ Tabs: General, Display, Chat, Hotkeys, Sounds.
 - Hotkeys, Sounds: unchanged.
 
 Order rule: most-changed first (sizes), then audio and protocol, then per-machine items.
-Fold Font Size / Default Font Size and Columns / Default Column Width into one field each; the
-ini keeps both keys and the editor writes one value to both until a later cleanup removes the pair.
+Fold Columns / Default Column Width into one field; the ini keeps both keys and the editor writes
+one value to both until a later cleanup removes the pair.
 Effort: low to medium; moves XAML blocks between existing `ScrollView`s and adds one tab-bar
 entry plus one tab-active property. Risk: low; the tab bar gains a fifth entry and must still
 fit the narrow window width, and the merge of the field pairs touches `ClientSettings` plumbing.

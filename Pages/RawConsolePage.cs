@@ -1,6 +1,7 @@
 #if WINDOWS
 using System.Runtime.InteropServices;
 using System.Text;
+using Mucka.Core;
 using Mucka.ViewModels;
 
 namespace Mucka.Pages;
@@ -66,44 +67,40 @@ internal sealed class RawConsolePage : ContentPage
         _seqLabel = new Label
         {
             FontFamily           = "Cascadia Mono",
-            FontSize             = 13,
             TextColor            = Color.FromArgb("#F9F1A5"),
             Text                 = "(press keys to build sequence - Backspace removes last byte)",
             MinimumHeightRequest = 22,
             Padding              = new Thickness(4, 2),
             BackgroundColor      = Color.FromArgb("#1A1A1A"),
             VerticalOptions      = LayoutOptions.Center,
-        };
+        }.Scaled(13);
 
         _hexLabel = new Label
         {
             FontFamily  = "Cascadia Mono",
-            FontSize    = 11,
             TextColor   = Color.FromArgb("#767676"),
             Padding     = new Thickness(4, 1),
-        };
+        }.Scaled(11);
 
         _statusLabel = new Label
         {
             FontFamily      = "Cascadia Mono",
-            FontSize        = 11,
             TextColor       = Color.FromArgb("#767676"),
             VerticalOptions = LayoutOptions.Center,
-        };
+        }.Scaled(11);
 
         // -- Cancel (close) tap target - inline label, sizes to text height ------
         _cancelLabel = new Label
         {
             Text                    = Mucka.Core.Glyph.Close,
             FontFamily              = "Cascadia Mono",
-            FontSize                = 12,
             TextColor               = Color.FromArgb("#666666"),
             Padding                 = new Thickness(6, 2),
             VerticalOptions         = LayoutOptions.Center,
             VerticalTextAlignment   = TextAlignment.Center,
             HorizontalTextAlignment = TextAlignment.Center,
             BackgroundColor         = Color.FromArgb("#1A1A1A"),
-        };
+        }.Scaled(12);
         _cancelLabel.GestureRecognizers.Add(new TapGestureRecognizer
         {
             Command = new Command(OnCancelTapped),
@@ -167,10 +164,9 @@ internal sealed class RawConsolePage : ContentPage
         {
             Text            = "Stop status probes",
             FontFamily      = "Cascadia Mono",
-            FontSize        = 11,
             TextColor       = Color.FromArgb("#CCCCCC"),
             VerticalOptions = LayoutOptions.Center,
-        };
+        }.Scaled(11);
         var probeBlockStack = new HorizontalStackLayout
         {
             Spacing  = 2,
