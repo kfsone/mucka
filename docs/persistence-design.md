@@ -307,7 +307,7 @@ The fact tables, and where each came from:
 | Table | Came from | Notes |
 |---|---|---|
 | `swings` | the combat database | one row per blow, brackets kept as brackets |
-| `fights` | the combat database | one row per per-NPC fight |
+| `fights` | the combat database | one row per per-NPC fight; the unseen group of an encounter (`AnonymousOpponent.Group`, `<unseen>`) is one row holding every anonymous blow, `Unresolved` unless the player's flight ended the encounter or the group killed the player (`Died`), plus one swing-less row per unseen conclusion with that ending's outcome (`FightHistoryRecorder`): under the Creature's name when a named line concluded the slot (`CombatEvent.ConcludedName`), else `<unseen>`; its points are the `score_events` row as for any kill. A conclusion row never has `narrative_mode` set: it carries no swings by construction, so its zero is not the signature of a character without fightbrief. A Creature whose outcome only counting placed stays `Unresolved`: counting is an inference, and with a start missed it can be wrong, so it never persists a kill. At the player's death only the killer's row (the named Creature, or the group's) is `Died`; every other fight open then is `Unresolved`, as at a force end. Rows written before the group carry "someone" / "something" as names |
 | `npc_stamina_reads` | the combat database | every `diagnose` reading |
 | `score_events` | the combat database | every `(Persona saved on ...)` line |
 | `mucka_runs` | the wire log | one row per run of the client - every login, logout and world reset inside one process - and one per run imported from MuckaII by `$import2` |
@@ -322,7 +322,7 @@ Added by later scripts:
 
 | Table | Script | Notes |
 |---|---|---|
-| `some_kinds` | `0005_some_kinds.sql` | one row per species: whether MUD2 calls it "someone" or "something" when unseen; learned per install by `Mucka.Combat.SomeKindStore`, upserted on every reveal |
+| `some_kinds` | `0005_some_kinds.sql` | one row per species: whether MUD2 calls it "someone" or "something" when unseen. Nothing in the client reads or writes it; it stays because shipped schema is frozen, and `RunTransfer` carries its rows between databases. The unseen book's class lookup is `SomeKindKnowledge.Known`, seeded and read-only |
 
 The seven encounter tables, which hold what the clog files used to:
 

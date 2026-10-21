@@ -35,22 +35,14 @@ public class LogLineTests
 
 public class ConsoleLogSinkTests
 {
+    // Flush returns as soon as the drain catches up, and the drain is a thread-pool task; this bound
+    // only turns a drain that never runs into a failure instead of a hang.
+    private static readonly TimeSpan SafetyNet = TimeSpan.FromMinutes(2);
+
     private sealed class ThrowingWriter : StringWriter
     {
         public int Calls;
         public override void WriteLine(string? value) { Calls++; throw new IOException("closed"); }
-    }
-
-    private sealed class BlockingWriter : StringWriter
-    {
-        public readonly ManualResetEventSlim Entered = new();
-        public readonly ManualResetEventSlim Release = new();
-        private int _first = 1;
-        public override void WriteLine(string? value)
-        {
-            if (Interlocked.Exchange(ref _first, 0) == 1) { Entered.Set(); Release.Wait(); }
-            base.WriteLine(value);
-        }
     }
 
     [Fact]
@@ -82,27 +74,28 @@ public class ConsoleLogSinkTests
         var target = new StringWriter();
         var sink = new ConsoleLogSink(() => target);
         sink.Enqueue("a");
-        Assert.True(sink.Flush(TimeSpan.FromSeconds(5)));
+        Assert.True(sink.Flush(SafetyNet));
         Assert.Equal("a" + Environment.NewLine, target.ToString());
         sink.Enqueue("b");
-        Assert.True(sink.Flush(TimeSpan.FromSeconds(5)));
+        Assert.True(sink.Flush(SafetyNet));
         Assert.EndsWith("b" + Environment.NewLine, target.ToString());
     }
 
+    /// <summary>The drain asks for its target before it reads a line, so holding the target back
+    /// keeps every line in the channel whether or not the drain has started yet.</summary>
     [Fact]
     public async Task DroppedLinesAreCountedAndReported()
     {
-        var target = new BlockingWriter();
-        var sink = new ConsoleLogSink(() => target, capacity: 2);
-        sink.Enqueue("a");
-        Assert.True(target.Entered.Wait(TimeSpan.FromSeconds(5)));
-        foreach (var l in new[] { "b", "c", "d", "e" })
+        var target = new StringWriter();
+        using var open = new ManualResetEventSlim();
+        var sink = new ConsoleLogSink(() => { open.Wait(); return target; }, capacity: 2);
+        foreach (var l in new[] { "a", "b", "c", "d", "e" })
             sink.Enqueue(l);
-        target.Release.Set();
-        await sink.CompleteAsync();
+        open.Set();
+        await sink.CompleteAsync().WaitAsync(SafetyNet);
         var lines = target.ToString().Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries);
-        Assert.Equal(4, lines.Length);
-        Assert.Contains("2 log lines dropped", lines[1]);
-        Assert.Equal(["a", "b", "c"], lines.Where(l => !l.Contains("dropped")));
+        Assert.Equal(3, lines.Length);
+        Assert.Contains("3 log lines dropped", lines[0]);
+        Assert.Equal(["a", "b"], lines[1..]);
     }
 }

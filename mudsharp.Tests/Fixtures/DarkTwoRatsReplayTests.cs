@@ -15,33 +15,31 @@ namespace MudSharp.Tests.Fixtures;
 /// <see cref="AnonymousOpponentReplayTests"/> and <see cref="WyvernPoisonDeathReplayTests"/> are,
 /// because the facts under test are protocol facts - which C1 code arrived in which frame.
 ///
-/// <para>The three things this capture settles, and the three this file pins:</para>
+/// <para>What this capture pins, under docs/unseen-presentation.md:</para>
 /// <list type="number">
-/// <item>Two 08.00 announcements, two Unseen opponents. The second is not the first announcing
+/// <item>Two 08.00 announcements, two anonymous slots. The second is not the first announcing
 /// again.</item>
-/// <item>A kill line that NAMES a Creature while every swing line was anonymous identifies one
-/// Unseen opponent, closes that one, and teaches its species which word it gets.</item>
-/// <item>Once the last Unseen opponent has been identified the encounter closes. Before this, the
-/// stored fight was one "something" row left Unresolved with 14 swings in it, beside two zero-swing
-/// kill rows for rats the client thought it had never fought.</item>
+/// <item>A kill line that NAMES a Creature with no row while a slot is open concludes that slot: the
+/// count falls by one, the name goes into the slot's conclusion, and no row opens for it.</item>
+/// <item>Once the last slot is concluded the encounter closes, and the history holds the group and
+/// the two named conclusions.</item>
 /// </list>
 ///
 /// <para>The player is in the DARK here, not blind: FES carries blind "N" for the whole fight, so
 /// the only thing that says the player cannot see is the prose - "It's too dark to see now.",
 /// followed by an empty FEX exits reply and a FES row with effective dexterity at 36 of 91. The
-/// fourth test pins that. No anonymous swing is attributed to anything all the same, and correctly:
-/// no named Creature is ever engaged here, so there is nothing for the one-candidate rule to
-/// attribute TO. The first three behaviours are driven by the 08.00 announcements and the named kill
-/// lines and are unaffected either way.</para>
+/// fourth test pins that.</para>
 /// </summary>
 public sealed class DarkTwoRatsReplayTests
 {
-    /// <summary>One capture frame's aftermath: what the tracker published once the frame was fed.</summary>
+    /// <summary>One capture frame's aftermath: the events it produced, whether a fight was open, the
+    /// unseen group as the last <see cref="CombatEventKind.UnseenChanged"/> so far carried it, and
+    /// whether the player could see.</summary>
     private sealed record Step(
         IReadOnlyList<CombatEvent> Events,
         bool InCombat,
-        UnseenState Unseen,
-        SomeKind? RatKind);
+        UnseenSnapshot Unseen,
+        bool CannotSee);
 
     private static List<Step> Replay()
     {
@@ -53,8 +51,19 @@ public sealed class DarkTwoRatsReplayTests
 
         var frame = new List<CombatEvent>();
         long captureTs = 0;
+        var unseen = UnseenSnapshot.Empty;
+        var cannotSee = false;
         session.CombatClock = () => DateTimeOffset.FromUnixTimeMilliseconds(captureTs).UtcDateTime;
-        session.CombatEventOccurred += frame.Add;
+        session.CombatEventOccurred += e =>
+        {
+            frame.Add(e);
+            if (e.Unseen is { } u)
+                unseen = u;
+            if (e.Kind == CombatEventKind.SightLost)
+                cannotSee = true;
+            if (e.Kind == CombatEventKind.SightRegained)
+                cannotSee = false;
+        };
         // A recording cannot answer this client's setup batch - see MudSession.SetupInjectEnabled.
         session.SetupInjectEnabled = false;
 
@@ -69,8 +78,7 @@ public sealed class DarkTwoRatsReplayTests
             captureTs = long.Parse(parts[0], CultureInfo.InvariantCulture);
             frame.Clear();
             session.Feed(CaptureBytes(parts[2]));
-            steps.Add(new Step(frame.ToList(), session.InCombat, session.Unseen,
-                session.SomeKindKnowledge.Known("rat18")));
+            steps.Add(new Step(frame.ToList(), session.InCombat, unseen, cannotSee));
         }
         return steps;
     }
@@ -90,16 +98,14 @@ public sealed class DarkTwoRatsReplayTests
         return bytes.ToArray();
     }
 
-    /// <summary>The index of the frame carrying the kill line that names <paramref name="npc"/>. An
-    /// index rather than the <see cref="Step"/> itself: <see cref="Step"/> is a record, so two quiet
-    /// frames compare equal and "the steps from this one on" cannot be asked by identity.</summary>
+    /// <summary>The index of the frame carrying the kill line that names <paramref name="npc"/>.</summary>
     private static int KillFrame(List<Step> steps, string npc)
-        => steps.FindIndex(s => s.Events.Any(e => e.Kind == CombatEventKind.Kill && e.NpcName == npc));
+        => steps.FindIndex(s => s.Events.Any(e => e.Kind == CombatEventKind.Kill && e.RawText == $"You have killed the {npc}."));
 
-    // -- 1. two announcements, two Unseen opponents -------------------------------------------
+    // -- 1. two announcements, two slots ------------------------------------------------------
 
     [Fact]
-    public void TwoAnonymousAnnouncements_OpenTwoUnseenOpponents()
+    public void TwoAnonymousAnnouncements_OpenTwoSlots()
     {
         var steps = Replay();
 
@@ -108,61 +114,63 @@ public sealed class DarkTwoRatsReplayTests
             .Where(e => e.Kind == CombatEventKind.FightStart && e.RawText == "Something is about to attack you.")
             .ToList();
         Assert.Equal(2, announcements.Count);
-        Assert.All(announcements, e => Assert.Equal(AnonymousOpponent.Thing, e.NpcName));
+        Assert.All(announcements, e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
         Assert.All(announcements, e => Assert.Equal(CombatActor.Npc, e.Actor));
 
-        // One Unseen opponent after the first, two after the second - and two for every frame from
-        // there to the first kill: a swing from an opponent that has already announced itself must
-        // not be counted again, and neither kill line has arrived yet to take one away.
-        var counts = steps.Select(s => s.Unseen.Something).ToList();
+        // One unseen participant after the first, two after the second - and two for every frame
+        // from there to the first kill: a swing from an opponent that has already announced itself
+        // is not counted again, and neither kill line has arrived yet to take one away.
+        var counts = steps.Select(s => s.Unseen.Count).ToList();
         Assert.Equal(1, counts.First(c => c > 0));
         var second = counts.IndexOf(2);
         Assert.InRange(second, 0, KillFrame(steps, "rat18") - 1);
         for (var i = second; i < KillFrame(steps, "rat18"); i++)
             Assert.Equal(2, counts[i]);
+        // Every anonymous blow is the group's.
+        Assert.All(steps.SelectMany(s => s.Events).Where(e => e.RawText.StartsWith("Something hits you", StringComparison.Ordinal)),
+            e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
     }
 
-    // -- 2. the named kill identifies one of them ---------------------------------------------
+    // -- 2. the named kill concludes one slot ---------------------------------------------------
 
     [Fact]
-    public void ANamedKill_IdentifiesOneUnseenOpponent_AndTeachesItsSpeciesTheWord()
+    public void ANamedKill_OfACreatureWithNoRow_ConcludesOneSlot_AndOpensNoRow()
     {
         var steps = Replay();
         var at = KillFrame(steps, "rat18");
         var afterRat18 = steps[at];
 
-        // "You have killed the rat18." names a Creature no line of this fight ever named. It is one
-        // of the two Unseen opponents, and the only word with any open is "something", so it is that
-        // one: one fewer Unseen, and the species has learned its word.
-        Assert.Equal(1, afterRat18.Unseen.Something);
-        Assert.Equal(0, afterRat18.Unseen.Someone);
-        Assert.Equal(SomeKind.Something, afterRat18.RatKind);
+        // "You have killed the rat18." names a Creature no line of this fight ever named, while a
+        // slot is open: it is that slot's conclusion. The event names the group, so no rat18 fight
+        // is opened anywhere downstream; the name travels in the conclusion.
+        var kill = Assert.Single(afterRat18.Events, e => e.Kind == CombatEventKind.Kill);
+        Assert.Equal(AnonymousOpponent.Group, kill.NpcName);
+        Assert.Equal(1, afterRat18.Unseen.Count);
+        Assert.Contains(afterRat18.Unseen.Entries, e => e is { Kind: UnseenBadgeKind.Conclusion, Name: "rat18" });
 
-        // The other one is still swinging, so the encounter is still open and the word keeps its row.
+        // The other one is still swinging, so the encounter is still open.
         Assert.True(afterRat18.InCombat);
-        Assert.DoesNotContain(afterRat18.Events, e => e.Kind == CombatEventKind.UnseenNamed);
         Assert.Contains(steps.Skip(at + 1).SelectMany(s => s.Events),
-            e => e.Kind == CombatEventKind.HitByNpc && e.NpcName == AnonymousOpponent.Thing);
+            e => e.Kind == CombatEventKind.HitByNpc && e.NpcName == AnonymousOpponent.Group);
     }
 
     // -- 3. the encounter closes ---------------------------------------------------------------
 
     [Fact]
-    public void TheLastNamedKill_RetiresTheWordsRow_AndClosesTheEncounter()
+    public void TheLastNamedKill_ClosesTheEncounter_WithTheGroupAndBothConclusionsInTheHistory()
     {
         var steps = Replay();
         var at = KillFrame(steps, "rat19");
         var afterRat19 = steps[at];
 
-        Assert.Equal(0, afterRat19.Unseen.Something);
+        Assert.Equal(0, afterRat19.Unseen.Count);
         Assert.False(afterRat19.InCombat);
-
-        // The word's row retires exactly once, on the frame that identified the last opponent behind
-        // it - not once per kill.
-        var retired = Assert.Single(steps.SelectMany(s => s.Events),
-            e => e.Kind == CombatEventKind.UnseenNamed);
-        Assert.Equal(AnonymousOpponent.Thing, retired.NpcName);
-        Assert.Contains(afterRat19.Events, e => e.Kind == CombatEventKind.UnseenNamed);
+        Assert.Equal(
+            [(UnseenBadgeKind.Group, (string?)null), (UnseenBadgeKind.Conclusion, "rat18"), (UnseenBadgeKind.Conclusion, "rat19")],
+            afterRat19.Unseen.Entries.Select(e => (e.Kind, e.Name)));
+        Assert.All(afterRat19.Unseen.Entries.Skip(1), e => Assert.Equal(FightOutcome.Kill, e.Outcome));
+        // Each conclusion's award is keyed by its own ending.
+        Assert.All(afterRat19.Unseen.Entries.Skip(1), e => Assert.Single(e.Awards));
 
         // And it stays closed: nothing after the second kill reopens it.
         Assert.All(steps.Skip(at), s => Assert.False(s.InCombat));
@@ -177,7 +185,7 @@ public sealed class DarkTwoRatsReplayTests
 
         // The lit Cellar frame that opens the capture: a coded room short, a non-empty exits reply,
         // and the player can see.
-        Assert.False(steps[0].Unseen.CannotSee);
+        Assert.False(steps[0].CannotSee);
 
         // "It's too dark to see now." is the whole of the signal. Every FES row after it carries
         // blind "N" and every exits reply after it is empty, so a flag fed from IsBlind alone would
@@ -185,7 +193,7 @@ public sealed class DarkTwoRatsReplayTests
         var dark = steps.FindIndex(s => s.Events.Any(
             e => e.Kind == CombatEventKind.SightLost && e.RawText == "(sight lost: too dark to see)"));
         Assert.InRange(dark, 1, KillFrame(steps, "rat18") - 1);
-        Assert.All(steps.Skip(dark), s => Assert.True(s.Unseen.CannotSee));
+        Assert.All(steps.Skip(dark), s => Assert.True(s.CannotSee));
 
         // Nothing in the capture ever says the light came back, so nothing claims it did.
         Assert.DoesNotContain(steps.SelectMany(s => s.Events),

@@ -7,8 +7,8 @@ namespace MudSharp.Combat;
 public enum SealShape
 {
     /// <summary>
-    /// No vitality at all: a row with no fight record behind it, such as an Unseen badge whose
-    /// opponents are known only by their anonymous word. A named creature never lands here - with no
+    /// No vitality at all: a row with no fight record behind it, such as an unseen badge that no
+    /// anonymous blow has landed in yet. A named creature never lands here - with no
     /// reading it is assumed full: descriptors print on every landed blow, so none means untouched.
     ///
     /// <para>Drawn as a FULL ring in the unknown treatment - never empty, never absent.</para>
@@ -218,7 +218,7 @@ public static class ReachAggregate
         for (var i = 0; i < plan.Rows.Count; i++)
         {
             var row = plan.Rows[i];
-            // An unknown badge carries the reach of the WORD's record, which is several Creatures'
+            // The unseen badge carries the reach of the group's record, which is several Creatures'
             // blows pooled, and the rail draws it with its own frame rather than the tempo frame the
             // accent rides on - so it can neither be the greatest threat nor show it.
             if (!row.IsLive || row.IsUnseen || !row.Reach.HasEvidence)

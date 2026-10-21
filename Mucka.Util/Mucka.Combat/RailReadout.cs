@@ -169,9 +169,8 @@ public static class RailReadout
         // strip's second line; which of the four reasons it was is in the clog's EncounterForceEnded
         // event, not on a roster row.
         FightOutcome.Interrupted => "cut short",
-        // The word's row retired because the Creature behind it was named once sight returned - the
-        // fight goes on under that name. Not a kill and not a loss.
-        FightOutcome.Named => "named",
+        // Still parked in the unseen group when the encounter closed: no line said how it ended.
+        FightOutcome.FateUnseen => "fate unseen",
         _ => string.Empty,
     };
 }

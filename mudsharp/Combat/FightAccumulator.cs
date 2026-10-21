@@ -74,7 +74,8 @@ public enum FightOutcome
     /// own combat state.</summary>
     Withdraw,
 
-    /// <summary>All fights. The player died - permadeath, "Not updating persona." Verbatim, one frame:
+    /// <summary>The killer's fight only: the player died - permadeath, "Not updating persona." Every other
+    /// fight open then is <see cref="Interrupted"/>. Verbatim, one frame:
     /// <c>The rat18 hits you. / You feel your life concluding... / The rat18 has killed you. / Unlit
     /// brand40 dropped. / Not updating persona.</c></summary>
     Died,
@@ -169,16 +170,13 @@ public enum FightOutcome
     Interrupted,
 
     /// <summary>
-    /// An Unseen opponent's word row ("someone" / "something") retired because the Creature behind
-    /// it was named after sight returned - see <c>CombatEventKind.UnseenNamed</c>. Not a kill and not
-    /// a loss: the fight goes on under the Creature's own name. Only the case where the word stood for
-    /// more than one opponent ends here; a word that stood for one is renamed in place
-    /// (<see cref="FightAccumulator.IdentifyAs"/>) and never reaches this outcome. Display-side only, exactly as
-    /// <see cref="Interrupted"/> is: the live aggregator resolves to this so the rail stops drawing
-    /// the badge; FightHistoryRecorder keeps the word's fight <see cref="Unresolved"/>, because the
-    /// record never says which unknown became which name.
+    /// A named Creature still drawn inside the unseen group when the encounter closed, with no line
+    /// naming its ending and no count that placed one (docs/unseen-presentation.md, "Endings").
+    /// Display-side only, exactly as <see cref="Interrupted"/> is: the live aggregator resolves to
+    /// this; FightHistoryRecorder keeps the fight <see cref="Unresolved"/>, because no ending of it
+    /// was observed.
     /// </summary>
-    Named,
+    FateUnseen,
 }
 
 /// <summary>
@@ -248,22 +246,13 @@ public sealed class FightAccumulator
         ScoreAtEnd = scoreAtStart;
     }
 
-    public string NpcName { get; private set; }
-    public string NpcGroup { get; private set; }
+    public string NpcName { get; }
+    public string NpcGroup { get; }
 
-    /// <summary>True once this fight, opened under an anonymous word, has been given the Creature's own
-    /// name by <see cref="IdentifyAs"/>: the opening blows were thrown while the player could not tell
-    /// who it was. Drawn as a trailing mark on the name.</summary>
-    public bool WasUnseen { get; private set; }
-
-    /// <summary>Renames this fight to the Creature that stood behind its anonymous word, keeping every
-    /// blow already counted. The caller owns the re-keying of whatever indexes fights by name.</summary>
-    public void IdentifyAs(string npcName)
-    {
-        NpcName = npcName;
-        NpcGroup = NpcGroups.Normalize(npcName);
-        WasUnseen = true;
-    }
+    /// <summary>The outcome was handed to this fight by counting anonymous endings
+    /// (<see cref="CombatEventKind.UnseenRowEnded"/>), not stated by a line naming it. Such a fight's
+    /// history badge comes from the unseen group's entries.</summary>
+    public bool ByCounting { get; private set; }
     public DateTime StartedUtc { get; }
     public DateTime? EndedUtc { get; private set; }
     public FightOutcome Outcome { get; private set; } = FightOutcome.Unresolved;
@@ -731,11 +720,12 @@ public sealed class FightAccumulator
 
     /// <summary>First resolution wins: a Kill followed by a trailing FightEndOther, or a player
     /// death that also force-closes the encounter, must not overwrite the real outcome.</summary>
-    public void Resolve(FightOutcome outcome, DateTime endedUtc)
+    public void Resolve(FightOutcome outcome, DateTime endedUtc, bool byCounting = false)
     {
         if (IsResolved || outcome == FightOutcome.Unresolved)
             return;
         Outcome = outcome;
         EndedUtc = endedUtc;
+        ByCounting = byCounting;
     }
 }

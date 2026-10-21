@@ -14,11 +14,10 @@ namespace MudSharp.Tests.Fixtures;
 ///
 /// <para><c>invisible-player-joins.c1</c>: the player is fighting zombie5 when an unseen attacker
 /// joins. Every line about the attacker says "Someone"; no fade code ever arrives, because the
-/// attacker was never visible to fade. Before the resolver was gated on the player's own blindness,
-/// every one of those blows was credited to zombie5 - the sole engaged Creature - and the stored
-/// fight closed with 7 incoming hits where the wire shows 1. That misattribution is what this file
-/// pins against: one hit on the zombie, the rest on a participant named exactly what the game
-/// named it.</para>
+/// attacker was never visible to fade. Crediting those blows to zombie5 - the sole engaged
+/// Creature - closed the stored fight with 7 incoming hits where the wire shows 1. That
+/// misattribution is what this file pins against: one hit on the zombie, the rest on the unseen
+/// group.</para>
 ///
 /// <para><c>blind-vs-water-snake.c1</c>: the player is blinded mid-fight by their own spell
 /// backfiring. From then on the snake is "something" - the animal word, not "someone" - and until
@@ -81,7 +80,7 @@ public sealed class AnonymousOpponentReplayTests
         var events = Replay(Capture("invisible-player-joins.c1"));
 
         var zombieHits = events.Where(e => e.Kind == CombatEventKind.HitByNpc && e.NpcName == "zombie5").ToList();
-        var someoneHits = events.Where(e => e.Kind == CombatEventKind.HitByNpc && e.NpcName == "someone").ToList();
+        var someoneHits = events.Where(e => e.Kind == CombatEventKind.HitByNpc && e.NpcName == AnonymousOpponent.Group).ToList();
 
         // The one blow the wire attributes to the zombie by name. Everything else that landed on the
         // player in this fight was said by a line beginning "Someone".
@@ -97,10 +96,9 @@ public sealed class AnonymousOpponentReplayTests
     {
         var events = Replay(Capture("invisible-player-joins.c1"));
 
-        // Before the gate, "someone" only existed as a participant once the zombie had died and
-        // there was no sole Creature left to hand its blows to. The first anonymous blow lands while
-        // the zombie is still being named - so the anonymous fight has to be open at the same time.
-        var firstSomeone = events.First(e => e.NpcName == "someone");
+        // The first anonymous blow lands while the zombie is still being named - so the unseen
+        // group has to be open at the same time.
+        var firstSomeone = events.First(e => e.NpcName == AnonymousOpponent.Group);
         var zombieResolved = events.First(e => e.Kind == CombatEventKind.Kill && e.NpcName == "zombie5");
         Assert.True(firstSomeone.TimestampUtc < zombieResolved.TimestampUtc,
             "the unseen attacker must be recognised while the zombie is still alive");
@@ -126,21 +124,21 @@ public sealed class AnonymousOpponentReplayTests
     // -- the player is blinded while fighting an animal ---------------------------------------
 
     [Fact]
-    public void BlindPlayer_AnimalOpponentsBlowsAreStillSwings_AndStillItsOwn()
+    public void BlindPlayer_AnimalOpponentsBlowsAreStillSwings_AndTheGroups()
     {
         var events = Replay(Capture("blind-vs-water-snake.c1"));
 
         // "Something hits you (116/120)." - the animal word. Before it was accepted this line matched
-        // nothing and the blow vanished. With the player known blind and one Creature engaged, it is
-        // that Creature's blow.
+        // nothing and the blow vanished. The snake is the one Creature engaged, and the blow is
+        // still the unseen group's: no line carrying its name says it threw it.
         var hit = Assert.Single(events, e => e.Kind == CombatEventKind.HitByNpc && e.RawText is { } t && t.StartsWith("Something hits you", StringComparison.Ordinal));
-        Assert.Equal("water-snake1", hit.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, hit.NpcName);
 
         var miss = Assert.Single(events, e => e.Kind == CombatEventKind.Miss && e.RawText == "You miss something.");
-        Assert.Equal("water-snake1", miss.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, miss.NpcName);
 
-        // And no phantom participant called "something" alongside the real one.
-        Assert.DoesNotContain(events, e => e.NpcName == "something");
+        // And the anonymous word is never a participant of its own.
+        Assert.DoesNotContain(events, e => e.NpcName is "something" or "someone");
     }
 
     // -- an invisible Creature strikes first ------------------------------------------------------
@@ -159,11 +157,11 @@ public sealed class AnonymousOpponentReplayTests
 
         var start = Assert.Single(events, e => e.Kind == CombatEventKind.FightStart && e.RawText == "Someone is about to attack you.");
         Assert.Equal(CombatActor.Npc, start.Actor);
-        Assert.Equal("someone", start.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, start.NpcName);
 
         // Everything that follows in that fight is the same participant's.
         var after = events.Where(e => e.TimestampUtc >= start.TimestampUtc && e.Kind is CombatEventKind.MissByNpc or CombatEventKind.Hit).ToList();
         Assert.NotEmpty(after);
-        Assert.All(after, e => Assert.Equal("someone", e.NpcName));
+        Assert.All(after, e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
     }
 }

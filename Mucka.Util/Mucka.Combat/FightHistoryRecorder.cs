@@ -35,6 +35,10 @@ public sealed class FightHistoryRecorder : IDisposable
     // Per-accumulator, because one name can hold several engagements inside one encounter and _fights
     // only ever keeps the newest. Reference-keyed; emptied with _fightOrder at every flush.
     private readonly Dictionary<FightAccumulator, long> _prevEndedForFight = [];
+    // The swing-less rows EndingFightForLocked writes for one concluded unseen participant. Their
+    // blows are the group's row's, so a zero swing count says nothing about fightbrief.
+    // Reference-keyed; emptied with _fightOrder at every flush.
+    private readonly HashSet<FightAccumulator> _conclusionRows = [];
 
     private string? _currentWeapon;
     // When _currentWeapon was last confirmed, so an equip seen just before the client noticed the
@@ -248,7 +252,7 @@ public sealed class FightHistoryRecorder : IDisposable
                     break;
 
                 case CombatEventKind.Kill:
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Kill, combatEvent.TimestampUtc);
+                    EndingFightForLocked(combatEvent)?.Resolve(FightOutcome.Kill, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.NpcDied:
@@ -256,7 +260,7 @@ public sealed class FightHistoryRecorder : IDisposable
                     // NoMore, never Kill: the damage that killed it never crossed the wire, so a Kill
                     // row here would feed the stamina-pool estimator a fight whose damage total is
                     // missing its largest term. See FightOutcome.NoMore.
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.NoMore, combatEvent.TimestampUtc);
+                    EndingFightForLocked(combatEvent)?.Resolve(FightOutcome.NoMore, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.FightEndOther:
@@ -266,14 +270,14 @@ public sealed class FightHistoryRecorder : IDisposable
                     // a reason" (EndOther) must not be filed alongside "we never saw this fight end"
                     // (Unresolved), which is the bucket to search when hunting the next unmatched
                     // wording. See FightOutcome.EndOther.
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.EndOther, combatEvent.TimestampUtc);
+                    EndingFightForLocked(combatEvent)?.Resolve(FightOutcome.EndOther, combatEvent.TimestampUtc);
                     break;
 
-                case CombatEventKind.UnseenNamed:
-                    // Deliberately nothing, for the record's reason below: the word's fight was never
-                    // seen to end, and which Creature it turned out to be is not written down - the
-                    // operator's rule. The live side resolves it to FightOutcome.Named so the badge
-                    // goes; here it stays Unresolved.
+                case CombatEventKind.UnseenRowEnded:
+                    // Deliberately nothing: no line stated this Creature's ending - counting placed it,
+                    // or nothing did - so for the record its fight was never seen to end and stays
+                    // Unresolved. The live side resolves it so the rail stops drawing it. Its blows
+                    // while it was parked are in the unseen group's row either way.
                     break;
 
                 case CombatEventKind.EncounterForceEnded:
@@ -294,11 +298,11 @@ public sealed class FightHistoryRecorder : IDisposable
                     break;
 
                 case CombatEventKind.Withdrawn:
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Withdraw, combatEvent.TimestampUtc);
+                    EndingFightForLocked(combatEvent)?.Resolve(FightOutcome.Withdraw, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.NpcFled:
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.CFled, combatEvent.TimestampUtc);
+                    EndingFightForLocked(combatEvent)?.Resolve(FightOutcome.CFled, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.NpcFleeFailed:
@@ -306,14 +310,15 @@ public sealed class FightHistoryRecorder : IDisposable
                     // Resolving this explicitly is what lets the history distinguish "the client lost
                     // track of this fight" (Unresolved) from "this creature broke off" (CFledFail),
                     // which are very different evidence.
-                    FightForLocked(combatEvent)?.Resolve(FightOutcome.CFledFail, combatEvent.TimestampUtc);
+                    EndingFightForLocked(combatEvent)?.Resolve(FightOutcome.CFledFail, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.KilledByNpc:
                     // Player death ends the whole encounter; CombatTracker names only the killer and
-                    // then closes the rest silently, so resolve every open fight here.
-                    foreach (var fight in _fightOrder)
-                        fight.Resolve(FightOutcome.Died, combatEvent.TimestampUtc);
+                    // then closes the rest silently. Only the killer's row is Died - the named
+                    // Creature, or the unseen group's row for "Someone has killed you." Every other
+                    // fight was never seen to end and is written Unresolved, as the force-end's are.
+                    FightForLocked(combatEvent)?.Resolve(FightOutcome.Died, combatEvent.TimestampUtc);
                     break;
 
                 case CombatEventKind.YouFled:
@@ -365,6 +370,7 @@ public sealed class FightHistoryRecorder : IDisposable
         _fights.Clear();
         _fightOrder.Clear();
         _prevEndedForFight.Clear();
+        _conclusionRows.Clear();
         _currentWeapon = null;
         // Clear the encounter key too: FightForLocked must never stamp a stray late fight (should
         // not happen post-clear, but leaving a stale value around risks a silent mis-attribution to
@@ -406,8 +412,9 @@ public sealed class FightHistoryRecorder : IDisposable
             // signature of a character without fightbrief: narrative mode replaces every hit/miss
             // line with flavour text we do not parse. Flag it so aggregates can exclude it rather
             // than averaging in a spurious zero. An unresolved fight is NOT flagged - it may simply
-            // have been cut short before anyone swung.
-            NarrativeMode = swings == 0 && fight.IsResolved,
+            // have been cut short before anyone swung. Nor is an unseen conclusion row: it never
+            // carries swings, because its blows are the group's.
+            NarrativeMode = swings == 0 && fight.IsResolved && !_conclusionRows.Contains(fight),
             Room = _encounterRoom,
             Weather = _encounterStats.Weather.ToString(),
             Strength = _encounterStats.Strength,
@@ -493,6 +500,29 @@ public sealed class FightHistoryRecorder : IDisposable
             return existing;
 
         return StartFightLocked(npcName, combatEvent);
+    }
+
+    /// <summary>
+    /// The fight an ending event closes. For a Creature, <see cref="FightForLocked"/>. For the unseen
+    /// group it is a row of its own: an ending naming the group concluded ONE unseen participant, so
+    /// it is written as a separate, swing-less fight row with that ending's outcome - under the
+    /// Creature's name when a named line concluded the slot (<see cref="CombatEvent.ConcludedName"/>),
+    /// else under <see cref="AnonymousOpponent.Group"/> - and the group's row, every anonymous blow
+    /// of the encounter, stays open, to be written at the flush with whatever ended the whole
+    /// encounter, or Unresolved. The named row carries no swings, so no species index learns the
+    /// group's blows under the name.
+    /// </summary>
+    private FightAccumulator? EndingFightForLocked(CombatEvent combatEvent)
+    {
+        if (!AnonymousOpponent.IsGroup(combatEvent.NpcName))
+            return FightForLocked(combatEvent);
+        if (_encounterUid is null)
+            return null;
+        var conclusion = new FightAccumulator(
+            combatEvent.ConcludedName ?? AnonymousOpponent.Group, combatEvent.TimestampUtc, _currentWeapon, _staminaRelay.LastKnown, _lastKnownScore);
+        _fightOrder.Add(conclusion);
+        _conclusionRows.Add(conclusion);
+        return conclusion;
     }
 
     private FightAccumulator? StartFightLocked(string npcName, CombatEvent combatEvent)

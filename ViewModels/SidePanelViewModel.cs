@@ -500,21 +500,6 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// the answer.</summary>
     public void AttachReachMarks(ReachMarkIndex index) => _reachMarks = index;
 
-    // Both set once at startup; null in unit/design contexts, where no Creature has a known kind and
-    // nothing is Unseen, so the roster builds as it always did.
-    private SomeKindKnowledge? _someKinds;
-    private Func<UnseenState>? _readUnseen;
-
-    /// <summary>Attaches what this install knows about which anonymous word each species gets
-    /// (MudSharp.Combat.SomeKindKnowledge), so a named Creature can be told apart from - or folded
-    /// into - an unknown badge of the other word.</summary>
-    public void AttachSomeKinds(SomeKindKnowledge knowledge) => _someKinds = knowledge;
-
-    /// <summary>Attaches a read of the combat tracker's Unseen state - how many opponents of each
-    /// word are open and whether the player can see - read once per refresh for the roster's unknown
-    /// badges. A delegate rather than the value, because it changes with every line.</summary>
-    public void AttachUnseen(Func<UnseenState> read) => _readUnseen = read;
-
     public void OnInCombatChanged(bool inCombat)
     {
         MainThread.BeginInvokeOnMainThread(() =>
@@ -569,12 +554,17 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
                 // during this encounter, which by wall-clock necessity is entirely before every fight in
                 // any FUTURE batch, so appending one internally-sorted batch after another can never
                 // require re-sorting what came before it.
+                //
+                // The unseen group's badges join here and only here: which of them fold or lump is
+                // settled by the close (UnseenEndings), so until then the group lives on the rail.
                 var newEndings = new List<CombatEnding>();
                 foreach (var fight in closingSnapshot.Fights)
                 {
-                    if (fight.IsResolved)
+                    if (fight.IsResolved && !UnseenEndings.ShownByEntries(fight))
                         newEndings.Add(EndingFor(fight, _encounterOrdinal, _resetCycle.Ordinal));
                 }
+                newEndings.AddRange(UnseenEndings.For(closingSnapshot.Unseen, closingSnapshot.Fights,
+                    _encounterOrdinal, _resetCycle.Ordinal, _personaSessionId));
                 _endingArchive.AddRange(CombatEndingOrder.Sorted(newEndings));
                 // A fresh immutable copy - see _archiveSnapshot's own remarks on why this is the ONLY
                 // moment it may be rebuilt, and why nothing may ever publish _endingArchive itself.
@@ -845,7 +835,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             // LiveCount, not rows.Count and not TotalCount: only LIVE opponents get a vertical slot
             // now - the resolved ones are in the top-anchored dead strip and have no pane to float
             // over - and the overflow row is surrendered on that same count, which can exceed the
-            // roster's own row cap and of which an unknown badge takes several. A float placed
+            // roster's own row cap and of which an unseen badge takes several. A float placed
             // against either other number would land on a slot the canvas gave to something else.
             CombatFloatRaised.Invoke(new RailFloat(
                 kind, text, i, _live.Roster.LiveCount, combatEvent.TimestampUtc, magnitude));
@@ -943,11 +933,11 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         // which on its own carries neither the read-time awards nor the coalescing.
         var frame = CombatFrameComposer.Compose(new CombatFrameInputs(
             snapshot, deficits, history, nowUtc,
-            InventoryList, _isKnownWeapon, _readUnseen?.Invoke() ?? default,
+            InventoryList, _isKnownWeapon,
             BuildDeadStripHistory(snapshot),
             _tickLoss.LostThisTick, _tickLoss.LastLossUtc, _tickPhase.Anchor,
             _personaName, _staminaAnsiColor,
-            _staminaPool, _swingDamage, _fightHistory, _reachMarks, _someKinds));
+            _staminaPool, _swingDamage, _fightHistory, _reachMarks));
 
         _live = frame.Live;
         if (_glowLevel != frame.GlowLevel)
@@ -990,12 +980,14 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// </summary>
     private IReadOnlyList<CombatEnding> BuildDeadStripHistory(CombatEncounterSnapshot snapshot)
     {
+        // The unseen group's fight and the rows counting concluded are not in the live tail: their
+        // badges join the archive at the close (see OnInCombatChanged).
         var resolvedThisEncounter = 0;
         if (!_currentEncounterArchived)
         {
             foreach (var fight in snapshot.Fights)
             {
-                if (fight.IsResolved)
+                if (fight.IsResolved && !UnseenEndings.ShownByEntries(fight))
                     resolvedThisEncounter++;
             }
         }
@@ -1023,7 +1015,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         var tail = new List<CombatEnding>(resolvedThisEncounter);
         foreach (var fight in snapshot.Fights)
         {
-            if (fight.IsResolved)
+            if (fight.IsResolved && !UnseenEndings.ShownByEntries(fight))
                 tail.Add(EndingFor(fight, _encounterOrdinal, _resetCycle.Ordinal));
         }
 
@@ -1067,6 +1059,18 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
         {
             var ending = endings[i];
             var isFlight = ending.Outcome is FightOutcome.UFled or FightOutcome.UFledFail;
+
+            // An unseen badge sums the awards of the endings it stands for, read afresh every walk:
+            // the archive holds it unscored, and an award can land after the close.
+            if (ending.Awards is { } awards)
+            {
+                var encounter = ending.EncounterOrdinal;
+                endings[i] = ending with
+                {
+                    ScoreAwarded = UnseenEndings.Score(awards, a => AwardFor(encounter, a.Name, a.At)),
+                };
+                continue;
+            }
 
             if (ending.ScoreAwarded is not null)
             {
@@ -1557,7 +1561,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
             fight.NpcName, fight.Outcome, fight.EndedUtc, encounterOrdinal, resetOrdinal,
             ExchangeLines.DealtLine(fight), ExchangeLines.TakenLine(fight),
             AwardFor(encounterOrdinal, fight.NpcName, fight.EndedUtc), fight.Duration,
-            PersonaSessionId: _personaSessionId, WasUnseen: fight.WasUnseen);
+            PersonaSessionId: _personaSessionId);
 
     /// <summary>The award paired to one ending - see <see cref="KillAwardLedger"/>, which owns the
     /// pairing and the reason it is scoped to the frame that produced the ending.</summary>

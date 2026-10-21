@@ -331,7 +331,7 @@ public static class RailSlotGeometry
     /// pane: it is resolved (the dead strip's, not the stack's), the budget ran out before it, or the
     /// panel has no height.
     ///
-    /// <para>An unknown badge that does not fit whole is drawn as tall as the budget leaves - its
+    /// <para>An unseen badge that does not fit whole is drawn as tall as the budget leaves - its
     /// label still says how many it stands for - where a Creature's row either fits or is in the
     /// overflow tail. The canvas's draw loop and every consumer placing something over a row go
     /// through this one function, so they cannot disagree about where a row is.</para>

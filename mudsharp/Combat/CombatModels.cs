@@ -172,13 +172,13 @@ public enum CombatEventKind
     /// "The man fades from view." - the creature turned invisible, under C1 code 04.00.05 ("Normal
     /// creatures becoming invisible"; see <see cref="MudSharp.Models.LineKind.CreatureInvisible"/>).
     ///
-    /// <para>Not a combat state change - the fight runs on exactly as it was - but it is the line
-    /// that explains every line after it. From here MUD2 stops putting the creature's name in its
-    /// sentences and writes "someone" instead ("Someone hits you (103/105).", "You miss someone.",
-    /// "Someone offers to withdraw from your fight if you do likewise."), and the weapon it picks
-    /// up becomes "something". The codes are unchanged - each anonymous line carries the same C08
-    /// sub-code as its named counterpart, confirmed byte for byte on the wire - so only the name is
-    /// lost, and only this line says where it went.</para>
+    /// <para>Not a combat state change - the fight runs on exactly as it was - but from here MUD2
+    /// stops putting the creature's name in its sentences and writes "someone" instead ("Someone hits
+    /// you (103/105).", "You miss someone.", "Someone offers to withdraw from your fight if you do
+    /// likewise."), and the weapon it picks up becomes "something". The codes are unchanged - each
+    /// anonymous line carries the same C08 sub-code as its named counterpart, confirmed byte for byte
+    /// on the wire - so only the name is lost. The creature's row is parked in the unseen group; the
+    /// anonymous lines that follow are the group's, never its.</para>
     ///
     /// <para>Reported for an engaged creature only. Something across the room turning invisible is
     /// not this fight's business, and in the capture that produced this kind the man first faded
@@ -293,21 +293,23 @@ public enum CombatEventKind
     NpcDied,
 
     /// <summary>
-    /// The last Unseen opponent of one word has been named: a Creature the client had never seen
-    /// joined by name after sight returned, with an opponent still open that had announced itself
-    /// anonymously while the player could not see - so that Creature is the one, and the word's own
-    /// row retires. <see cref="CombatEvent.NpcName"/> is the WORD whose row retires;
-    /// <see cref="CombatEvent.RawText"/> is <c>(&lt;name&gt; was the &lt;word&gt;)</c>. Synthesised by
+    /// A named Creature's fight concluded without a line naming its ending: counting handed it the
+    /// outcome (docs/unseen-presentation.md, "Endings"), or it was still parked in the unseen group
+    /// when the encounter closed (<see cref="FightOutcome.FateUnseen"/>). <see cref="CombatEvent.NpcName"/>
+    /// is the Creature, <see cref="CombatEvent.Outcome"/> the outcome. Synthesised by
     /// <c>CombatTracker</c>, not a classified line - a consumer that treats kinds as wire evidence
-    /// must exclude this one, as it does <see cref="EncounterForceEnded"/>.
-    ///
-    /// <para><see cref="CombatEvent.IdentifiedAs"/> is set when the word stood for exactly ONE Unseen
-    /// opponent for the whole encounter: the word's blows are then that Creature's, and the live
-    /// display carries them over to its name instead of leaving a second row. Without it (two or more
-    /// opened under the word, or the identity came from a kill line) the word's row retires on its own
-    /// and the blows stay on the word. The stored history never merges either way.</para>
+    /// must exclude this one, as it does <see cref="EncounterForceEnded"/>. Never scored: the score
+    /// of the anonymous ending behind it is the unseen group's.
     /// </summary>
-    UnseenNamed,
+    UnseenRowEnded,
+
+    /// <summary>
+    /// The encounter's unseen group changed: its count, the rows parked in it, or its history
+    /// entries. <see cref="CombatEvent.Unseen"/> carries the whole new state; NpcName is null.
+    /// Synthesised by <c>CombatTracker</c> after any line, sight change or close that changed it -
+    /// never for one that did not - and a close's always lands before <c>InCombatChanged(false)</c>.
+    /// </summary>
+    UnseenChanged,
 
     /// <summary>
     /// The player has stopped being able to see - blinded, or standing in a dark room.
@@ -356,6 +358,11 @@ public sealed record CombatEvent(
     // depends on whether that container is itself being carried, which the line does not say and
     // the clog's "contents" rows do - see InventoryChangeLines.
     string? Container = null,
-    // Only set on UnseenNamed, and only when the word's blows can be carried over to this name - see
-    // CombatEventKind.UnseenNamed.
-    string? IdentifiedAs = null);
+    // Only set on UnseenRowEnded: the outcome the unseen group's book handed the Creature.
+    FightOutcome? Outcome = null,
+    // Only set on UnseenChanged.
+    UnseenSnapshot? Unseen = null,
+    // Only set on an ending that names the unseen group because a NAMED line concluded an anonymous
+    // slot: the name that line carried ("You have killed the basilisk." in the dark). The fight
+    // records file that conclusion under it.
+    string? ConcludedName = null);

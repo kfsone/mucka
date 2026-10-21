@@ -170,7 +170,7 @@ public sealed class CombatNoveltyTests
             FightOutcome.Interrupted,
             // Display-side only, like Interrupted: never persisted, so never seen here - but a member
             // of the enum, and "not dead" is the right answer if it ever were.
-            FightOutcome.Named,
+            FightOutcome.FateUnseen,
         };
         Assert.Equal(Enum.GetValues<FightOutcome>().ToHashSet(), classified);
     }

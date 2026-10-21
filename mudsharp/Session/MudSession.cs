@@ -440,14 +440,6 @@ public sealed class MudSession : IDisposable
     public string? CurrentDreamword => _currentDreamword;
     public bool InGameMode => _parser.InGameMode;
     public bool InCombat => _combat.InCombat;
-
-    /// <summary>Which anonymous word each species gets, as learned by the combat tracker. Exposed for
-    /// the store that carries it between runs.</summary>
-    public SomeKindKnowledge SomeKindKnowledge => _combat.Knowledge;
-
-    /// <summary>The Unseen opponents open right now, per word, and whether the player can see - what
-    /// the roster sizes its unknown badges from.</summary>
-    public UnseenState Unseen => _combat.Unseen;
     /// <summary>Latest reset-time projection snapshot (target instant + uncertainty + phase).</summary>
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
@@ -1867,7 +1859,10 @@ public sealed class MudSession : IDisposable
         switch (sight)
         {
             case FeiRoomSight.Blind: NoteSightChanged(blind: true, _dark, "items reply blind"); break;
-            case FeiRoomSight.Dark:  NoteSightChanged(_blind, dark: true, "items reply dark"); break;
+            case FeiRoomSight.Dark:
+                NoteSightChanged(_blind, dark: true, "items reply dark");
+                _lastRoomShort = null;   // as for the prose: see NoteDarknessLine
+                break;
             default:                 NoteSightChanged(_blind, dark: false, "items reply"); break;
         }
     }
@@ -1923,18 +1918,23 @@ public sealed class MudSession : IDisposable
     /// the state this whole feature exists to survive. A backstop needs proof and a list clear does
     /// not, so the same line feeds one and not the other.</para>
     ///
-    /// <para>The exit from darkness needs nothing of its own: "It's light enough to see now!" is
-    /// followed by the room short, so <see cref="NoteRoomShort"/> closes on it as it does
-    /// anywhere else.</para>
+    /// <para><b>Darkness forgets the last room short.</b> A dark room sends none, so the last one seen
+    /// is the room before the dark, and a move made in the dark ("It's too dark to see now." on
+    /// entering) leaves it stale. Observed (fixture <c>dark-look-after-light.c1</c>): the light came
+    /// back, the player typed <c>l</c>, and the room short of the room they stood in ("Stable.")
+    /// differed from the stale one ("Ford across river."), while the fight went on. So every start
+    /// of darkness clears it, and the first room short after the dark is a baseline, not a move
+    /// (DarkSightWiringTests.TheFirstRoomShortAfterTheDark_IsABaseline_NotAMove).</para>
     ///
     /// <para>The cost of that: the FIRST step into an unlit room has no signal this client can
-    /// close a fight on - "You move in the darkness..." arrives from the second step onward. An
-    /// encounter left open by an unmatched end survives exactly one dark room.</para>
+    /// close a fight on - "You move in the darkness..." arrives from the second step onward - and the
+    /// first room short after the dark cannot close one either. An encounter left open by an
+    /// unmatched end survives the dark rooms it is carried through.</para>
     ///
     /// <para>Ordering inside the move branch is load-bearing. The backstop runs BEFORE the sight
-    /// change, because <see cref="CombatTracker.NoteCannotSee"/> opens an UnseenEpisode whose
-    /// pre-set is whatever is engaged at that instant - so a roster left over from the room just
-    /// left would be baked into the new room's episode. Nothing is pre-empted by running it first:
+    /// change, because <see cref="CombatTracker.NoteCannotSee"/> parks every row of the open
+    /// encounter - so a roster left over from the room just left would be parked into the unseen
+    /// group of a fight that is already over. Nothing is pre-empted by running it first:
     /// the one captured flee out of a dark room prints <c>You have fled by going out.</c> on the
     /// line ABOVE the move line, so the fight is already closed and the backstop is a no-op.</para>
     /// </summary>
@@ -1946,12 +1946,16 @@ public sealed class MudSession : IDisposable
         if (string.IsNullOrEmpty(text))
             return;
         if (text.StartsWith("It's too dark to see now", StringComparison.Ordinal))
+        {
             NoteSightChanged(_blind, dark: true, "too dark to see");
+            _lastRoomShort = null;   // see the remarks: the next room short is a baseline
+        }
         else if (text.StartsWith("You move in the darkness", StringComparison.Ordinal))
         {
             // The move is the room change, and this is the only place a dark room ever admits to one.
             // Before the sight change, not after - see the remarks.
             _combat.NoteRoomChanged(CombatClock());
+            _lastRoomShort = null;
             NoteSightChanged(_blind, dark: true, "moving in the darkness");
         }
         else if (text.StartsWith("It's light enough to see now", StringComparison.Ordinal))

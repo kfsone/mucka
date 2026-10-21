@@ -162,12 +162,12 @@ public partial class GamePage : ContentPage
     private readonly RailFloatLayer?[] _combatFloatLayers = new RailFloatLayer?[RailFloatBudget.MaxInFlight];
     private readonly RailFloatBudget _combatFloatBudget = new();
     private bool _combatFloatsBuilt;
-    // - Unknown badge marquees -
-    // One host per SomeKind, since the roster makes at most one badge per word. Transparent, never
-    // laid out beyond the panel's top-left: the marquee positions its own Composition visual over the
-    // badge's rectangle (see UnseenMarquee), so a badge growing by a slot costs no layout.
-    private readonly BoxView[] _unseenMarqueeHosts = new BoxView[2];
-    private readonly UnseenMarquee?[] _unseenMarquees = new UnseenMarquee?[2];
+    // - Unseen badge marquee -
+    // One host, since the roster makes at most one unseen badge (ParticipantRoster.Build). Transparent,
+    // never laid out beyond the panel's top-left: the marquee positions its own Composition visual over
+    // the badge's rectangle (see UnseenMarquee), so a badge growing by a slot costs no layout.
+    private readonly BoxView[] _unseenMarqueeHosts = new BoxView[1];
+    private readonly UnseenMarquee?[] _unseenMarquees = new UnseenMarquee?[1];
     private bool _unseenMarqueesBuilt;
     // The rail's content box in dp, cached from the canvas's own SizeChanged rather than read from a
     // layout property at spawn time. Reading Width/Height at spawn would be a UI-thread question
@@ -2214,7 +2214,7 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// Puts a marquee around every unknown badge the rail is drawing and hides the rest. Runs on every
+    /// Puts a marquee around every unseen badge the rail is drawing and hides the rest. Runs on every
     /// Live republish; the marquee itself treats an unchanged rectangle as a no-op, so the per-refresh
     /// cost is the roster walk and a struct compare per badge.
     /// </summary>

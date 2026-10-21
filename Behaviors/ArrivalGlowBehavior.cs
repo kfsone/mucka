@@ -20,8 +20,6 @@ namespace Mucka.Behaviors;
 /// </summary>
 public sealed class ArrivalGlowBehavior : Behavior<View>
 {
-    private static readonly TimeSpan Length = Mucka.Ui.ArrivalLedger.GlowFor;
-
 #if DESKTOP
     private View? _view;
 #endif
@@ -55,7 +53,7 @@ public sealed class ArrivalGlowBehavior : Behavior<View>
         if (started is null) return;
 
         var elapsed = DateTime.UtcNow - started.Value;
-        var remaining = Length - elapsed;
+        var remaining = Mucka.Ui.ArrivalLedger.GlowFor - elapsed;
 
         // The curve sampled over the time left, so a resumed row continues the same curve.
         const int Steps = 12;

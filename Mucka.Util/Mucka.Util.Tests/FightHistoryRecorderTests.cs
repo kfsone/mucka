@@ -533,13 +533,11 @@ public sealed class FightHistoryRecorderTests : IDisposable
     }
 
     /// <summary>
-    /// The player-scoped endings reach every open fight in the pack, not just the one the line named.
-    /// MUD2 zeroes the whole fight count on a death or a flee attempt, so a second creature left
-    /// sitting at <c>Unresolved</c> would put a fight that demonstrably ended into the bucket the
-    /// corpus is searched on when hunting a wording the parser is missing.
+    /// The player's flight reaches every open fight in the pack, not just the one the line named:
+    /// MUD2 zeroes the whole fight count on a flee attempt. A death is the exception - see
+    /// <see cref="APlayerDeath_RecordsOnlyTheKillerAsDied"/>.
     /// </summary>
     [Theory]
-    [InlineData(CombatEventKind.KilledByNpc, FightOutcome.Died)]
     [InlineData(CombatEventKind.YouFled, FightOutcome.UFled)]
     [InlineData(CombatEventKind.YouFleeFailed, FightOutcome.UFledFail)]
     public void APlayerScopedEnding_ResolvesEveryOpenFightInThePack(
@@ -559,6 +557,25 @@ public sealed class FightHistoryRecorderTests : IDisposable
         Assert.Equal(2, rows.Count);
         Assert.Equal(expected.ToString(), Assert.Single(rows, r => r.NpcName == "rat0").Outcome);
         Assert.Equal(expected.ToString(), Assert.Single(rows, r => r.NpcName == "rat1").Outcome);
+    }
+
+    /// <summary>Operator's rule: the death is recorded only under the killer the line names; every
+    /// other fight open then was never seen to end, and is Unresolved as at a force end.</summary>
+    [Fact]
+    public void APlayerDeath_RecordsOnlyTheKillerAsDied()
+    {
+        var store = MakeStore();
+        var recorder = new FightHistoryRecorder(store);
+
+        recorder.OnInCombatChanged(true);
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat0"));
+        recorder.OnCombatEvent(Event(CombatEventKind.FightStart, "rat1", atSecond: 1));
+        recorder.OnCombatEvent(Event(CombatEventKind.KilledByNpc, "rat0", atSecond: 5));
+        recorder.OnInCombatChanged(false);
+
+        var rows = store.Snapshot();
+        Assert.Equal(nameof(FightOutcome.Died), Assert.Single(rows, r => r.NpcName == "rat0").Outcome);
+        Assert.Equal(nameof(FightOutcome.Unresolved), Assert.Single(rows, r => r.NpcName == "rat1").Outcome);
     }
 
     /// <summary>The other half of the pack rule: a withdraw is an agreement with ONE creature, so the

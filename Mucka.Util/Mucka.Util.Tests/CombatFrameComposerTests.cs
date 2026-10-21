@@ -59,7 +59,6 @@ public sealed class CombatFrameComposerTests
             now ?? Now,
             inventory ?? [],
             _ => false,
-            default,
             deadStrip ?? [],
             StaminaLostLastTick: 0,
             LastStaminaLossUtc: DateTime.MinValue,

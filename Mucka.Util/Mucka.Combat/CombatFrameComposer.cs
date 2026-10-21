@@ -12,8 +12,6 @@ namespace Mucka.Combat;
 /// observe it.</param>
 /// <param name="IsKnownWeapon">Whether a carried item has ever been used as a weapon - a delegate
 /// because it reads the fight-history store, which is attached after this class's callers exist.</param>
-/// <param name="Unseen">How many opponents of each anonymous word are open, and whether the player
-/// can see. Read once per frame and never accumulated - see <see cref="ParticipantRoster.Build"/>.</param>
 /// <param name="DeadStripHistory">Prior encounters' endings plus the CURRENT encounter's, already
 /// folded, award-filled and coalesced (<see cref="CombatEndingCoalescer"/>) by the caller
 /// (SidePanelViewModel.BuildDeadStripHistory, which caches against the resolved-fight count and
@@ -31,7 +29,6 @@ public sealed record CombatFrameInputs(
     DateTime NowUtc,
     IReadOnlyList<string> Inventory,
     Func<string, bool> IsKnownWeapon,
-    UnseenState Unseen,
     IReadOnlyList<CombatEnding> DeadStripHistory,
     double StaminaLostLastTick,
     DateTime LastStaminaLossUtc,
@@ -41,8 +38,7 @@ public sealed record CombatFrameInputs(
     StaminaPoolIndex? StaminaPool = null,
     SwingDamageIndex? SwingDamage = null,
     FightHistoryStore? FightHistory = null,
-    ReachMarkIndex? ReachMarks = null,
-    SomeKindKnowledge? SomeKinds = null);
+    ReachMarkIndex? ReachMarks = null);
 
 /// <summary>
 /// One composed frame: the state the canvas draws, and the stamina alarm's level on
@@ -120,10 +116,10 @@ public static class CombatFrameComposer
         var facts = ParticipantFacts.ToParticipantFacts(
             snapshot.Fights, nowUtc, liveWeapon,
             inputs.StaminaPool, inputs.SwingDamage, inputs.FightHistory,
-            inputs.ReachMarks, inputs.SomeKinds, inputs.TickAnchor);
-        // The Unseen state rides in beside the facts: the badges are derived from what is open NOW,
-        // on every refresh, never accumulated - see ParticipantRoster.Build.
-        var roster = ParticipantRoster.Build(facts, inputs.Unseen);
+            inputs.ReachMarks, inputs.TickAnchor);
+        // The unseen group rides in the snapshot beside the fights, in the same event order - see
+        // ParticipantRoster.Build.
+        var roster = ParticipantRoster.Build(facts, snapshot.Unseen);
         // The weapon's own mark: the worst thing the corpus says about this weapon against anything
         // still engaged. Over the FACTS, not the roster rows, so a pack past the row cap still counts.
         var weaponNovelty = CombatNovelty.WeaponRollup(facts);

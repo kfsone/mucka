@@ -35,7 +35,6 @@ public static class ParticipantFacts
         SwingDamageIndex? swingDamage,
         FightHistoryStore? fightHistory,
         ReachMarkIndex? reachMarks,
-        SomeKindKnowledge? someKinds,
         DateTime? tickAnchor)
     {
         var facts = new ParticipantFact[fights.Count];
@@ -59,7 +58,10 @@ public static class ParticipantFacts
             // tell "no pool index in this context" from "an index with nothing on file for this
             // creature" - the second is a real answer about a species and the first is not an answer
             // at all. Either way the rung's own seventh still stands on its own.
-            var pool = staminaPool?.Lookup(fight.NpcName);
+            // The unseen group and the anonymous words are not a species: no historical index is asked
+            // about them, as the value probe and the coalescer already refuse them.
+            var species = !AnonymousOpponent.IsAnonymous(fight.NpcName);
+            var pool = species ? staminaPool?.Lookup(fight.NpcName) : null;
             // The seal's fill, per participant rather than for the primary target alone - the whole
             // point of a seal per slot is that a pack can be read row against row, which a figure only
             // the current target carries cannot support.
@@ -81,9 +83,9 @@ public static class ParticipantFacts
                 // creature with no reading is assumed to be: descriptors print on every landed blow,
                 // so none means untouched. A reading carried over from a recent engagement
                 // (CombatStatsAggregator.HealthCarriesAcrossDisengagementSeconds) counts as a reading.
-                // A diagnose is health seen too, and a measured one: it narrows the bar instead. An
-                // Unseen opponent's anonymous word is not one creature that can be assumed anything,
-                // so it keeps the unknown treatment.
+                // A diagnose is health seen too, and a measured one: it narrows the bar instead. The
+                // unseen group is not one creature that can be assumed anything, so it keeps the
+                // unknown treatment.
                 atMax: (healthRung is null
                         && fight.StaminaReading is null
                         && !AnonymousOpponent.IsAnonymous(fight.NpcName))
@@ -92,12 +94,12 @@ public static class ParticipantFacts
             // profile comes back alongside the species-wide one; both are dictionary lookups under a
             // single lock (SwingDamageIndex's own remarks), and taking them together rather than in
             // two calls halves the locking on a path that runs once per opponent per refresh.
-            var damage = swingDamage?.Lookup(fight.NpcName, fight.NpcWeapon) ?? OpponentDamage.Empty;
+            var damage = (species ? swingDamage?.Lookup(fight.NpcName, fight.NpcWeapon) : null) ?? OpponentDamage.Empty;
             var perBlow = DamagePrediction.PerBlow(
                 fight.YourDamage, fight.YouHits, damage.Outgoing);
             // (None, None) with no store attached (unit/design contexts): no corpus means no evidence
             // either way, and "unfought" is a claim about the corpus rather than the absence of one.
-            var novelty = fightHistory?.NoveltyFor(fight.NpcName, currentWeapon)
+            var novelty = (species ? fightHistory?.NoveltyFor(fight.NpcName, currentWeapon) : null)
                 ?? (NoveltyMark.None, NoveltyMark.None);
 
             facts[i] = new ParticipantFact(
@@ -124,7 +126,7 @@ public static class ParticipantFacts
                 new SwingTempo(fight.YouHits, fight.YouMisses),
                 // The reach mark is per SPECIES and includes this encounter's own blows, so it is the
                 // only figure on this row that can already know about the hit that landed a second ago.
-                reachMarks?.Lookup(fight.NpcName) ?? ReachMark.None,
+                (species ? reachMarks?.Lookup(fight.NpcName) : null) ?? ReachMark.None,
                 // Novelty: has this creature's KIND ever been fought, and ever killed - once bare, once
                 // narrowed to the weapon in hand. Two dictionary probes under one lock, per row.
                 //
@@ -152,11 +154,7 @@ public static class ParticipantFacts
                 // include is damage the player did not deal: NPC-versus-NPC combat is in the corpus,
                 // and a creature being hurt by something else is still a creature being hurt, which is
                 // what the cue claims.
-                TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, tickAnchor),
-                // Which word this species gets when Unseen, if learned. Null for the anonymous words
-                // themselves (they are not a species) and for anything never fought unseen.
-                someKinds?.Known(fight.NpcName),
-                fight.WasUnseen);
+                TickDamageEmphasis.IsOn(fight.HealthReadUtc, nowUtc, tickAnchor));
         }
         return facts;
     }

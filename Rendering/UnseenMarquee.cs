@@ -9,7 +9,7 @@ using Mucka.Terminal;
 namespace Mucka.Rendering;
 
 /// <summary>
-/// The unknown badge's marquee, on WinUI Composition: dots stepping along the badge's edge, yellow
+/// The unseen badge's marquee, on WinUI Composition: dots stepping along the badge's edge, yellow
 /// and orange alternating, just outside the still dashed frame the canvas draws
 /// (<see cref="CombatRailView.DrawUnseenFrame"/>). The operator's cue for "the client cannot say who
 /// this is": motion that reads as a search, on a shape that is otherwise a slot like any other.

@@ -8,9 +8,6 @@ namespace Mucka.Util.Tests;
 /// </summary>
 public class ChatTestCommandTests
 {
-    // A run that is never stopped or released fails here instead of hanging the suite.
-    private static readonly TimeSpan Bound = TimeSpan.FromSeconds(5);
-
     [Theory]
     [InlineData("", ChatTestMode.All)]
     [InlineData("   ", ChatTestMode.All)]
@@ -70,30 +67,42 @@ public class ChatTestCommandTests
         Assert.InRange(atCap / (double)n, 0.0, 0.001);        // e^-8.5 = 0.0002
     }
 
-    // Each pause the run asks for, held until the test releases it or the run cancels it.
+    // Each pause the run asks for, held until the test releases it, or ends it as cancelled once
+    // the run has cancelled its token. Completing a gate runs the run's continuation inline (see
+    // Inline), so the test decides every ordering, including when a stopped run ends.
     private sealed class Pauses
     {
         public readonly List<(TimeSpan Delay, TaskCompletionSource Gate, CancellationToken Token)> Asked = new();
 
         public Task Delay(TimeSpan delay, CancellationToken token)
         {
-            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            token.Register(() => gate.TrySetCanceled(token));
+            var gate = new TaskCompletionSource();
             Asked.Add((delay, gate, token));
             return gate.Task;
         }
 
-        public void ReleaseLast() => Asked[^1].Gate.TrySetResult();
+        public void ReleaseLast() => Asked[^1].Gate.SetResult();
+
+        public void EndCancelled(int index)
+        {
+            var (_, gate, token) = Asked[index];
+            Assert.True(token.IsCancellationRequested);
+            gate.SetCanceled(token);
+        }
     }
 
-    private static async Task Until(Func<bool> condition)
+    // With no synchronization context, an await resumes inline inside the call that completed the
+    // awaited task, so nothing here waits on a scheduler or a clock.
+    private static void Inline(Action body)
     {
-        for (int i = 0; i < 500 && !condition(); i++) await Task.Delay(2);
-        Assert.True(condition(), "timed out");
+        var saved = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(null);
+        try { body(); }
+        finally { SynchronizationContext.SetSynchronizationContext(saved); }
     }
 
     [Fact]
-    public async Task EveryUnit_IsDeliveredAfterItsOwnPause_ThenFinished()
+    public void EveryUnit_IsDeliveredAfterItsOwnPause_ThenFinished() => Inline(() =>
     {
         var draws = new Queue<double>(new[] { 0.0, 1.0, 0.25 });
         var pauses = new Pauses();
@@ -105,21 +114,21 @@ public class ChatTestCommandTests
 
         for (int n = 1; n <= 3; n++)
         {
-            await Until(() => pauses.Asked.Count == n);
+            Assert.Equal(n, pauses.Asked.Count);
             Assert.Equal(n - 1, delivered.Count);   // a pause comes before each unit, the first too
             pauses.ReleaseLast();
         }
-        await task.WaitAsync(Bound);
+        Assert.True(task.IsCompletedSuccessfully);
 
         Assert.Equal(new[] { 1, 2, 3 }, delivered);
         Assert.Equal(new[] { 500.0, 9000.0, 787.68 }, pauses.Asked.Select(p => Math.Round(p.Delay.TotalMilliseconds, 2)));
         Assert.True(finished);
         Assert.False(run.IsRunning);
         Assert.False(run.Stop());   // a finished run is nothing to stop
-    }
+    });
 
     [Fact]
-    public async Task Stop_CancelsThePause_AndDeliversNothingMore()
+    public void Stop_CancelsThePause_AndDeliversNothingMore() => Inline(() =>
     {
         var pauses = new Pauses();
         var run = new ChatTestSlowRun(() => 0.5, pauses.Delay);
@@ -127,23 +136,22 @@ public class ChatTestCommandTests
         bool finished = false;
         var task = run.Start(new[] { 1, 2, 3 }, delivered.Add, () => finished = true, out _);
         pauses.ReleaseLast();
-        await Until(() => pauses.Asked.Count == 2);
+        Assert.Equal(2, pauses.Asked.Count);
 
         Assert.True(run.Stop());
-        await task.WaitAsync(Bound);
+        pauses.EndCancelled(1);
+        Assert.True(task.IsCompletedSuccessfully);
 
         Assert.Equal(new[] { 1 }, delivered);
-        Assert.True(pauses.Asked[1].Token.IsCancellationRequested);
-        Assert.True(pauses.Asked[1].Gate.Task.IsCanceled);
         Assert.False(finished);
         Assert.False(run.IsRunning);
         Assert.False(run.Stop());
-    }
+    });
 
     /// <summary>A pause that elapsed just before the stop still resumes afterwards; it must not
     /// deliver.</summary>
     [Fact]
-    public async Task APauseThatElapsedBeforeTheStop_DeliversNothing()
+    public void APauseThatElapsedBeforeTheStop_DeliversNothing() => Inline(() =>
     {
         var delivered = new List<int>();
         var gate = new TaskCompletionSource();
@@ -153,13 +161,15 @@ public class ChatTestCommandTests
 
         Assert.True(run.Stop());
         gate.SetResult();
-        await task.WaitAsync(Bound);
+        Assert.True(task.IsCompletedSuccessfully);
 
         Assert.Empty(delivered);
-    }
+    });
 
+    /// <summary>The old run's pause ends only after the new run has started, so the old run's
+    /// ending sees the new run as current.</summary>
     [Fact]
-    public async Task Restart_StopsTheOldRun_AndTheOldRunLeavesTheNewOneAlone()
+    public void Restart_StopsTheOldRun_AndTheOldRunLeavesTheNewOneAlone() => Inline(() =>
     {
         var pauses = new Pauses();
         var run = new ChatTestSlowRun(() => 0.5, pauses.Delay);
@@ -169,18 +179,22 @@ public class ChatTestCommandTests
         var second = run.Start(new[] { 10, 20 }, fresh.Add, () => { }, out var stoppedSecond);
         Assert.False(stoppedFirst);
         Assert.True(stoppedSecond);
+        Assert.Equal(2, pauses.Asked.Count);
+        Assert.False(first.IsCompleted);
 
-        await first.WaitAsync(Bound);
+        pauses.EndCancelled(0);
+        Assert.True(first.IsCompletedSuccessfully);
         Assert.Empty(old);
         Assert.True(run.IsRunning);   // the old run's ending did not clear the new one
 
         pauses.ReleaseLast();
-        await Until(() => pauses.Asked.Count == 3);
+        Assert.Equal(3, pauses.Asked.Count);
         pauses.ReleaseLast();
-        await second.WaitAsync(Bound);
+        Assert.True(second.IsCompletedSuccessfully);
         Assert.Equal(new[] { 10, 20 }, fresh);
         Assert.Empty(old);
-    }
+        Assert.False(run.IsRunning);
+    });
 
     [Fact]
     public async Task Start_AsksForARealPause_ByDefault()
@@ -189,6 +203,9 @@ public class ChatTestCommandTests
         var task = run.Start(new[] { 1 }, _ => Assert.Fail("delivered before any pause"), () => { }, out _);
         Assert.True(run.IsRunning);
         Assert.True(run.Stop());
-        await task.WaitAsync(Bound);
+        // A cancelled Task.Delay does not resume the run inline, even under Inline: the run is
+        // still going when Stop returns. The bound only keeps a run that never ends from hanging
+        // the suite.
+        await task.WaitAsync(TimeSpan.FromMinutes(2));
     }
 }

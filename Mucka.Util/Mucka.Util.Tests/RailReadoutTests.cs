@@ -154,16 +154,16 @@ public sealed class RailReadoutTests
         Assert.Equal("you fled", RailReadout.OutcomeWord(FightOutcome.UFled));
     }
 
-    /// <summary>A row retiring because sight returned and the Creature got a name is neither a kill
-    /// nor a loss. Catches it being folded onto "ended" or "killed".</summary>
+    /// <summary>A Creature still parked in the unseen group when the encounter closed: no line said
+    /// how it ended, and the word must not claim either a kill or a loss.</summary>
     [Fact]
-    public void OutcomeWord_NamedIsNeitherAKillNorALoss()
+    public void OutcomeWord_FateUnseenIsNeitherAKillNorALoss()
     {
-        var named = RailReadout.OutcomeWord(FightOutcome.Named);
+        var unseen = RailReadout.OutcomeWord(FightOutcome.FateUnseen);
 
-        Assert.Equal("named", named);
-        Assert.NotEqual(RailReadout.OutcomeWord(FightOutcome.Kill), named);
-        Assert.NotEqual(RailReadout.OutcomeWord(FightOutcome.Died), named);
+        Assert.Equal("fate unseen", unseen);
+        Assert.NotEqual(RailReadout.OutcomeWord(FightOutcome.Kill), unseen);
+        Assert.NotEqual(RailReadout.OutcomeWord(FightOutcome.Died), unseen);
     }
 
     // ---- Ticks ---------------------------------------------------------------------------------

@@ -321,14 +321,12 @@ public class CombatTrackerTests
     }
 
     [Fact]
-    public void NarrativeDeath_AnonymizedBySleepAndBlindness_ResolvesSoleActiveNpc()
+    public void NarrativeDeath_AnonymizedBySleepAndBlindness_IsTheGroups_AndStillClosesEverything()
     {
         // Exact real-capture scenario: the vampire cast blindness mid-fight, then put the player
         // to sleep, then landed the killing blow while blind - MUD2 anonymizes the killer to
-        // "someone" in narrative mode whenever the player is blind. With exactly one active
-        // participant AND the player known to be blind, resolve "someone" back to that NPC rather
-        // than losing attribution entirely. The blindness has to be reported: a line alone says
-        // nothing about why the name is missing (see the sibling below).
+        // "someone" in narrative mode whenever the player is blind. The vampire is the only
+        // participant, and the line still names nobody: the death is the unseen group's.
         var (t, inCombat, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
         t.NoteCannotSee(true, DateTime.UtcNow, "blinded");
@@ -336,38 +334,30 @@ public class CombatTrackerTests
 
         Assert.False(t.InCombat);
         Assert.Equal([true, false], inCombat);
-        Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
-        Assert.Equal("vampire", events.Last().NpcName);
+        Assert.Equal(AnonymousOpponent.Group, events.Last(e => e.Kind == CombatEventKind.KilledByNpc).NpcName);
     }
 
     [Fact]
-    public void NarrativeDeath_AnonymizedWhileSighted_IsSomeoneElse()
+    public void NarrativeDeath_AnonymizedWhileSighted_IsTheGroups()
     {
-        // The same two lines with no blindness reported. Nothing explains the word, so the sole
-        // engaged Creature does not get it: the operator's ruling is that an unexplained anonymous
-        // line is left on the word rather than risk crediting an unannounced Unseen attacker's blow
-        // to the vampire and teaching vampires its kind.
         var (t, _, events) = NewTracker();
         t.Observe(Line("The vampire is looking at you hatefully."), DateTime.UtcNow);
         t.Observe(Line("You have been killed by someone."), DateTime.UtcNow);
 
-        Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
-        Assert.Equal("someone", events.Last().NpcName);
-        Assert.Null(t.Knowledge.Known("vampire"));
+        Assert.False(t.InCombat);
+        Assert.Equal(AnonymousOpponent.Group, events.Last(e => e.Kind == CombatEventKind.KilledByNpc).NpcName);
     }
 
     [Fact]
-    public void NarrativeDeath_AnonymizedWithMultipleActiveNpcs_KeepsAnonymousName()
+    public void NarrativeDeath_AnonymizedWithMultipleActiveNpcs_IsTheGroups()
     {
-        // With more than one active participant there's no safe way to guess which NPC actually
-        // landed the blow - keep the literal "someone" rather than guessing wrong.
         var (t, _, events) = NewTracker();
         t.Observe(Line("The billy goat is glaring at you madly."), DateTime.UtcNow);
         t.Observe(Line("The ram is glaring at you madly."), DateTime.UtcNow);
         t.Observe(Line("You have been killed by someone."), DateTime.UtcNow);
 
-        Assert.Equal(CombatEventKind.KilledByNpc, events.Last().Kind);
-        Assert.Equal("someone", events.Last().NpcName);
+        Assert.False(t.InCombat);
+        Assert.Equal(AnonymousOpponent.Group, events.Last(e => e.Kind == CombatEventKind.KilledByNpc).NpcName);
     }
 
     [Fact]
@@ -1030,51 +1020,58 @@ public class CombatTrackerTests
         Assert.Equal(["water-snake5", "water-snake5"], joined);
     }
 
+    private static UnseenSnapshot LastUnseen(List<CombatEvent> events)
+        => events.LastOrDefault(e => e.Unseen is not null)?.Unseen ?? UnseenSnapshot.Empty;
+
     /// <summary>
     /// "The X has fled by going &lt;dir&gt;." is written from the CREATURE's side and never mentions
     /// the player's fight, so anything leaving the room can print it - a creature disengaging from
-    /// somebody else included. It must therefore not be allowed to identify an Unseen opponent the
-    /// way the kill line does, because that inference is what writes a word into SomeKindKnowledge -
-    /// which is keyed by SPECIES and persisted, so one stray line would mislabel every member of
-    /// that species in every later session.
+    /// somebody else included. Without the fight-end code it is not the player's fight
+    /// (docs/unseen-presentation.md, "Endings"): it concludes no slot and closes nothing.
     /// </summary>
     [Fact]
-    public void ANamedFleeForACreatureNothingEngaged_NeitherNamesAnUnseenNorClosesIt()
+    public void AnUncodedFleeForACreatureNothingEngaged_ConcludesNothing()
     {
-        var (t, _, _) = NewTracker();
+        var (t, _, events) = NewTracker();
         var t0 = DateTime.UtcNow;
 
         t.NoteCannotSee(true, t0, "too dark to see");
         t.Observe(Line("Something is about to attack you."), t0.AddSeconds(1));
-        Assert.Equal(1, t.Unseen.Something);
+        Assert.Equal(1, LastUnseen(events).Count);
 
         // A rat the player never engaged leaves the room.
         t.Observe(Line("The rat3 has fled by going north."), t0.AddSeconds(2));
 
-        // Asserted first because it is the damage that outlives the encounter: Learn normalises to a
-        // species and the row is persisted, so a wrong word here is wrong for that species forever.
-        Assert.Null(t.Knowledge.Known("rat3"));
-        Assert.Equal(1, t.Unseen.Something);
+        Assert.DoesNotContain(events, e => e.Kind == CombatEventKind.NpcFled);
+        Assert.Equal(1, LastUnseen(events).Count);
         Assert.True(t.InCombat);
     }
 
+    /// <summary>The same sentence under C08.11 is an ending of the player's own fight, and a name with
+    /// no row concludes the open slot - shown with the name in it, never opening a row.</summary>
+    [Fact]
+    public void ACodedFleeForACreatureWithNoRow_ConcludesTheSlot()
+    {
+        var (t, _, events) = NewTracker();
+        var t0 = DateTime.UtcNow;
+
+        t.NoteCannotSee(true, t0, "too dark to see");
+        t.Observe(Line("Something is about to attack you."), t0.AddSeconds(1));
+        t.Observe(FightEndLine("The rat3 has fled by going north."), t0.AddSeconds(2));
+
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(events, e => e.Kind == CombatEventKind.NpcFled).NpcName);
+        Assert.Contains(LastUnseen(events).Entries, e => e is { Kind: UnseenBadgeKind.Group, Name: "rat3", Outcome: FightOutcome.CFled });
+        Assert.False(t.InCombat);
+    }
+
     /// <summary>
-    /// What abstaining above costs, and exactly how much of it the next layer pays back. An Unseen
-    /// opponent that flees under a name no swing line ever used loses its end at the flee line, and
-    /// the trailing "You can fight it no longer." closes the ENCOUNTER instead, through
-    /// SoleActiveOnFightEnd, reachable because the skipped flee left _endedThisFrame false.
-    ///
-    /// <para>The Creature is NOT identified, and that half is asserted here rather than left to be
-    /// assumed: the rescue runs End(word) down the anonymous branch, which never reaches
-    /// UnseenEnded, so Knowledge.Learn is not called. An encounter that closes with the species
-    /// still unlearned is the intended outcome - the flee line cannot say whose fight it was, and a
-    /// species learned wrong is learned wrong permanently while an unlearned one is asked again.
-    /// </para>
+    /// The uncoded flee above concludes nothing, and the trailing coded "You can fight it no
+    /// longer." closes the one participant left - the anonymous slot - without naming anyone.
     /// </summary>
     [Fact]
     public void AnUnseenThatFleesUnderItsOwnName_ClosesTheEncounterButNamesNobody()
     {
-        var (t, _, _) = NewTracker();
+        var (t, _, events) = NewTracker();
         var t0 = DateTime.UtcNow;
 
         t.NoteCannotSee(true, t0, "too dark to see");
@@ -1087,8 +1084,7 @@ public class CombatTrackerTests
         t.Observe(FightEndLine("You can fight it no longer."), t0.AddSeconds(3));
 
         Assert.False(t.InCombat);
-        // The encounter is closed and the species is still unknown. Both halves matter: without the
-        // first the fight hangs, and with a wrong second the species is mislabelled for good.
-        Assert.Null(t.Knowledge.Known("rat18"));
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(events, e => e.Kind == CombatEventKind.FightEndOther).NpcName);
+        Assert.DoesNotContain(events, e => e.NpcName == "rat18");
     }
 }

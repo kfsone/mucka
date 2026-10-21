@@ -37,7 +37,7 @@ public sealed class ParticipantFactsTests
         => ParticipantFacts.ToParticipantFacts(
             fights, Now, currentWeapon: "axe0",
             staminaPool: null, swingDamage: null, fightHistory: null,
-            reachMarks: null, someKinds: null, tickAnchor: null);
+            reachMarks: null, tickAnchor: null);
 
     // ---- The two age clamps ----------------------------------------------------------------
 
@@ -176,15 +176,13 @@ public sealed class ParticipantFactsTests
     public void EverDamage_NoIndexHasNoSamples()
         => Assert.False(Map(Fight())[0].EverDamage.HasSamples);
 
-    /// <summary>With no reach index the mark is ReachMark.None, and with no learned kinds the
-    /// anonymous word is null rather than a guess.</summary>
+    /// <summary>With no reach index the mark is ReachMark.None.</summary>
     [Fact]
-    public void ReachAndKind_AreAbsentWithNoIndexAttached()
+    public void Reach_IsAbsentWithNoIndexAttached()
     {
         var fact = Map(Fight())[0];
 
         Assert.Equal(ReachMark.None, fact.Reach);
-        Assert.Null(fact.Kind);
     }
 
     // ---- What travels straight through --------------------------------------------------------

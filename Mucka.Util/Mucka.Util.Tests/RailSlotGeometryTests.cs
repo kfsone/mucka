@@ -65,7 +65,7 @@ public sealed class RailSlotGeometryTests
         Assert.Equal(376.0 - 20.0, bottom.Value.Width, 3);
     }
 
-    // -- rows that span several slots: the unknown badge -------------------------
+    // -- rows that span several slots: the unseen badge -------------------------
 
     private static RosterRow Creature(string name) => new(name, IsLive: true, IsCurrentTarget: false, FightOutcome.Unresolved);
     private static RosterRow Badge(int span) => new(AnonymousOpponent.Thing, IsLive: true, IsCurrentTarget: false, FightOutcome.Unresolved)

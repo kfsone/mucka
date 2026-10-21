@@ -45,18 +45,29 @@ public sealed record SessionCombatTotals(
 
     public bool HasAnything => Fights > 0;
 
-    /// <summary>Folds a finished encounter in. Called once per encounter close.</summary>
+    /// <summary>Folds a finished encounter in. Called once per encounter close. The unseen group's
+    /// fight is not a fight here; each unseen participant concluded with no Creature's fight to stand
+    /// for it is one (<see cref="MudSharp.Combat.UnseenSnapshot.Concluded"/>), as is each slot still
+    /// open at the close (<see cref="MudSharp.Combat.UnseenSnapshot.LeftOpen"/>). A kill is a kill and
+    /// a death a death whether anyone saw it or not.</summary>
     public SessionCombatTotals Accumulate(CombatEncounterSnapshot snapshot)
     {
-        var kills = 0;
-        var deaths = 0;
-        var fled = 0;
+        var unseen = snapshot.Unseen ?? MudSharp.Combat.UnseenSnapshot.Empty;
+        var kills = unseen.Killed;
+        // One player, one death: the aggregator resolves every fight open at a death as Died, so the
+        // encounter counts at most one, whoever - named or unseen - is the killer.
+        var died = unseen.KilledYou > 0;
+        var fled = unseen.Fled;
+        var fights = unseen.Concluded + unseen.LeftOpen;
         foreach (var fight in snapshot.Fights)
         {
+            if (MudSharp.Combat.AnonymousOpponent.IsGroup(fight.NpcName))
+                continue;
+            fights++;
             switch (fight.Outcome)
             {
                 case MudSharp.Combat.FightOutcome.Kill: kills++; break;
-                case MudSharp.Combat.FightOutcome.Died: deaths++; break;
+                case MudSharp.Combat.FightOutcome.Died: died = true; break;
                 // Escapes only. A failed attempt (CFledFail) ended the fight too, but the creature is
                 // still in the room, and a session line reading "3 got away" must not count things
                 // that are standing right there.
@@ -66,9 +77,9 @@ public sealed record SessionCombatTotals(
 
         return new SessionCombatTotals(
             Encounters + 1,
-            Fights + snapshot.Fights.Count,
+            Fights + fights,
             Kills + kills,
-            Deaths + deaths,
+            Deaths + (died ? 1 : 0),
             CFled + fled,
             DamageDealt + snapshot.ApproxDamageDone,
             DamageTaken + snapshot.ApproxDamageTaken,
@@ -129,8 +140,10 @@ public sealed record SessionCombatTotals(
 /// this row. Zero for a row that stands for one engagement.</param>
 /// <param name="PersonaSessionId">The login (persona session) this ending belongs to
 /// (<c>SidePanelViewModel.OnGameModeEntered</c>).</param>
-/// <param name="WasUnseen">The fight opened under "someone"/"something" and was named part-way; the
-/// row is drawn with <see cref="MudSharp.Combat.ParticipantRoster.WasUnseenMark"/> after the name.</param>
+/// <param name="Detail">Drawn after the name on an unseen badge: the name a named ending line gave the
+/// slot it concluded, or the lump's "x3 ()x5" - see <see cref="UnseenEndings"/>.</param>
+/// <param name="Awards">Set only on an unseen badge: the endings whose announced scores
+/// <see cref="ScoreAwarded"/> sums, in place of the row's own name and time.</param>
 public readonly record struct CombatEnding(
     string Name, MudSharp.Combat.FightOutcome Outcome, DateTime? EndedUtc,
     int EncounterOrdinal = 0, int ResetOrdinal = 0,
@@ -140,10 +153,19 @@ public readonly record struct CombatEnding(
     TimeSpan Duration = default,
     int Retries = 0,
     long? PersonaSessionId = null,
-    bool WasUnseen = false)
+    string? Detail = null,
+    IReadOnlyList<MudSharp.Combat.UnseenAward>? Awards = null)
 {
-    /// <summary>The name as drawn - see <see cref="MudSharp.Combat.RosterRow.Label"/>.</summary>
-    public string Label => WasUnseen ? Name + MudSharp.Combat.ParticipantRoster.WasUnseenMark : Name;
+    /// <summary>The name as drawn - <see cref="MudSharp.Combat.AnonymousOpponent.GroupLabel"/> for the
+    /// unseen group - then <see cref="Detail"/> when there is one.</summary>
+    public string Label
+    {
+        get
+        {
+            var name = MudSharp.Combat.AnonymousOpponent.IsGroup(Name) ? MudSharp.Combat.AnonymousOpponent.GroupLabel : Name;
+            return Detail is null ? name : name + " " + Detail;
+        }
+    }
 }
 
 /// <summary>
@@ -166,7 +188,7 @@ public static class CombatEndingCoalescer
     /// it. Operator rule: <paramref name="previous"/> ended in a flight - the creature's or the
     /// player's, failed or not, since an attempt to flee disengages either way - and
     /// <paramref name="next"/> is another flight or a kill; the same creature id, which is not an
-    /// anonymous word (Someone / Something); the same known persona session, with no reset line drawn
+    /// unseen group or an anonymous word (<see cref="MudSharp.Combat.AnonymousOpponent.IsAnonymous"/>); the same known persona session, with no reset line drawn
     /// between them (<see cref="RailSlotGeometry.SeparatorBetween"/>); and at most
     /// <see cref="WindowSeconds"/> between the two endings. A kill takes a fold but never gives one.
     /// Nothing else is consulted.
@@ -256,8 +278,8 @@ public static class CombatEndingOrder
     /// something that just happened.</para>
     ///
     /// <para><b>A STABLE sort</b> (<c>Enumerable.OrderBy</c>, not <c>List.Sort</c> - the latter is not
-    /// guaranteed stable in .NET). Two endings sharing one EndedUtc - simultaneous deaths from a
-    /// single <c>KilledByNpc</c> force-resolve-all, or two nulls - must keep the same relative order
+    /// guaranteed stable in .NET). Two endings sharing one EndedUtc - the killer and the fights a
+    /// single <c>KilledByNpc</c> cuts short, or two nulls - must keep the same relative order
     /// on every call over the same input, or a row with no actual change behind it could still appear
     /// to move between one refresh and the next.</para>
     /// </summary>

@@ -31,7 +31,7 @@ public enum RailFloatKind
 /// moment the event lands, because the roster reorders as a pack fight resolves and a name looked
 /// up later would find a different row.</param>
 /// <param name="LiveCount">How many LIVE opponents that roster covered - RosterPlan.LiveCount,
-/// including any past the roster's own row cap and every opponent an unknown badge stands for, one
+/// including any past the roster's own row cap and every opponent an unseen badge stands for, one
 /// slot each. Needed as well as the index because the rail surrenders one slot to the overflow row
 /// once the opposition outgrows the visible capacity, so whether a given index has a pane of its own
 /// depends on the total.</param>

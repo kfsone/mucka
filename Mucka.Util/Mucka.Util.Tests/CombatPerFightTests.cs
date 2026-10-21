@@ -162,11 +162,11 @@ public sealed class CombatPerFightTests
     }
 
     [Fact]
-    public void Fights_PlayerDeathResolvesEveryOpenFightNotJustTheKillers()
+    public void Fights_PlayerDeathResolvesTheKillerAsDied_AndEveryOtherFightCutShort()
     {
         // CombatTracker emits KilledByNpc once, naming only the killer, then calls EndAll() - no
-        // other fight gets a close event of its own. Leaving the others Unresolved would understate
-        // how badly a pile-on went.
+        // other fight gets a close event of its own. Operator's rule: KILLED YOU only under the
+        // killer; the rest end as at a force end.
         var aggregator = new CombatStatsAggregator();
         aggregator.BeginEncounter(Start);
 
@@ -177,7 +177,8 @@ public sealed class CombatPerFightTests
         var snapshot = aggregator.Snapshot(Start.AddSeconds(3));
 
         Assert.Equal(2, snapshot.Fights.Count);
-        Assert.All(snapshot.Fights, fight => Assert.Equal(FightOutcome.Died, fight.Outcome));
+        Assert.Equal(FightOutcome.Interrupted, snapshot.Fights.Single(f => f.NpcName == "goat0").Outcome);
+        Assert.Equal(FightOutcome.Died, snapshot.Fights.Single(f => f.NpcName == "ram1").Outcome);
     }
 
     [Fact]

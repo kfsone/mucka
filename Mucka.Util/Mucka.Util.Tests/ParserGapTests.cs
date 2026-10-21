@@ -677,12 +677,12 @@ public sealed class ParserGapTests
     /// swings never reached the panel and - the part that mattered - neither did the end, leaving a
     /// fight open against a creature that had agreed to stop fighting.</para>
     ///
-    /// <para>The name is recovered rather than lost: the fade line says which creature went
-    /// anonymous, so every later line is attributed to the man, and the encounter that closes is
-    /// his.</para>
+    /// <para>The fade parks the man in the unseen group; every anonymous line after it is the
+    /// group's, never his. The anonymous withdraw is the one ending, and the man is the one
+    /// participant, so counting hands him the withdraw and the encounter closes.</para>
     /// </summary>
     [Fact]
-    public void InvisibleOpponent_IsStillTheCreatureItWas_AndItsWithdrawStillEndsTheFight()
+    public void InvisibleOpponent_StaysInTheGroup_AndItsWithdrawEndsTheFightByCounting()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -715,14 +715,17 @@ public sealed class ParserGapTests
         Observe(Line("You withdraw from your fight with someone, and that person does too."));
         Assert.False(tracker.InCombat);
 
-        // Every anonymous line lands on the man, because the fade line said which creature he was.
-        Assert.All(seen.Where(e => e.NpcName is not null), e => Assert.Equal("man", e.NpcName));
+        // Every anonymous line is the group's; the named ones are the man's.
+        Assert.All(seen.Where(e => e.NpcName is not null && e.Kind != CombatEventKind.UnseenRowEnded),
+            e => Assert.Equal(e.RawText.Contains("omeone") ? AnonymousOpponent.Group : "man", e.NpcName));
         Assert.Contains(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible);
         var hurt = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
         Assert.Equal(103, hurt.RangeLow);
         Assert.Equal(105, hurt.RangeHigh);
         var ended = Assert.Single(seen, e => e.Kind == CombatEventKind.Withdrawn);
         Assert.Equal("You withdraw from your fight with someone, and that person does too.", ended.RawText);
+        var counted = Assert.Single(seen, e => e.Kind == CombatEventKind.UnseenRowEnded);
+        Assert.Equal(("man", FightOutcome.Withdraw), (counted.NpcName, counted.Outcome));
     }
 
     /// <summary>
@@ -771,13 +774,17 @@ public sealed class ParserGapTests
         Assert.Equal("man", vanished.NpcName);
     }
 
+    /// <summary>The unseen group as the last <see cref="CombatEventKind.UnseenChanged"/> carried it.</summary>
+    private static UnseenSnapshot LastUnseen(List<CombatEvent> seen)
+        => seen.LastOrDefault(e => e.Unseen is not null)?.Unseen ?? UnseenSnapshot.Empty;
+
     /// <summary>
     /// The prose is not what detects it. C1 04.00.05 is ("Normal creatures becoming invisible.",
-    /// mud2_FE4.txt), so a wording nobody has seen still costs only the name - and with one creature
-    /// engaged, not even that.
+    /// mud2_FE4.txt), so a wording nobody has seen still parks the sole opponent; the anonymous blow
+    /// after it is the group's.
     /// </summary>
     [Fact]
-    public void CodedInvisibility_WithAnUnknownWording_StillAnonymisesTheSoleOpponent()
+    public void CodedInvisibility_WithAnUnknownWording_ParksTheSoleOpponent()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -785,18 +792,18 @@ public sealed class ParserGapTests
 
         tracker.Observe(Line("You attack the man, using the broadsword as a weapon."), T0);
         tracker.Observe(InvisibleLine("The man melts into the shadows."), T0.AddSeconds(1));
+        Assert.Equal(["man"], LastUnseen(seen).Parked);
         tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(2));
 
-        Assert.Equal("man", Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
     }
 
     /// <summary>
-    /// Getting the name back. "The man has regained his visibleness!" is verbatim, and after it MUD2
-    /// names him again - so he stops being what a later "someone" means, and a second unseen
-    /// attacker is not silently filed under him.
+    /// "The man has regained his visibleness!" is verbatim, and it promotes nothing: the man comes
+    /// back out of the group on the first swing that names him, and not before.
     /// </summary>
     [Fact]
-    public void RegainingVisibility_StopsBeingWhatSomeoneMeans()
+    public void RegainingVisibility_PromotesNothing_ANamedSwingDoes()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -806,24 +813,23 @@ public sealed class ParserGapTests
         tracker.Observe(Line("The rat0 is glaring at you madly."), T0.AddSeconds(1));
         tracker.Observe(InvisibleLine("The man fades from view."), T0.AddSeconds(2));
 
-        // Two engaged, one of them invisible: "someone" can only be the invisible one.
         tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(3));
-        Assert.Equal("man", seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        Assert.Equal(AnonymousOpponent.Group, seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
 
         tracker.Observe(Line("The man has regained his visibleness!"), T0.AddSeconds(4));
+        Assert.Contains("man", LastUnseen(seen).Parked);
         tracker.Observe(Line("Someone hits you (100/105)."), T0.AddSeconds(5));
+        Assert.Equal(AnonymousOpponent.Group, seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
 
-        // Nothing is invisible now and two creatures are engaged, so the line says nothing about
-        // which - and nothing is invented.
-        Assert.Equal("someone", seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        tracker.Observe(Line("The man hits you (98/105)."), T0.AddSeconds(6));
+        Assert.Equal("man", seen.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        Assert.DoesNotContain("man", LastUnseen(seen).Parked);
     }
 
     /// <summary>
-    /// Two invisible opponents: an anonymous line names neither, and nothing is guessed. The costs
-    /// of abstaining are deliberately different at the two ends of a fight - a swing opens a roster
-    /// entry called "someone", which is true and worth drawing, while an END closes a fight nobody
-    /// is having and leaves the encounter to the backstops, which is the only safe direction in a
-    /// pack.
+    /// Two invisible opponents: an anonymous line names neither, and nothing is guessed. An anonymous
+    /// end concludes one of the two without saying which, so the encounter stays open for the
+    /// other.
     /// </summary>
     [Fact]
     public void TwoInvisibleOpponents_AreNotToldApart_AndNeitherIsClosedByAnAnonymousEnd()
@@ -838,9 +844,9 @@ public sealed class ParserGapTests
         tracker.Observe(InvisibleLine("The thief fades from view."), T0.AddSeconds(3));
 
         tracker.Observe(Line("Someone hits you (103/105)."), T0.AddSeconds(4));
-        Assert.Equal("someone", Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
 
-        // An end that cannot say who closes nobody: the man and the thief are both still swinging.
+        // An end that cannot say who closes one of two: the other is still swinging.
         tracker.Observe(Line("You withdraw from your fight with someone, and that person does too."), T0.AddSeconds(5));
         Assert.True(tracker.InCombat);
     }
@@ -868,8 +874,8 @@ public sealed class ParserGapTests
     ///
     /// <para>It is the ONLY line that opens that encounter, so unmatched the entire fight happens
     /// with the client believing there is no fight at all - no panel, no clog, and nothing for any
-    /// end to close. The creature faded before it was engaged, so there is no name to recover and
-    /// the roster says "someone", which is the truth.</para>
+    /// end to close. The creature faded before it was engaged, so the fight is the unseen
+    /// group's.</para>
     /// </summary>
     [Fact]
     public void AttackingSomethingYouCannotSee_StillOpensTheEncounter()
@@ -877,7 +883,7 @@ public sealed class ParserGapTests
         var events = Observe("You attack someone.");
 
         var start = Assert.Single(events, e => e.Kind == CombatEventKind.FightStart);
-        Assert.Equal("someone", start.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, start.NpcName);
     }
 
     /// <summary>
@@ -935,7 +941,7 @@ public sealed class ParserGapTests
     /// wording, it is that the prose is not load-bearing here.</para>
     /// </summary>
     [Fact]
-    public void CodedFightEnd_ClosesAnInvisibleFight_WhateverTheSentenceSays()
+    public void CodedFightEnd_ClosesAnInvisibleFight_ByCounting()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -948,8 +954,11 @@ public sealed class ParserGapTests
         tracker.Observe(FightEndLine("Someone stops bothering with you."), T0.AddSeconds(4));
 
         Assert.False(tracker.InCombat);
-        // Still his fight: the code says one ended, the fade line says whose.
-        Assert.Equal("man", Assert.Single(seen, e => e.Kind == CombatEventKind.FightEndOther).NpcName);
+        // The code says one ended and the line names nobody: an ending of the group's, which counting
+        // hands to the one participant there is.
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(seen, e => e.Kind == CombatEventKind.FightEndOther).NpcName);
+        var counted = Assert.Single(seen, e => e.Kind == CombatEventKind.UnseenRowEnded);
+        Assert.Equal(("man", FightOutcome.EndOther), (counted.NpcName, counted.Outcome));
     }
 
     /// <summary>
@@ -982,18 +991,16 @@ public sealed class ParserGapTests
         Assert.Equal("(forced end: room changed)", forced.RawText);
     }
 
-    // -- the two anonymous words, and what decides who they mean ---------------------------------
+    // -- the two anonymous words, and what they never decide -------------------------------------
     //
     // Every wording below is verbatim from the wire. "someone" is a person-shaped Creature the
     // player cannot see; "something" is an animal. The word is chosen by the Creature, not by the
-    // cause, so ResolveAnonymous attributes by CLASS: one candidate of the word's kind engaged (a
-    // Creature of that kind or of unknown kind, or an anonymous participant of that word) and the
-    // line is its; two or more and the line keeps the word. Only while the player is known unable to
-    // see, though - sighted, the word is unexplained and stays the word. A fade (04.00.05, elsewhere
-    // in this file) names the one Creature it faded in either state.
+    // cause. An anonymous line never names a Creature, however few could have produced it: it is
+    // the unseen group's (docs/unseen-presentation.md). The word decides only which slot an ending
+    // concludes, and whether a Creature of known class is parked.
 
     [Fact]
-    public void BlindPlayer_SoleAnimalOpponent_SomethingIsThatAnimal()
+    public void BlindPlayer_SoleAnimalOpponent_TheBlowsAreTheGroups()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1007,10 +1014,11 @@ public sealed class ParserGapTests
         // Both lines used to match nothing at all: the anonymous alternatives accepted only
         // "someone", so a blind fight against an animal produced no swing events.
         var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
-        Assert.Equal("water-snake1", hit.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, hit.NpcName);
         Assert.Equal(116, hit.RangeLow);
         var miss = Assert.Single(seen, e => e.Kind == CombatEventKind.Miss);
-        Assert.Equal("water-snake1", miss.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, miss.NpcName);
+        Assert.Equal(["water-snake1"], LastUnseen(seen).Parked);
     }
 
     [Fact]
@@ -1025,18 +1033,17 @@ public sealed class ParserGapTests
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0.AddSeconds(4));
         tracker.Observe(Line("Someone hits you (103/120)."), T0.AddSeconds(4));
 
-        // Run 49: an invisible player announced itself and then hit. Two candidates of the word
-        // "someone" are engaged - the zombie, whose kind nobody has learned, and the participant the
-        // announcement opened - so the blow is the word's own, never the zombie's.
+        // An invisible player announced itself and then hit. The blow is the group's, never the
+        // zombie's, and the zombie - class unknown - is parked until it swings by name again.
         var hits = seen.Where(e => e.Kind == CombatEventKind.HitByNpc).ToList();
         Assert.Equal(2, hits.Count);
         Assert.Equal("zombie5", hits[0].NpcName);
-        Assert.Equal("someone", hits[1].NpcName);
+        Assert.Equal(AnonymousOpponent.Group, hits[1].NpcName);
         Assert.True(tracker.InCombat);
     }
 
     [Fact]
-    public void SightedPlayer_UnannouncedSomeone_StaysTheWord_AndTeachesNothing()
+    public void SightedPlayer_UnannouncedSomeone_IsTheGroups()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1046,19 +1053,18 @@ public sealed class ParserGapTests
         tracker.Observe(Line("The zombie5 hits you (106/120)."), T0.AddSeconds(2));
         tracker.Observe(Line("Someone hits you (103/120)."), T0.AddSeconds(4));
 
-        // Not blind, nothing faded, no announcement: the word has no explanation, and the operator's
-        // ruling is to leave it. Crediting the zombie would also have taught zombies "someone" for
-        // good - and if the blow was an unannounced Unseen attacker's, taught it wrong.
+        // Not blind, nothing faded, no announcement: the line is still the group's, and it parks
+        // the zombie, which could have produced it.
         var hits = seen.Where(e => e.Kind == CombatEventKind.HitByNpc).ToList();
         Assert.Equal(2, hits.Count);
         Assert.Equal("zombie5", hits[0].NpcName);
-        Assert.Equal("someone", hits[1].NpcName);
-        Assert.Null(tracker.Knowledge.Known("zombie5"));
+        Assert.Equal(AnonymousOpponent.Group, hits[1].NpcName);
+        Assert.Equal(["zombie5"], LastUnseen(seen).Parked);
         Assert.True(tracker.InCombat);
     }
 
     [Fact]
-    public void BlindPlayer_SoleCandidate_TakesTheBlow_AndTeachesItsKind()
+    public void BlindPlayer_SoleCandidate_NeverTakesAnAnonymousBlow()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1068,115 +1074,57 @@ public sealed class ParserGapTests
         tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Someone hits you (103/120)."), T0.AddSeconds(4));
 
-        // The same line with the anonymity explained: the zombie is the only thing "someone" can
-        // mean, and the word it was hidden behind is then a fact about zombies.
+        // The zombie is the only thing "someone" could mean, and the blow is still the group's: a
+        // name is credited only by a line carrying it.
         var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
-        Assert.Equal("zombie5", hit.NpcName);
-        Assert.Equal(SomeKind.Someone, tracker.Knowledge.Known("zombie5"));
+        Assert.Equal(AnonymousOpponent.Group, hit.NpcName);
+        Assert.Equal(1, LastUnseen(seen).Count);
     }
 
     [Fact]
-    public void AKnownKind_RulesACreatureOutAsTheOtherWord()
+    public void AKnownKind_IsNotParkedByTheOtherWord()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
         tracker.EventOccurred += seen.Add;
-        tracker.Knowledge.Learn("zombie5", SomeKind.Someone);
 
-        tracker.Observe(Line("You attack the zombie5."), T0);
-        tracker.NoteCannotSee(true, T0, "blinded");
+        tracker.Observe(Line("You attack the thief."), T0);
         tracker.Observe(Line("Something hits you (103/120)."), T0.AddSeconds(2));
 
-        // Zombies are "someone" on this install, so "Something" cannot be the zombie even as the
-        // sole Creature engaged while blind: the blow stays on the word.
-        var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
-        Assert.Equal("something", hit.NpcName);
+        // Thieves are "someone", so "Something" cannot be the thief: he keeps his row, and the blow
+        // is from an opponent nobody announced, which the group counts.
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        Assert.Empty(LastUnseen(seen).Parked);
+        Assert.Equal(1, LastUnseen(seen).Count);
     }
 
     [Fact]
-    public void AKnownKind_NarrowsTwoCandidatesToOne()
+    public void EveryAnonymousStart_IsOneMoreSlot_AndAnAnonymousKillIsOneFewer()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
         tracker.EventOccurred += seen.Add;
-        tracker.Knowledge.Learn("rat0", SomeKind.Something);
-
-        tracker.Observe(Line("You attack the thief."), T0);
-        tracker.Observe(Line("The rat0 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true, T0, "blinded");
-        tracker.Observe(Line("Someone hits you (100/120)."), T0.AddSeconds(2));
-        tracker.Observe(Line("Something hits you (95/120)."), T0.AddSeconds(2));
-
-        // Two engaged, one of known kind: "Someone" can only be the thief (the rat is ruled out) and
-        // "Something" can only be the rat (the thief has just been learned as "someone").
-        var hits = seen.Where(e => e.Kind == CombatEventKind.HitByNpc).ToList();
-        Assert.Equal(["thief", "rat0"], hits.Select(h => h.NpcName));
-        Assert.Equal(SomeKind.Someone, tracker.Knowledge.Known("thief"));
-    }
-
-    [Fact]
-    public void TwoUnattributableBlowsOfOneWord_TeachBothCreaturesTheirKind_WhenTheFightEnds()
-    {
-        var tracker = new CombatTracker();
-
-        tracker.Observe(Line("You attack the rat0."), T0);
-        tracker.Observe(Line("The rat1 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true, T0, "blinded");
-        tracker.Observe(Line("Something hits you (67/120)."), T0.AddSeconds(2));
-        tracker.Observe(Line("Something hits you (60/120)."), T0.AddSeconds(4));
-        Assert.Null(tracker.Knowledge.Known("rat0"));   // not while more words could still arrive
-
-        tracker.NoteRoomChanged(T0.AddSeconds(6));
-
-        // Nothing attributed - two candidates each time - but the episode saw one word and no
-        // other, from an engaged set nobody knows the kind of: with the fight over, every one of
-        // them was a "something".
-        Assert.Equal(SomeKind.Something, tracker.Knowledge.Known("rat0"));
-        Assert.Equal(SomeKind.Something, tracker.Knowledge.Known("rat1"));
-    }
-
-    [Fact]
-    public void AnAnonymousKill_NamesTheCreatureMissingWhenSightReturns()
-    {
-        var tracker = new CombatTracker();
-
-        tracker.Observe(Line("You attack the thief."), T0);
-        tracker.Observe(Line("The rat0 is looking at you hatefully."), T0);
-        tracker.NoteCannotSee(true, T0, "blinded");
-        tracker.Observe(Line("Someone hits you (100/120)."), T0.AddSeconds(2));
-        tracker.Observe(Line("You have killed someone."), T0.AddSeconds(4));
-        tracker.NoteCannotSee(false, T0, "sight returned");
-        tracker.Observe(Line("The rat0 hits you (95/120)."), T0.AddSeconds(6));
-
-        // Sight back, the rat named, the thief not: the "someone" that died was the Creature that is
-        // gone, and the word it died under is its kind.
-        Assert.Equal(SomeKind.Someone, tracker.Knowledge.Known("thief"));
-        Assert.Null(tracker.Knowledge.Known("rat0"));
-    }
-
-    [Fact]
-    public void EveryAnonymousStart_IsOneMoreUnseenOpponent_AndAnAnonymousKillIsOneFewer()
-    {
-        var tracker = new CombatTracker();
 
         tracker.Observe(Line("You attack the rat0."), T0);
         tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(FightStartLine("Something is about to attack you."), T0.AddSeconds(2));
         tracker.Observe(FightStartLine("Something is about to attack you."), T0.AddSeconds(2));
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0.AddSeconds(4));
-        // Swings never open one: the count is of Creatures that announced themselves.
+        // Swings never open one while someone is already unseen: three slots and the parked rat.
         tracker.Observe(Line("Something hits you (90/120)."), T0.AddSeconds(4));
 
-        Assert.Equal(new UnseenState(1, 2, CannotSee: true), tracker.Unseen);
+        Assert.Equal(4, LastUnseen(seen).Count);
+        Assert.True(LastUnseen(seen).CannotSee);
 
         tracker.Observe(Line("You have killed something."), T0.AddSeconds(6));
-        Assert.Equal(new UnseenState(1, 1, CannotSee: true), tracker.Unseen);
+        Assert.Equal(3, LastUnseen(seen).Count);
         Assert.True(tracker.InCombat);
 
+        // Three endings for four participants place nothing; one is left, unseen.
         tracker.Observe(Line("You have killed something."), T0.AddSeconds(8));
         tracker.Observe(Line("You have killed someone."), T0.AddSeconds(8));
-        Assert.Equal(new UnseenState(0, 0, CannotSee: true), tracker.Unseen);
-        Assert.True(tracker.InCombat);   // the rat is still standing
+        Assert.Equal(1, LastUnseen(seen).Count);
+        Assert.True(tracker.InCombat);
     }
 
     [Fact]
@@ -1193,16 +1141,16 @@ public sealed class ParserGapTests
         tracker.Observe(Line("You have killed something."), T0.AddSeconds(4));
         tracker.Observe(Line("Something hits you (80/120)."), T0.AddSeconds(6));
 
-        // Nothing named is engaged, so even the survivor's blow is the word's - but the encounter
-        // closes only when the last of them is gone.
-        Assert.All(seen.Where(e => e.Kind == CombatEventKind.HitByNpc), e => Assert.Equal("something", e.NpcName));
+        // Nothing named is engaged, so every blow is the group's - and the encounter closes only when
+        // the last of them is gone.
+        Assert.All(seen.Where(e => e.Kind == CombatEventKind.HitByNpc), e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
         Assert.True(tracker.InCombat);
         tracker.Observe(Line("You have killed something."), T0.AddSeconds(8));
         Assert.False(tracker.InCombat);
     }
 
     [Fact]
-    public void ACreatureNamedAfterSightReturns_IsTheUnseenThatAnnouncedItselfBlind()
+    public void ACreatureNamedAfterSightReturns_SpendsTheSlotThatAnnouncedItselfBlind()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1214,17 +1162,13 @@ public sealed class ParserGapTests
         tracker.NoteCannotSee(false, T0, "sight returned");
         tracker.Observe(Line("The thief hits you (95/120)."), T0.AddSeconds(4));
 
-        // Operator's case: blind, someone attacks and hits, sight back, the thief hits. The thief IS
-        // the someone - 1-for-1 - so the word's row retires, thieves are learned as "someone", and
-        // the fight goes on under the thief's name.
-        Assert.Equal(0, tracker.Unseen.Someone);
-        Assert.Equal(SomeKind.Someone, tracker.Knowledge.Known("thief"));
-        var named = Assert.Single(seen, e => e.Kind == CombatEventKind.UnseenNamed);
-        Assert.Equal(AnonymousOpponent.Person, named.NpcName);
-        Assert.Equal("(thief was the someone)", named.RawText);
+        // Operator's case: blind, someone attacks and hits, sight back, the thief hits. The thief has
+        // no row of his own, so his first named line spends the open slot: nobody is unseen. The blow
+        // thrown while he was unseen stays the group's.
+        Assert.Equal(0, LastUnseen(seen).Count);
+        Assert.Equal([AnonymousOpponent.Group, "thief"], seen.Where(e => e.Kind == CombatEventKind.HitByNpc).Select(e => e.NpcName));
         Assert.True(tracker.InCombat);
-        // The word's row has left the roster: killing the thief ends the encounter outright, where a
-        // lingering "someone" would keep it open.
+        // Nothing else is open: killing the thief ends the encounter outright.
         tracker.Observe(Line("You have killed the thief."), T0.AddSeconds(6));
         Assert.False(tracker.InCombat);
     }
@@ -1233,19 +1177,21 @@ public sealed class ParserGapTests
     public void AnUnseenAnnouncedWhileSighted_IsAnInvisibleCreature_AndStaysWhenOthersJoin()
     {
         var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
 
         tracker.Observe(FightStartLine("You attack the zombie5, using the croquet mallet as a weapon."), T0.AddSeconds(-5));
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0);
         tracker.Observe(Line("The zombie5 hits you (100/120)."), T0.AddSeconds(2));
 
-        // Run 49: the player could see, so the someone is invisible itself. The zombie announced
-        // itself with its own start, so it is a second Creature, not the someone revealed.
-        Assert.Equal(1, tracker.Unseen.Someone);
-        Assert.Null(tracker.Knowledge.Known("zombie5"));
+        // The zombie opened its own fight with a start line, so its named swing promotes its own row
+        // and spends nothing: the someone is still open.
+        Assert.Equal(1, LastUnseen(seen).Count);
+        Assert.Empty(LastUnseen(seen).Parked);
     }
 
     [Fact]
-    public void ASecondFightInOneBlindSpell_StillLearnsFromItsEpisode()
+    public void ASecondFightInOneBlindSpell_StartsBlind()
     {
         var tracker = new CombatTracker();
 
@@ -1257,38 +1203,35 @@ public sealed class ParserGapTests
         tracker.EventOccurred += seen.Add;
         tracker.Observe(Line("You attack the fox."), T0.AddSeconds(4));
         Assert.True(tracker.InCombat);
-        Assert.True(tracker.Unseen.CannotSee);
-        tracker.Observe(Line("The goat is looking at you hatefully."), T0.AddSeconds(4));
         tracker.Observe(Line("Something hits you (90/120)."), T0.AddSeconds(6));
-        Assert.Equal("something", Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
-        tracker.Observe(Line("Something hits you (80/120)."), T0.AddSeconds(8));
-        tracker.NoteRoomChanged(T0.AddSeconds(10));
 
         // The cannot-see flag never changed between the two fights, so nothing re-reported it; the
-        // second fight's episode has to open with the fight.
-        Assert.Equal(SomeKind.Something, tracker.Knowledge.Known("fox"));
-        Assert.Equal(SomeKind.Something, tracker.Knowledge.Known("goat"));
+        // second encounter's group knows it from the start.
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        Assert.True(LastUnseen(seen).CannotSee);
+        Assert.Equal(["fox"], LastUnseen(seen).Parked);
     }
 
     [Fact]
     public void TheUnseenCount_ClearsWithTheEncounter()
     {
         var tracker = new CombatTracker();
+        var seen = new List<CombatEvent>();
+        tracker.EventOccurred += seen.Add;
         tracker.Observe(FightStartLine("Someone is about to attack you."), T0);
-        Assert.Equal(1, tracker.Unseen.Someone);
+        Assert.Equal(1, LastUnseen(seen).Count);
 
         tracker.NoteRoomChanged(T0.AddSeconds(2));
 
-        Assert.Equal(0, tracker.Unseen.Someone);
+        Assert.Equal(0, LastUnseen(seen).Count);
     }
 
     [Fact]
-    public void ASecondCandidateOfTheWord_MakesLaterBlowsUnresolvable_UntilOneIsGone()
+    public void ASecondSomeone_LeavesEveryAnonymousBlowTheGroups_AndAnAnonymousKillClosesOneOfTwo()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
         tracker.EventOccurred += seen.Add;
-        tracker.Knowledge.Learn("thief", SomeKind.Someone);
 
         tracker.Observe(Line("You attack the thief."), T0);
         tracker.NoteCannotSee(true, T0, "blinded");
@@ -1298,17 +1241,17 @@ public sealed class ParserGapTests
         tracker.Observe(Line("You have killed someone."), T0.AddSeconds(6));
         tracker.Observe(Line("Someone hits you (80/120)."), T0.AddSeconds(8));
 
-        // Operator's case: blind, thief engaged, a second someone announces itself. The first blow was
-        // the thief's (sole candidate); the second landed with two candidates and is nobody's for
-        // good; the anonymous kill takes one candidate away without saying which, and the third blow
-        // is once more the sole survivor's - the roster's survivor being the thief.
+        // Operator's case: blind, thief engaged, a second someone announces itself. Every blow is the
+        // group's; the anonymous kill concluded the thief or the someone, not said which, so one is
+        // still open.
         var hits = seen.Where(e => e.Kind == CombatEventKind.HitByNpc).Select(h => h.NpcName).ToList();
-        Assert.Equal(["thief", "someone", "thief"], hits);
+        Assert.Equal([AnonymousOpponent.Group, AnonymousOpponent.Group, AnonymousOpponent.Group], hits);
         Assert.True(tracker.InCombat);
+        Assert.Equal(1, LastUnseen(seen).Count);
     }
 
     [Fact]
-    public void BlindPlayer_SeveralOpponents_SomethingStaysSomething()
+    public void BlindPlayer_SeveralOpponents_SomethingIsTheGroups()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1319,10 +1262,9 @@ public sealed class ParserGapTests
         tracker.NoteCannotSee(true, T0, "blinded");
         tracker.Observe(Line("Something hits you (67/120)."), T0.AddSeconds(2));
 
-        // Two engaged and both unnamed: the line says nothing about which, and the word is the
-        // truthful name. It is "something", the word the game chose - never collapsed to "someone".
         var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
-        Assert.Equal("something", hit.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, hit.NpcName);
+        Assert.Equal(["rat0", "rat1"], LastUnseen(seen).Parked);
     }
 
     [Fact]
@@ -1340,7 +1282,7 @@ public sealed class ParserGapTests
         tracker.Observe(Line("Something has started to use something to fight!"), T0.AddSeconds(3));
 
         var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.Hit);
-        Assert.Equal("fox", hit.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, hit.NpcName);
         Assert.Equal(5, hit.RangeLow);
         Assert.Equal(9, hit.RangeHigh);
         var equip = Assert.Single(seen, e => e.Kind == CombatEventKind.NpcWeaponEquip);
@@ -1351,12 +1293,12 @@ public sealed class ParserGapTests
     /// The player's own `invis` spell on a Creature. Verbatim: "Your spell worked!" then "The
     /// zombie9 has become invisible!" - and that second line arrives under C1 11.00 (the caster's
     /// spell-result code), NOT the 04.00.05 Creature-fade code the tracker keys on, so it reaches
-    /// the tracker as plain text with no kind. The wording alone has to mark the Creature faded;
-    /// before it did, the next line was "You miss someone." with nothing faded, and the kill at the
-    /// end could only land on the zombie by the old sole-active accident.
+    /// the tracker as plain text with no kind. The wording alone parks the Creature; the anonymous
+    /// lines after it are the group's, and the anonymous kill is the zombie's only by counting - it
+    /// is the one participant.
     /// </summary>
     [Fact]
-    public void PlayerCastInvisibility_MarksTheCreatureFaded_ByWordingAlone()
+    public void PlayerCastInvisibility_ParksTheCreature_ByWordingAlone()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1372,23 +1314,22 @@ public sealed class ParserGapTests
 
         var faded = Assert.Single(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible);
         Assert.Equal("zombie9", faded.NpcName);
-        // Every anonymous line after it is the zombie's - by the fade, not by any sight gate.
+        // Every anonymous line after it is the group's.
         Assert.All(seen.Where(e => e.RawText is { } t && t.Contains("omeone")),
-            e => Assert.Equal("zombie9", e.NpcName));
-        var kill = Assert.Single(seen, e => e.Kind == CombatEventKind.Kill);
-        Assert.Equal("zombie9", kill.NpcName);
+            e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
+        Assert.Equal(AnonymousOpponent.Group, Assert.Single(seen, e => e.Kind == CombatEventKind.Kill).NpcName);
+        var counted = Assert.Single(seen, e => e.Kind == CombatEventKind.UnseenRowEnded);
+        Assert.Equal(("zombie9", FightOutcome.Kill), (counted.NpcName, counted.Outcome));
         Assert.False(tracker.InCombat);
-        Assert.DoesNotContain(seen, e => e.NpcName == AnonymousOpponent.Person);
     }
 
     /// <summary>
     /// The same fade path for a Creature MUD2 calls "something". The fade itself rides the
     /// 04.00.05 code (wording-agnostic by design); the swing lines are verbatim from blind fights
-    /// against animals. Pins that nothing on this path is spelled for one word only - the faded
-    /// Creature owns its anonymous lines whichever word the game chose for it.
+    /// against animals. Pins that nothing on this path is spelled for one word only.
     /// </summary>
     [Fact]
-    public void FadedAnimal_OwnsItsSomethingLines_SameAsAPersonOwnsSomeone()
+    public void FadedAnimal_ItsSomethingLinesAreTheGroups_SameAsSomeone()
     {
         var tracker = new CombatTracker();
         var seen = new List<CombatEvent>();
@@ -1402,8 +1343,8 @@ public sealed class ParserGapTests
 
         Assert.Equal("water-snake1", Assert.Single(seen, e => e.Kind == CombatEventKind.NpcTurnedInvisible).NpcName);
         Assert.All(seen.Where(e => e.RawText is { } t && t.Contains("omething")),
-            e => Assert.Equal("water-snake1", e.NpcName));
-        Assert.DoesNotContain(seen, e => AnonymousOpponent.IsAnonymous(e.NpcName));
+            e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
+        Assert.Equal(["water-snake1"], LastUnseen(seen).Parked);
     }
 
     // -- an opponent the player cannot see announces itself ------------------------------------
@@ -1423,12 +1364,11 @@ public sealed class ParserGapTests
         tracker.Observe(Line("Someone is about to attack you."), T0.AddSeconds(5));
         tracker.Observe(Line("Someone hits you (103/120)."), T0.AddSeconds(7));
 
-        var start = Assert.Single(seen, e => e.Kind == CombatEventKind.FightStart && e.NpcName == AnonymousOpponent.Person);
+        var start = Assert.Single(seen, e => e.Kind == CombatEventKind.FightStart && e.NpcName == AnonymousOpponent.Group);
         Assert.Equal(CombatActor.Npc, start.Actor);
-        // The blow is the newcomer's. The zombie is engaged, named and sighted - nothing about it
-        // went anonymous.
+        // The blow is the group's, never the zombie's.
         var hit = Assert.Single(seen, e => e.Kind == CombatEventKind.HitByNpc);
-        Assert.Equal(AnonymousOpponent.Person, hit.NpcName);
+        Assert.Equal(AnonymousOpponent.Group, hit.NpcName);
         Assert.DoesNotContain(seen, e => e.NpcName == "zombie5" && e.Kind == CombatEventKind.HitByNpc);
     }
 
@@ -1441,9 +1381,9 @@ public sealed class ParserGapTests
             "You hit something (10-14).");
 
         Assert.Equal(CombatEventKind.FightStart, seen[0].Kind);
-        Assert.Equal(AnonymousOpponent.Thing, seen[0].NpcName);
+        Assert.Equal(AnonymousOpponent.Group, seen[0].NpcName);
         Assert.Equal(CombatActor.Npc, seen[0].Actor);
-        Assert.All(seen, e => Assert.Equal(AnonymousOpponent.Thing, e.NpcName));
+        Assert.All(seen.Where(e => e.Kind != CombatEventKind.UnseenChanged), e => Assert.Equal(AnonymousOpponent.Group, e.NpcName));
     }
 
     [Fact]
@@ -1495,10 +1435,11 @@ public sealed class ParserGapTests
         Assert.Null(start.Weapon);
 
         tracker.Observe(FightStartLine("Something lunges at you with a shriek."), T0.AddSeconds(1));
-        Assert.Contains(seen, e => e.Kind == CombatEventKind.FightStart && e.NpcName == AnonymousOpponent.Thing);
-        // And it is COUNTED, like every other anonymous start: a wording nobody has seen must not
-        // open an Unseen opponent the candidate count cannot see.
-        Assert.Equal(1, tracker.Unseen.Something);
+        Assert.Contains(seen, e => e.Kind == CombatEventKind.FightStart && e.NpcName == AnonymousOpponent.Group);
+        // And it is a slot, like every other anonymous start: the count is it and the quazzle, whose
+        // class nothing knows, parked beside it.
+        Assert.Equal(2, LastUnseen(seen).Count);
+        Assert.Equal(["quazzle"], LastUnseen(seen).Parked);
     }
 
     /// <summary>Untagged, the same unknown wording is nothing: the backstop is the code, never the

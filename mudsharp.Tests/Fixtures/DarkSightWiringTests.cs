@@ -8,14 +8,15 @@ namespace MudSharp.Tests.Fixtures;
 /// A dark room anonymises every Creature line exactly as blindness does. Darkness has no C1 code and
 /// no FES column; MUD2 says so in its own prose, three sentences, and in the FEI reply, whose room
 /// section reads "oo" when an FEI is sent at all. This file feeds each signal by itself and asserts
-/// both the flag and what the flag did to the next anonymous blow - <see cref="BlindGateWiringTests"/>
-/// does the same for the blind side, and the FEI reply's "--" is pinned here beside "oo".
+/// both the flag and what the flag did - whether the thief, whom "Something" cannot park, is parked
+/// in the unseen group. <see cref="BlindGateWiringTests"/> does the same for the blind side, and the
+/// FEI reply's "--" is pinned here beside "oo".
 ///
 /// <para>The asymmetry between the two directions is the point, and it is the operator's rule: prose
 /// and the documented "oo" marker SET darkness, and the corroborating signals - the FES dexterity
 /// recovery, the non-empty exits reply - may only CLEAR a darkness whose end this client missed.
-/// Inverted, a dexterity buff or a room with no exits would put the client in the dark and hand every
-/// anonymous blow to whatever it happened to be fighting.</para>
+/// Inverted, a dexterity buff or a room with no exits would put the client in the dark and park
+/// every Creature it was fighting.</para>
 /// </summary>
 public sealed class DarkSightWiringTests : IDisposable
 {
@@ -65,8 +66,19 @@ public sealed class DarkSightWiringTests : IDisposable
 
     public void Dispose() => _session.Dispose();
 
-    private string? WhoHitThePlayer()
-        => _events.LastOrDefault(e => e.Kind == CombatEventKind.HitByNpc)?.NpcName;
+    /// <summary>The rows parked in the unseen group after the anonymous blow, which is always the
+    /// group's. The thief is a seeded "someone", so "Something hits you" cannot park him: he is
+    /// parked only if the player cannot see.</summary>
+    private IReadOnlyList<string> Parked()
+    {
+        Assert.Equal(AnonymousOpponent.Group, _events.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        return _events.LastOrDefault(e => e.Unseen is not null)?.Unseen?.Parked ?? [];
+    }
+
+    /// <summary>Whether the open encounter's unseen group was told the player cannot see. Regaining
+    /// sight promotes no parked row, and a Creature engaged after the dark began is not parked by
+    /// it, so those cases are read here.</summary>
+    private bool GroupCannotSee() => _events.Last(e => e.Unseen is not null).Unseen!.CannotSee;
 
     private string? LastSightRawText()
         => _events.LastOrDefault(e => e.Kind is CombatEventKind.SightLost or CombatEventKind.SightRegained)?.RawText;
@@ -74,21 +86,22 @@ public sealed class DarkSightWiringTests : IDisposable
     /// <summary>Engage a named Creature and put the player in the dark, the way the wire does.</summary>
     private void FightInTheDark()
     {
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Text("It's too dark to see now."));
     }
 
     // -- darkness starts: the two wordings ------------------------------------------------------
 
     [Fact]
-    public void TheTooDarkLine_MakesTheSoleCreatureOwnAnAnonymousBlow()
+    public void TheTooDarkLine_ParksTheEngagedCreature()
     {
         FightInTheDark();
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
         Assert.Equal("(sight lost: too dark to see)", LastSightRawText());
     }
 
@@ -99,12 +112,13 @@ public sealed class DarkSightWiringTests : IDisposable
         // into the dark before this client connected will ever be given. Engaged AFTER the move,
         // because the move is what this line reports and MUD2 refuses to move a fighting player.
         _session.Feed(Text("You move in the darkness..."));
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Empty(Parked());
+        Assert.True(GroupCannotSee());
         Assert.Equal("(sight lost: moving in the darkness)", LastSightRawText());
     }
 
@@ -124,9 +138,9 @@ public sealed class DarkSightWiringTests : IDisposable
         _session.Feed(PromptBytes);
 
         Assert.Contains(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
-        // The rat was left behind with the room. The blow belongs to whatever is in this one, and
+        // The thief was left behind with the room. The blow belongs to whatever is in this one, and
         // nothing here has a name yet.
-        Assert.Equal(AnonymousOpponent.Thing, WhoHitThePlayer());
+        Assert.Empty(Parked());
         // The move did not restore sight - it moved from one dark room into another.
         Assert.True(_session.Combat.CannotSee);
     }
@@ -139,7 +153,7 @@ public sealed class DarkSightWiringTests : IDisposable
         // magical powers have faded, and it disintegrates in your hand." on the line above - with no
         // move at all. Read as a room change it would close a fight the player is still standing in,
         // which is exactly the fight this line most often introduces.
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Text("You take hold of the longsword but its magical powers have faded, and it disintegrates in your hand."));
         _session.Feed(Text("It's too dark to see now."));
         _session.Feed(Text("Something hits you (50/60)."));
@@ -147,7 +161,8 @@ public sealed class DarkSightWiringTests : IDisposable
 
         Assert.DoesNotContain(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     // -- darkness ends: prose, and the coded room entry behind it -------------------------------
@@ -161,10 +176,64 @@ public sealed class DarkSightWiringTests : IDisposable
         _session.Feed(PromptBytes);
 
         Assert.False(_session.Combat.CannotSee);
-        // Sighted with nothing faded, the word is unexplained and stays the word - the blow is not
-        // handed to the rat.
-        Assert.Equal(AnonymousOpponent.Thing, WhoHitThePlayer());
+        // The light promotes nothing: the thief stays parked until a line names him.
+        Assert.Equal(["thief"], Parked());
+        Assert.False(GroupCannotSee());
         Assert.Equal("(sight regained: light enough to see)", LastSightRawText());
+    }
+
+    [Fact]
+    public void TheFirstRoomShortAfterTheDark_IsABaseline_NotAMove()
+    {
+        // The shape of dark-look-after-light.c1: lit room, a move into the dark, a fight, the light
+        // returns, `l`. The room short of the room the player stands in differs from the one before
+        // the dark.
+        _session.Feed(Text("It's too dark to see now."));
+        _session.Feed(Text("You attack the thief."));
+        _session.Feed(Text("It's light enough to see now!"));
+        _session.Feed(RoomShort("Stable"));
+        _session.Feed(PromptBytes);
+
+        Assert.DoesNotContain(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
+        Assert.True(_session.InCombat);
+    }
+
+    [Fact]
+    public void TheFirstRoomShortAfterDarkFallsMidFight_IsABaseline_NotAMove()
+    {
+        // The darkness starts with the fight already open, so the room short before it is the
+        // fight's own room; the next room short differs and still closes nothing.
+        _session.Feed(Text("You attack the thief."));
+        _session.Feed(Text("It's too dark to see now."));
+        _session.Feed(Text("It's light enough to see now!"));
+        _session.Feed(RoomShort("Stable"));
+        _session.Feed(PromptBytes);
+
+        Assert.DoesNotContain(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
+        Assert.True(_session.InCombat);
+    }
+
+    [Fact]
+    public void TheFirstRoomShortAfterAnItemsReplySaysDark_IsABaseline_NotAMove()
+    {
+        // The items reply's "oo" is the only darkness signal here: no prose at all.
+        _session.Feed(Text("You attack the thief."));
+        _session.Feed(Fei("oo", "========", "halberd"));
+        _session.Feed(RoomShort("Stable"));
+        _session.Feed(PromptBytes);
+
+        Assert.DoesNotContain(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
+        Assert.True(_session.InCombat);
+    }
+
+    [Fact]
+    public void ADifferentRoomShortWithNoDarkInBetween_IsStillAMove()
+    {
+        _session.Feed(Text("You attack the thief."));
+        _session.Feed(RoomShort("Stable"));
+        _session.Feed(PromptBytes);
+
+        Assert.Contains(_events, e => e.Kind == CombatEventKind.EncounterForceEnded);
     }
 
     [Fact]
@@ -187,31 +256,32 @@ public sealed class DarkSightWiringTests : IDisposable
     {
         // The discriminating case for the whole feature. FES carries blind "N" for the entire dark
         // fight (run 60) - it has no darkness column at all - so a single flag fed from IsBlind
-        // would be cleared by the first heartbeat and every later anonymous blow would stop being
-        // attributed. Blind and dark are separate reasons and only their OR reaches the tracker.
+        // would be cleared by the first heartbeat in the middle of the dark. Blind and dark are
+        // separate reasons and only their OR reaches the tracker.
         FightInTheDark();
         _session.Feed(Fes('N', 35));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     [Fact]
     public void AFesDexterityCollapse_NeverSetsDark()
     {
         // The dexterity drop accompanies darkness (224 of 276 starts) but it is corroboration, not
-        // detection: read the other way, an ordinary clumsify would blind the client to its own
-        // opponent and teach that species the wrong word for good.
-        _session.Feed(Text("You attack the rat0."));
+        // detection: read the other way, an ordinary clumsify would put the client in the dark and
+        // park its own opponent.
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Fes('N', 95));
         _session.Feed(Fes('N', 35));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.False(_session.Combat.CannotSee);
-        Assert.Equal(AnonymousOpponent.Thing, WhoHitThePlayer());
+        Assert.Empty(Parked());
     }
 
     [Fact]
@@ -231,13 +301,13 @@ public sealed class DarkSightWiringTests : IDisposable
     [Fact]
     public void AnEmptyExitsReply_NeverSetsDark()
     {
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Fex(string.Empty));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.False(_session.Combat.CannotSee);
-        Assert.Equal(AnonymousOpponent.Thing, WhoHitThePlayer());
+        Assert.Empty(Parked());
     }
 
     [Fact]
@@ -260,7 +330,8 @@ public sealed class DarkSightWiringTests : IDisposable
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     // -- the items reply: FEI's room section ----------------------------------------------------
@@ -285,13 +356,14 @@ public sealed class DarkSightWiringTests : IDisposable
         // mud2_FE4.txt: the room section "will be replaced by -- if the player is blinded, and by
         // oo if the room is dark". No prose here at all - the marker alone has to do it.
         var items = CaptureFeiItems();
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Fei("oo", "========", "halberd"));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
         Assert.Equal("(sight lost: items reply dark)", LastSightRawText());
         Assert.Equal(["========", "halberd"], items);
     }
@@ -300,13 +372,14 @@ public sealed class DarkSightWiringTests : IDisposable
     public void TheFeiBlindMarker_SetsBlind_AndIsNotAnObject()
     {
         var items = CaptureFeiItems();
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Fei("--", "========", "halberd"));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
         Assert.Equal("(sight lost: items reply blind)", LastSightRawText());
         Assert.Equal(["========", "halberd"], items);
     }
@@ -340,14 +413,15 @@ public sealed class DarkSightWiringTests : IDisposable
     public void ALitFeiReply_LeavesBlindnessToFes()
     {
         // A listed room section says the room is lit; whether the player is blind is FES's to say.
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Fes('Y', 95));
         _session.Feed(Fei("raven", "========", "halberd"));
         _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     [Fact]
@@ -362,7 +436,8 @@ public sealed class DarkSightWiringTests : IDisposable
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     [Fact]
@@ -384,7 +459,7 @@ public sealed class DarkSightWiringTests : IDisposable
     [Fact]
     public void SightReturningWhileStillInTheDark_LeavesThePlayerUnsighted()
     {
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed([0xA6, 0x9B, 0xFF, 0xFF,
             .. Encoding.Latin1.GetBytes("You have suddenly and magically gone blind!"), 0xFF, 0xFF, 0x0D, 0x0A]);
         _session.Feed(Text("It's too dark to see now."));
@@ -394,6 +469,7 @@ public sealed class DarkSightWiringTests : IDisposable
 
         // Blindness ended; the room is still dark, so the anonymity has not.
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 }

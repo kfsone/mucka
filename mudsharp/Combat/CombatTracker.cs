@@ -49,14 +49,16 @@ namespace MudSharp.Combat;
 /// <para><b>An opponent need not have a name.</b> MUD2 writes "someone" in place of the creature in
 /// every sentence it would otherwise have named - because the creature turned invisible, or because
 /// the player was blinded - and it does so without changing anything else about the sentence or its
-/// C1 code. The whole family is matched in both forms and resolved back to a participant by
-/// <see cref="ResolveAnonymous"/>; <see cref="NpcObject"/> carries the evidence. An unnamed fight is
-/// a fight, and the ends of one still have to close it.</para>
+/// C1 code. The whole family is matched in both forms; <see cref="NpcObject"/> carries the evidence.
+/// An anonymous line never names anyone: it goes to the encounter's one unseen group
+/// (<see cref="AnonymousOpponent.Group"/>), kept by an <see cref="UnseenBook"/> per encounter, which
+/// owns the rules of docs/unseen-presentation.md. An unnamed fight is a fight, and the ends of one
+/// still have to close it.</para>
 ///
 /// <para><b>A new encounter can begin in the same frame.</b> Nothing here waits for a frame to end
 /// before opening the next encounter, and it must not: MUD2 will happily kill the last creature of one
 /// encounter and have the next thing turn on the player in the same output. <see cref="Begin"/> keeps
-/// one encounter open for as long as any fight is active and <see cref="End"/> closes it the moment the
+/// one encounter open for as long as any fight is active and <see cref="Ending"/> closes it the moment the
 /// last one ends, so consecutive engagements are consecutive encounters - which is what they are,
 /// each with its own attack command and its own weapon selection.</para>
 ///
@@ -95,13 +97,13 @@ public sealed class CombatTracker
     /// only that one goes anonymous and anything else in the room is still named; or the PLAYER was
     /// blinded, in which case everything is. Both are on the wire in the same session.</para>
     ///
-    /// <para><b>The word is chosen by the Creature, not by the cause.</b> The man, the thief and the
-    /// run-49 attacker are all "someone"; a water-snake, a fox, an eagle and a rat pack fought blind
+    /// <para><b>The word is chosen by the Creature, not by the cause.</b> The man, the thief and an
+    /// invisible player are all "someone"; a water-snake, a fox, an eagle and a rat pack fought blind
     /// are all "something" - across every coded C08 line in the corpus, with no counter-example. It
     /// coincides with the pronoun the game already uses for each ("You can fight him no longer." /
     /// "You can fight it no longer."). Both alternatives are accepted below and the matched word is
-    /// carried through <see cref="ResolveAnonymous"/>, because a blind fight against an animal used to
-    /// produce ZERO swing events: "Something hits you (116/120)." matched nothing at all.</para>
+    /// handed to the book with the line, so a blind fight against an animal ("Something hits you
+    /// (116/120).") produces its swing events.</para>
     ///
     /// <para>What is NOT different is the protocol. An anonymous line carries the same C08 sub-code
     /// as its named counterpart, byte for byte: <c>[A3][9B]</c> "You attack someone.",
@@ -111,8 +113,8 @@ public sealed class CombatTracker
     /// the whole family is widened as a family rather than one wording at a time - which is the
     /// failure this file keeps having.</para>
     ///
-    /// <para>The <c>anon</c> group exists to be tested for, never read: see
-    /// <see cref="ResolveAnonymous"/> for what the name becomes.</para>
+    /// <para>The <c>anon</c> group carries the word, which the book uses only to match an ending to a
+    /// slot and to leave a Creature of known class unparked (<see cref="ActorOf"/>).</para>
     /// </summary>
     private const string NpcObject  =
         @"(?:the (?<npc>.+?)|(?<anon>" + AnonymousOpponent.Person + "|" + AnonymousOpponent.Thing + ")|" + PlayerOpponent.Persona + ")";
@@ -219,8 +221,7 @@ public sealed class CombatTracker
     // Non-fightbrief ("narrative") death line - confirmed live against a real capture where the
     // player never enabled fightbrief for that character. "someone" replaces the NPC's name
     // whenever the player is blind at the moment of death (also confirmed live: a vampire that
-    // cast a blindness spell mid-fight). See NpcKilledYouNarrative handling in Observe below for
-    // how the anonymous case is resolved back to a real NPC name when possible.
+    // cast a blindness spell mid-fight).
     private static readonly Regex NpcKilledYouNarrative = new(
         $@"^You have been killed by {NpcObject}\.$", RegexOptions.Compiled);
     private static readonly Regex MutualWithdraw = new(
@@ -384,11 +385,20 @@ public sealed class CombatTracker
     /// not read, which is the reverse of <see cref="NpcFadedFromView"/> and of every other pairing
     /// in this file.
     ///
+    /// <para>Matched so that it reaches no later pattern, and acted on by nothing: a visibility line
+    /// promotes no parked row, only a swing carrying the name does (docs/unseen-presentation.md).</para>
+    ///
     /// <para>The possessive varies with the creature, so it is left loose. Nothing else in the
     /// sentence is.</para>
     /// </summary>
     private static readonly Regex NpcRegainedVisibility = new(
         $@"^{NamedSubject} (?:has regained \w+ visibleness|has suddenly become visible)!$", RegexOptions.Compiled);
+
+    /// <summary>"You have just been woken up!" and "The man has woken up!" - verbatim. Starts are
+    /// missing beside these (docs/evidence/unseen-corpus.md, missed starts), so the book stops
+    /// counting for the rest of the encounter (<see cref="UnseenBook.WokenUp"/>).</summary>
+    private static readonly Regex WokenUp = new(
+        $@"^(?:You have just been woken up|{NpcSubject} has woken up)!$", RegexOptions.Compiled);
     private static readonly Regex WeaponSwitch = new(
         @"^You drop your guard as you switch from using the (?<from>.+?) to the (?<to>.+?)\.$", RegexOptions.Compiled);
     private static readonly Regex WeaponBroke = new(@"^The (?<weapon>.+?) breaks to bits\.$", RegexOptions.Compiled);
@@ -450,101 +460,63 @@ public sealed class CombatTracker
         @"^You feel your (?:life|vitality|very soul) [a-z][a-z ]{2,18}\.\.\.$",
         RegexOptions.Compiled);
 
-    // NPC instance names currently engaged (case-insensitive) - non-empty implies InCombat.
+    // Named participants currently engaged (case-insensitive). The unseen group is not here: its
+    // open participants are the book's slots - see OpenParticipants.
     private readonly HashSet<string> _active = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Engaged creatures MUD2 has stopped naming because they turned invisible. Written only by the
-    /// <see cref="LineKind.CreatureInvisible"/> branch, read only by <see cref="ResolveAnonymous"/>,
-    /// and cleared with the encounter.
-    ///
-    /// <para>Encounter-scoped on purpose, and it costs a case we have on the wire: the man there
-    /// first faded while fighting a FOX, and the player attacked him a minute later with
-    /// <c>k man</c>, so the only line that could have taught us his name arrived before there was an
-    /// encounter to hang it on, and that fight opens against "someone". Recording every creature
-    /// that has ever faded would name it - and would also name the wrong one after the player had
-    /// walked two rooms away. A registry that knows which invisible creatures are in THIS room is
-    /// the thing that fixes it, and that belongs with the room's own creature tracking, not here.
-    /// </para>
-    /// </summary>
-    private readonly HashSet<string> _faded = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The unseen group of the current encounter, or of the last one until the next opens.
+    /// Created when an encounter opens, closed when it closes.</summary>
+    private UnseenBook? _book;
 
-    /// <summary>The name this class reports when it cannot work out which Creature an anonymous
-    /// line means: the anonymous word itself, lower-cased, exactly as MUD2 chose it - "someone" for a
-    /// person-shaped Creature, "something" for an animal. Never a guess dressed up as a Creature: a
-    /// roster entry reading "someone" is the honest statement that something is fighting the player
-    /// and nothing has said what. The word is kept rather than collapsed to one constant because the
-    /// split is information the game handed over for free, and a person-shaped unseen attacker is the
-    /// dangerous case.</summary>
-    // Never null: the anon alternatives ARE AnonymousOpponent's constants, so the group can only
-    // ever hold one of them.
-    private static string AnonymousName(Match m) => AnonymousOpponent.Canonical(m.Groups["anon"].Value)!;
+    /// <summary>The award key of each ending the book was handed: the participant name the ending's
+    /// event carried and its timestamp. Per book.</summary>
+    private readonly Dictionary<int, UnseenAward> _stamps = [];
+
+    /// <summary>Rows whose book-assigned outcome has been reported as an
+    /// <see cref="CombatEventKind.UnseenRowEnded"/> event. Per book.</summary>
+    private readonly HashSet<UnseenRow> _reported = [];
+
+    /// <summary>What the last <see cref="CombatEventKind.UnseenChanged"/> carried. Per book.</summary>
+    private UnseenSnapshot _published = UnseenSnapshot.Empty;
+
+    /// <summary>The <see cref="UnseenBook.Version"/> the last snapshot was built from, or -1 when none
+    /// has been built from this book. Per book.</summary>
+    private int _publishedVersion = -1;
+
+    /// <summary>Snapshots built since this tracker was made: a test seam for the rule that a line
+    /// which changes nothing in the book builds nothing.</summary>
+    internal int SnapshotsBuilt { get; private set; }
+
+    /// <summary>When the current encounter opened: where the history places a group badge before any
+    /// ending has, so the snapshot stays equal from line to line until something real changes.</summary>
+    private DateTime _openedUtc;
+
+    /// <summary>The latest timestamp given this encounter to an ending event naming the unseen group. Several of
+    /// them can land in one read under one clock value, and the award pairing keys an ending by name
+    /// and time, so each is placed a tick after the one before.</summary>
+    private DateTime _lastGroupEnding;
+
+    /// <summary>A wake-up line arrived in the frame being read, before any encounter was open to
+    /// hand it to.</summary>
+    private bool _wokenThisFrame;
 
     /// <summary>Whether the PLAYER cannot see - blind, or in a dark room - as last reported by
-    /// <see cref="NoteCannotSee"/>. Opens <see cref="_episode"/> on its rising edge, tells
-    /// <see cref="LearnFrom"/> whether a named line is a survivor being seen again, and is the one
-    /// reason <see cref="ResolveAnonymous"/> accepts for handing a word to a sole candidate without a
-    /// witnessed fade. Player state, not encounter state: it is deliberately NOT cleared when
-    /// an encounter closes, because
-    /// the condition outlives the fight. Distinct from a Creature being UNSEEN because it is
-    /// invisible, which is per Creature and lives in <c>_faded</c>.</summary>
+    /// <see cref="NoteCannotSee"/>. Player state, not encounter state: it is deliberately NOT cleared
+    /// when an encounter closes, because the condition outlives the fight, and an encounter that
+    /// opens while it holds starts with every row parked.</summary>
     private bool _cannotSee;
 
     /// <summary>Exposed for the wiring tests only: the flag as the two sources last left it.</summary>
     internal bool CannotSee => _cannotSee;
 
-    /// <summary>What this install knows about which word each species gets. Read by
-    /// <see cref="ResolveAnonymous"/> to narrow the candidates, written by <see cref="Emit"/> whenever
-    /// an anonymous line is attributed to a named Creature, and by <see cref="_episode"/>'s
-    /// deductions. The store that carries it between runs loads it here and listens to
-    /// <see cref="SomeKindKnowledge.Revealed"/>.</summary>
-    public SomeKindKnowledge Knowledge { get; } = new();
+    /// <summary>The participants still open, from the book (<see cref="UnseenBook.OpenParticipants"/>;
+    /// every named Creature in <see cref="_active"/> has an open row there). The encounter closes when
+    /// this reaches zero.</summary>
+    private int OpenParticipants => _book is { Closed: false } book ? book.OpenParticipants : 0;
 
-    /// <summary>The stretch of the current fight during which the player cannot see, while it lasts
-    /// and until the encounter closes - what the class of an unattributable line teaches about the
-    /// Creatures engaged is deduced here. Opened by <see cref="NoteCannotSee"/>, fed by
-    /// <see cref="Emit"/>, closed with the encounter.</summary>
-    private UnseenEpisode? _episode;
-
-    /// <summary>Open Unseen participants per <see cref="SomeKind"/>, indexed by the enum. Counted at
-    /// the coded starts only - "Someone is about to attack you.", "You attack something." - never at
-    /// a swing, so the figure is the number of Creatures that announced themselves and have not been
-    /// killed or fled since. This is the N the rail's unknown badge is sized by, and the number of
-    /// anonymous candidates <see cref="ResolveAnonymous"/> counts for each word.</summary>
-    private readonly int[] _unseenOpen = new int[2];
-
-    /// <summary>How many of <see cref="_unseenOpen"/> announced themselves while the PLAYER could not
-    /// see. Those are the ones a Creature named for the first time after sight returns can be - the
-    /// operator's 1-for-1 rule - where one announced while the player could see is a Creature that
-    /// is itself invisible, and stays the word however many named Creatures join.</summary>
-    private readonly int[] _unseenBlind = new int[2];
-
-    /// <summary>How many Unseen participants per word have EVER opened this encounter, kills and
-    /// namings included. <see cref="_unseenOpen"/> falls as they leave; this does not. It is what says
-    /// the word's blows all belong to one Creature: a word that has only ever stood for one opponent
-    /// can hand its row to that opponent's name.</summary>
-    private readonly int[] _unseenEver = new int[2];
-
-    /// <summary>The timestamp of the line being observed, for an event synthesised part-way through
-    /// handling it (<see cref="NameAnUnseen"/>).</summary>
-    private DateTime _now;
-
-    /// <summary>The Unseen opponents open right now and whether the player can see - for the roster.
-    /// Read on the UI thread once per refresh, so it is a published snapshot rather than a walk under
-    /// <c>_gate</c>: the Feed thread holds that lock across every consumer of an event, and the UI
-    /// thread must never queue behind it (Invariant #1).</summary>
-    public UnseenState Unseen => _unseenBox.State;
-
-    private sealed record UnseenBox(UnseenState State);
-    private volatile UnseenBox _unseenBox = new(default);
-
-    private void PublishUnseen()
-        => _unseenBox = new UnseenBox(new UnseenState(
-            _unseenOpen[(int)SomeKind.Someone], _unseenOpen[(int)SomeKind.Something], _cannotSee));
-
-    // The encounter closes the instant _active empties, whether that was a kill, a flee, or a
-    // withdrawal - see End(). Begin() keeps the SAME encounter open for as long as _active is
-    // non-empty, so a genuine pack fight (new participants joining while others are still engaged)
+    // The encounter closes the instant OpenParticipants reaches zero, whether that was a kill, a
+    // flee, or a withdrawal - see Ending(). Begin() keeps the SAME encounter open for as long as any
+    // participant is open, so a genuine pack fight (new participants joining while others are still engaged)
     // stays one encounter; a NEW mob attacking after the encounter had already fully ended is a new
     // encounter. Any residual need to keep capturing trailing prose (score, "has just passed on",
     // dropped items) after the close is a LOGGING concern, not a combat-state one - see
@@ -553,9 +525,9 @@ public sealed class CombatTracker
     private bool _encounterOpen;
 
     /// <summary>
-    /// Has a fight already ended in the frame currently arriving? Set by every End/EndAll, cleared at
+    /// Has a fight already ended in the frame currently arriving? Set by every ending and EndAll, cleared at
     /// the frame boundary and when an encounter opens. Read only by
-    /// <see cref="SoleActiveOnFightEnd"/> - see there for the pack fight it exists to stop wrecking.
+    /// <see cref="SoleOnFightEnd"/> - see there for the pack fight it exists to stop wrecking.
     ///
     /// <para><b>The frame boundary is the prompt</b>, which reaches this class as a partial line.
     /// Three things produce one: ClosePromptContext (the prompt itself, gated on PromptAllowed),
@@ -612,12 +584,14 @@ public sealed class CombatTracker
 
     private void ObserveLocked(StyledLine line, DateTime timestampUtc)
     {
-        _now = timestampUtc;
         // The prompt closes a frame, and in game mode it is the only partial line there is (see
         // _endedThisFrame). Whatever ended in the frame just gone cannot be echoed by a line in the
         // next one, so the suppression lapses here rather than lasting the whole encounter.
         if (line.IsPartial)
+        {
             _endedThisFrame = false;
+            _wokenThisFrame = false;
+        }
 
         var text = line.PlainText;
         if (string.IsNullOrEmpty(text))
@@ -626,9 +600,10 @@ public sealed class CombatTracker
         Match m;
         if ((m = PlayerAttackStart.Match(text)).Success)
         {
-            var npc = NameFrom(m);
-            BeginAtStart(npc);
-            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, npc, m.Groups["weapon"].Value, null, null, text);
+            var who = ActorOf(m);
+            StartFight(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, NameOf(who), m.Groups["weapon"].Value, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = PlayerAttackStartUnarmed.Match(text)).Success)
         {
@@ -639,25 +614,27 @@ public sealed class CombatTracker
             // verbatim from the wire, answering `k man` against a man who had turned invisible, and
             // it is the ONLY line opening that encounter. Unmatched, the whole fight happens with
             // the client believing there is no fight.
-            var npc = NameFrom(m);
-            BeginAtStart(npc);
-            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, npc, null, null, null, text);
+            var who = ActorOf(m);
+            StartFight(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Player, NameOf(who), null, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = NpcAggroStart.Match(text)).Success)
         {
-            BeginAtStart(m.Groups["npc"].Value);
+            StartFight(UnseenActor.Named(m.Groups["npc"].Value), timestampUtc);
             Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Npc, m.Groups["npc"].Value, null, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = NpcAboutToAttack.Match(text)).Success)
         {
-            // Named: the Creature it names. Anonymous: a NEW participant carrying the word - not
-            // NameFrom, whose job is to resolve an anonymous line onto a Creature already engaged. An
+            // Named: the Creature it names. Anonymous: a NEW participant carrying the word. An
             // engaged Creature does not announce that it is about to attack; this line is how an
             // opponent the player cannot see joins, and it is the count of such opponents (see
             // LineKind.FightStart).
-            var npc = m.Groups["npc"].Success ? m.Groups["npc"].Value : AnonymousName(m);
-            BeginAtStart(npc);
-            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Npc, npc, null, null, null, text);
+            var who = ActorOf(m);
+            StartFight(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.FightStart, CombatActor.Npc, NameOf(who), null, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = YouHit.Match(text)).Success)
         {
@@ -667,13 +644,15 @@ public sealed class CombatTracker
             // Any hit/miss line is itself proof that NPC is an active combat participant, so it
             // must (re)join _active here - otherwise killing the one NPC that DID get an explicit
             // Begin() empties _active and spuriously closes/reopens the encounter mid-pack-fight.
-            var npc = NameFrom(m);
-            Begin(npc);
+            //
             // Every number parsed here is ASCII digits off the wire. MUD2 has no notion of a
             // locale, so the reader's culture must never reach these - invariant throughout.
-            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, npc, null,
-                int.Parse(m.Groups["lo"].Value, CultureInfo.InvariantCulture),
-                int.Parse(m.Groups["hi"].Value, CultureInfo.InvariantCulture), text);
+            var lo = int.Parse(m.Groups["lo"].Value, CultureInfo.InvariantCulture);
+            var hi = int.Parse(m.Groups["hi"].Value, CultureInfo.InvariantCulture);
+            var who = ActorOf(m);
+            Swing(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, NameOf(who), null, lo, hi, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = YouHitExact.Match(text)).Success)
         {
@@ -682,25 +661,28 @@ public sealed class CombatTracker
             // that every consumer averaging RangeLow/RangeHigh lands on the exact value unchanged -
             // see YouHitExact. Matched AFTER YouHit only for readability; the two cannot collide,
             // since "(5-9)" cannot satisfy a pattern demanding digits-then-close-paren.
-            var npc = NameFrom(m);
-            Begin(npc);
             var exact = int.Parse(m.Groups["dmg"].Value, CultureInfo.InvariantCulture);
-            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, npc, null,
+            var who = ActorOf(m);
+            Swing(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.Hit, CombatActor.Player, NameOf(who), null,
                 exact, exact, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = YouMiss.Match(text)).Success)
         {
-            var npc = NameFrom(m);
-            Begin(npc);
-            Emit(timestampUtc, CombatEventKind.Miss, CombatActor.Player, npc, null, null, null, text);
+            var who = ActorOf(m);
+            Swing(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.Miss, CombatActor.Player, NameOf(who), null, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = NpcHitsYou.Match(text)).Success)
         {
-            var npc = NameFrom(m);
-            Begin(npc);
-            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, npc, null,
+            var who = ActorOf(m);
+            Swing(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, NameOf(who), null,
                 int.Parse(m.Groups["cur"].Value, CultureInfo.InvariantCulture),
                 int.Parse(m.Groups["max"].Value, CultureInfo.InvariantCulture), text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = NpcHitsYouBare.Match(text)).Success)
         {
@@ -708,55 +690,55 @@ public sealed class CombatTracker
             // ranges: the consumers treat a missing stamina reading as "no reading", which is the
             // truth here - inventing 0 would look like a measurement and would poison the running
             // stamina baseline the damage-taken deltas are derived from.
-            var npc = NameFrom(m);
-            Begin(npc);
-            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, npc, null,
+            var who = ActorOf(m);
+            Swing(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.HitByNpc, CombatActor.Npc, NameOf(who), null,
                 null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = NpcMissesYou.Match(text)).Success)
         {
-            var npc = NameFrom(m);
-            Begin(npc);
-            Emit(timestampUtc, CombatEventKind.MissByNpc, CombatActor.Npc, npc, null, null, null, text);
+            var who = ActorOf(m);
+            Swing(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.MissByNpc, CombatActor.Npc, NameOf(who), null, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if ((m = WithdrawOffer.Match(text)).Success)
         {
             // An offer only - does not end the fight until the NPC's own line accepts it.
-            Emit(timestampUtc, CombatEventKind.WithdrawOffer, CombatActor.Player, NameFrom(m), null, null, null, text);
+            Emit(timestampUtc, CombatEventKind.WithdrawOffer, CombatActor.Player, NameOf(ActorOf(m)), null, null, null, text);
         }
         else if ((m = NpcWithdrawOffer.Match(text)).Success)
         {
             // The mirror image, and equally not an end: the creature is asking, and the fight runs on
             // until the player answers (3 of the 5 captured offers are followed by the player killing
-            // that same creature in the next frame). So no End(), and deliberately no Begin() either -
+            // that same creature in the next frame). So no ending, and deliberately no Begin() either -
             // exactly as the player's own offer above does neither. Begin() would let a line that is
             // not a swing open an encounter, and every creature that has ever printed this was already
             // trading blows on the lines immediately above it, so there is nothing for it to rescue.
             // Actor is the NPC: it is the creature making the offer.
-            Emit(timestampUtc, CombatEventKind.NpcWithdrawOffer, CombatActor.Npc, NameFrom(m), null, null, null, text);
+            Emit(timestampUtc, CombatEventKind.NpcWithdrawOffer, CombatActor.Npc, NameOf(ActorOf(m)), null, null, null, text);
         }
         else if ((m = YouKilled.Match(text)).Success)
         {
-            // Emit BEFORE End: End can flip InCombat to false and close out the encounter
-            // (e.g. a ClogWriter listening to InCombatChanged) - the closing line itself must
-            // still land inside that encounter's record, not be dropped after it's already shut.
-            var npc = NameFrom(m);
-            Emit(timestampUtc, CombatEventKind.Kill, CombatActor.Player, npc, null, null, null, text);
-            End(npc);
+            // Written from the player's side, so always an ending of the player's own fight, named or
+            // not. Emitted BEFORE the encounter can close: closing flips InCombat to false (e.g. a
+            // ClogWriter listening to InCombatChanged) - the closing line itself must still land
+            // inside that encounter's record, not be dropped after it's already shut.
+            Ending(ActorOf(m), UnseenOutcome.Killed, ownFight: true,
+                timestampUtc, CombatEventKind.Kill, CombatActor.Player, text);
         }
         else if ((m = NpcDroppedDead.Match(text)).Success)
         {
             // The eighth end - you lost the creature (FightOutcome.NoMore). It died without the
             // player landing the last blow, so no "You have killed the X." arrives to close it. Actor is the NPC, not the player -
             // whatever finished it, it was not our swing, and the line does not say whose poison it
-            // was. Emitted before End for the same reason the kill above is: End can flip InCombat
-            // false, and a listener that closes its record on that must still receive this line.
+            // was. Uncoded, so only for a creature engaged; a named ending of an engaged creature is
+            // its row's whatever the code says.
             var deadNpc = m.Groups["npc"].Value;
             if (_active.Contains(deadNpc))
-            {
-                Emit(timestampUtc, CombatEventKind.NpcDied, CombatActor.Npc, deadNpc, null, null, null, text);
-                End(deadNpc);
-            }
+                Ending(UnseenActor.Named(deadNpc), UnseenOutcome.Died, ownFight: true,
+                    timestampUtc, CombatEventKind.NpcDied, CombatActor.Npc, text);
         }
         else if ((m = NpcPassedOn.Match(text)).Success)
         {
@@ -766,22 +748,20 @@ public sealed class CombatTracker
             // let the event stand in the clog as the evidence that a line went unmatched.
             var goneNpc = m.Groups["npc"].Value;
             if (_active.Contains(goneNpc))
-            {
-                Emit(timestampUtc, CombatEventKind.NpcDied, CombatActor.Npc, goneNpc, null, null, null, text);
-                End(goneNpc);
-            }
+                Ending(UnseenActor.Named(goneNpc), UnseenOutcome.Died, ownFight: true,
+                    timestampUtc, CombatEventKind.NpcDied, CombatActor.Npc, text);
         }
         else if ((m = NpcKilledYou.Match(text)).Success)
         {
-            Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, NameFrom(m), null, null, null, text);
+            PlayerKilled(ActorOf(m), timestampUtc, text);
             // Player death ends the WHOLE encounter unconditionally - a dead player cannot keep
             // fighting anyone else in the same room, regardless of how many other NPCs are still
-            // engaged. Using the ordinary single-NPC End() here would leave the rest of _active
+            // engaged. Using the ordinary single-NPC Ending() here would leave the rest of _active
             // dangling open (a latent bug: death is routinely followed immediately by a
             // disconnect/quit with no further lines to ever empty it), so the encounter would
             // linger open until ForceEnd's generic "reset/disconnect" close instead of a clean,
             // correctly-attributed KilledByNpc close.
-            EndAll();
+            EndAll(timestampUtc);
         }
         else if ((m = NpcKilledYouNarrative.Match(text)).Success)
         {
@@ -789,12 +769,10 @@ public sealed class CombatTracker
             // be the ONLY combat line we can classify in an entire narrative-mode fight - treat
             // it as authoritative regardless. When blind, the game says "someone" instead of naming
             // the killer - the live scenario that surfaced this gap was a single vampire that
-            // blinded then slept the player before landing the killing blow - and that is the same
-            // substitution an invisible opponent produces, so it resolves through the same rule as
-            // every other anonymous line, cautions included. See ResolveAnonymous.
-            var npc = NameFrom(m);
-            Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, npc, null, null, null, text);
-            EndAll();
+            // blinded then slept the player before landing the killing blow - and the line then
+            // names the unseen group, never a Creature.
+            PlayerKilled(ActorOf(m), timestampUtc, text);
+            EndAll(timestampUtc);
         }
         else if ((m = MutualWithdraw.Match(text)).Success || (m = PlayerMutualWithdraw.Match(text)).Success)
         {
@@ -806,10 +784,10 @@ public sealed class CombatTracker
             // accepted ("The banshee withdraws from your fight, and so do you.") or the player did
             // ("You withdraw from your fight with someone, and that person does too."). They mean
             // the same thing and are reported as one kind. Actor stays the NPC in both, because
-            // Withdrawn is an agreement rather than an act by either side.
-            var npc = NameFrom(m);
-            Emit(timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, npc, null, null, null, text);
-            End(npc);
+            // Withdrawn is an agreement rather than an act by either side. Both say "your fight", so
+            // both are endings of the player's own fight.
+            Ending(ActorOf(m), UnseenOutcome.Withdrew, ownFight: true,
+                timestampUtc, CombatEventKind.Withdrawn, CombatActor.Npc, text);
         }
         else if ((m = NpcFleeFailed.Match(text)).Success)
         {
@@ -829,56 +807,11 @@ public sealed class CombatTracker
             //
             // Per-creature, not EndAll: only this creature's fight ended, and anything else in a pack
             // is still swinging.
-            //
-            // Roster-scoped, exactly as the two ambient death lines above are. This sentence is
-            // written from the CREATURE's side and never mentions the player's fight, so anything
-            // leaving the room can print it - including a creature disengaging from somebody else.
-            // An off-roster name must therefore not reach End, where a named end for a Creature this
-            // encounter never engaged is read as identifying an Unseen opponent. That reading rests
-            // on the kill line, which is written from the PLAYER's side and so can only be about the
-            // player's own fight; taken from an ambient line it spends an Unseen slot on a passer-by
-            // and writes that word into Knowledge, which is keyed by SPECIES and persisted, so one
-            // stray line mislabels every member of that species in every later session. The
-            // anonymous form is unaffected: ResolveAnonymous returns either a name the roster holds
-            // or the word itself, and the word is on the roster.
-            //
-            // What abstaining costs, in full, because it is more than the line: an Unseen opponent
-            // that flees under a name no swing line ever used loses its end here, and the trailing
-            // "You can fight it no longer." closes the ENCOUNTER instead, through
-            // SoleActiveOnFightEnd, which is reachable precisely BECAUSE this branch left
-            // _endedThisFrame false. (The 27/27 figure on FightEndOther below says that trailing
-            // line arrives after a flee, not that it carries the C1 code SoleActiveOnFightEnd
-            // requires; that path is the one the code tags, and an untagged wording closes nothing.)
-            //
-            // It does NOT identify the Creature. That rescue runs End(word) down the anonymous
-            // branch, which decrements the count and never reaches UnseenEnded, so Knowledge.Learn
-            // is not called and the species stays unlearned - and FightHistoryRecorder files the
-            // fight as FightOutcome.EndOther rather than CFled, so it is not counted as a flee
-            // downstream. Both are deliberate: the line cannot say whose fight it was, and a species
-            // learned wrong is learned wrong for good, whereas an unlearned one is asked again.
-            //
-            // The rescue also needs the word to be the SOLE active entry, so it does not reach a
-            // pack: dark, one Unseen open and a named Creature also engaged, the count is two and
-            // SoleActiveOnFightEnd returns null. Nothing closes, which is the right answer with two
-            // candidates open, and the room-change backstop - now firing on "You move in the
-            // darkness..." - is the floor under it.
-            var npc = NameFrom(m);
-            if (_active.Contains(npc))
-            {
-                Emit(timestampUtc, CombatEventKind.NpcFleeFailed, CombatActor.Npc, npc, null, null, null, text);
-                End(npc);
-            }
+            CreatureFlight(line, m, UnseenOutcome.FleeFailed, CombatEventKind.NpcFleeFailed, timestampUtc, text);
         }
         else if ((m = NpcFled.Match(text)).Success)
         {
-            // Roster-scoped for the reason spelled out on NpcFleeFailed above: the subject form is
-            // ambient, and an end line nothing engaged must not be allowed to name an Unseen.
-            var npc = NameFrom(m);
-            if (_active.Contains(npc))
-            {
-                Emit(timestampUtc, CombatEventKind.NpcFled, CombatActor.Npc, npc, null, null, null, text);
-                End(npc);
-            }
+            CreatureFlight(line, m, UnseenOutcome.Fled, CombatEventKind.NpcFled, timestampUtc, text);
         }
         else if (YouFleeFailed.IsMatch(text))
         {
@@ -892,14 +825,14 @@ public sealed class CombatTracker
             // Unlike a withdraw (which is an agreement with one creature), this is the player's own
             // combat state being reset, so it cannot be scoped to a single opponent.
             Emit(timestampUtc, CombatEventKind.YouFleeFailed, CombatActor.Player, null, null, null, null, text);
-            EndAll();
+            EndAll(timestampUtc);
         }
         else if (YouFled.IsMatch(text))
         {
             // One flee command can end several simultaneous fights at once (confirmed offline:
             // a single flee line closed two concurrent rat fights) - close every active NPC.
             Emit(timestampUtc, CombatEventKind.YouFled, CombatActor.Player, null, null, null, null, text);
-            EndAll();
+            EndAll(timestampUtc);
         }
         else if ((m = FightEndOther.Match(text)).Success)
         {
@@ -926,15 +859,29 @@ public sealed class CombatTracker
             // Not merely tidy: FightHistoryRecorder has no in-combat guard, so a named event is enough
             // to get-or-CREATE a bucket, and one created after the encounter's flush is written out by
             // the next flush as a zero-swing row - a second fight against the same creature that never
-            // happened. The recorder now refuses to create a fight outside an open encounter as well,
+            // happened. The recorder also refuses to create a fight outside an open encounter,
             // so the two layers guard it independently; this side is pinned by
             // CombatTrackerTests.FightEndOther_NamingACreatureWeAreNotFighting_ReportsNoName.
-            var endedNpc = m.Groups["npc"].Success && _active.Contains(m.Groups["npc"].Value)
-                ? m.Groups["npc"].Value
-                : SoleActiveOnFightEnd(line);
-            Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, endedNpc, null, null, null, text);
-            if (endedNpc is not null)
-                End(endedNpc);
+            // A named line stays named: an engaged Creature's own ending, or - coded, with a slot
+            // available - that slot's conclusion with the name kept. A named line for anyone else
+            // is a bystander's and moves nothing; it never becomes an anonymous ending.
+            UnseenActor? ended;
+            if (m.Groups["npc"].Success)
+            {
+                var named = m.Groups["npc"].Value;
+                ended = _active.Contains(named)
+                        || (line.Kind == LineKind.FightEnd && !_endedThisFrame
+                            && _book is { Closed: false, AvailableSlots: > 0 } book && book.Row(named) is null)
+                    ? UnseenActor.Named(named)
+                    : null;
+            }
+            else
+                ended = SoleOnFightEnd(line, PronounWord(text));
+            if (ended is { } who)
+                Ending(who, UnseenOutcome.Ended, ownFight: true,
+                    timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, text);
+            else
+                Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, null, null, null, null, text);
         }
         else if ((m = WeaponSwitch.Match(text)).Success)
         {
@@ -985,11 +932,20 @@ public sealed class CombatTracker
             //
             // An invisible opponent's weapon is anonymous too ("Someone has started to use something
             // to fight!"), and unlike the creature it cannot be recovered - so the weapon is null
-            // rather than the word "something". See this pattern's own remarks.
-            var npc = NameFrom(m);
-            Begin(npc);
-            Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, npc,
-                m.Groups["weapon"].Success ? m.Groups["weapon"].Value : null, null, null, text);
+            // rather than the word "something". See this pattern's own remarks. The anonymous form
+            // is the group's, and only inside an encounter: it is not a start and opens nothing.
+            var who = ActorOf(m);
+            if (who.Name is { } armed)
+            {
+                Begin(armed, timestampUtc);
+                // A Creature first named by its weapon line is engaged: it gets its row, so the
+                // encounter cannot close around it.
+                if (_book!.Row(armed) is not { Open: true })
+                    _book.Start(who);
+            }
+            if (who.Name is not null || _encounterOpen)
+                Emit(timestampUtc, CombatEventKind.NpcWeaponEquip, CombatActor.Npc, NameOf(who),
+                    m.Groups["weapon"].Success ? m.Groups["weapon"].Value : null, null, null, text);
         }
         else if ((m = NpcStaminaRead.Match(text)).Success)
         {
@@ -1004,35 +960,41 @@ public sealed class CombatTracker
         else if (line.Kind == LineKind.CreatureInvisible || NpcFadedFromView.IsMatch(text))
         {
             // The creature turned invisible. Not a state change to the fight - it runs on exactly as
-            // it was - but from here MUD2 stops naming this one and writes "someone" instead, so
-            // this is what lets every later line be attributed to it. See ResolveAnonymous.
+            // it was - but from here MUD2 stops naming this one and writes "someone" instead, so its
+            // row is parked in the unseen group until a line names it again.
             //
             // The code (04.00.05) is what detects it and the prose only reads the name out, which is
             // the arrangement LineKind.FightEnd already uses. With a wording we do not know and one
-            // creature engaged there is no ambiguity about which one went; with several there is,
-            // and marking the wrong one would misattribute the rest of the fight, so it abstains.
+            // creature engaged, that one is parked; with several, none is. A wrong park costs a row
+            // drawn inside the group for a moment, never a credit.
             //
             // Engaged creatures only, for the reason the health-rung lines give: something across
             // the room turning invisible is not this fight's business. It costs the case on the wire
-            // where the man faded while fighting a FOX and the player attacked him afterwards - see
-            // _faded for why that is not fixed here.
+            // where the man faded while fighting a FOX and the player attacked him afterwards: that
+            // fight opens against the unseen group.
             var named = NpcFadedFromView.Match(text);
             var gone = named.Success ? named.Groups["npc"].Value
                      : _active.Count == 1 ? _active.First()
                      : null;
             if (gone is not null && _active.Contains(gone))
             {
-                _faded.Add(gone);
+                if (_book is { Closed: false } book)
+                    book.Faded(gone);
                 Emit(timestampUtc, CombatEventKind.NpcTurnedInvisible, CombatActor.Npc, gone, null, null, null, text);
+                PublishUnseen(timestampUtc);
             }
         }
-        else if ((m = NpcRegainedVisibility.Match(text)).Success)
+        else if (NpcRegainedVisibility.IsMatch(text))
         {
-            // "The man has regained his visibleness!" - the anonymity is over and MUD2 is naming him
-            // again, so he stops being what "someone" resolves to. Silent: nothing about the fight
-            // changed, and the line names the creature itself, so there is nothing here a consumer
-            // could not read off the next ordinary combat line.
-            _faded.Remove(m.Groups["npc"].Value);
+            // "The man has regained his visibleness!" - silent, and it promotes nothing: only a swing
+            // line carrying the name brings a parked row back.
+        }
+        else if (WokenUp.IsMatch(text))
+        {
+            if (_book is { Closed: false } book)
+                book.WokenUp();
+            else
+                _wokenThisFrame = true;
         }
         else if (InventoryChangeLines.TryParse(text, out var moveKind, out var movedItem, out var movedInto))
         {
@@ -1073,27 +1035,30 @@ public sealed class CombatTracker
             // coded. The prose here only says WHICH Creature and who moved first; an unknown
             // wording costs the weapon, never the fight. Deliberately last in the chain, so the
             // wordings above keep supplying the actor and weapon they always have.
-            string npc;
+            // An anonymous subject or object opening a fight is a new slot, exactly as in
+            // NpcAboutToAttack.
             CombatActor actor;
+            string named;
             if (m.Groups["obj"].Success)
             {
                 actor = CombatActor.Player;
                 var obj = m.Groups["obj"].Value;
-                npc = obj.StartsWith("the ", StringComparison.Ordinal) ? obj[4..]
-                    : AnonymousOpponent.Canonical(obj) is { } word ? ResolveAnonymous(word)
-                    : obj;
+                named = obj.StartsWith("the ", StringComparison.Ordinal) ? obj[4..] : obj;
             }
             else
             {
                 actor = CombatActor.Npc;
                 var subj = m.Groups["subj"].Value;
-                // An anonymous SUBJECT opening a fight is a newcomer, exactly as in NpcAboutToAttack.
-                npc = m.Groups["npc"].Success ? m.Groups["npc"].Value
+                named = m.Groups["npc"].Success ? m.Groups["npc"].Value
                     : subj.StartsWith("The ", StringComparison.Ordinal) ? subj[4..]
-                    : AnonymousOpponent.Canonical(subj) ?? subj;
+                    : subj;
             }
-            BeginAtStart(npc);
-            Emit(timestampUtc, CombatEventKind.FightStart, actor, npc, null, null, null, text);
+            var who = AnonymousOpponent.Canonical(named) is { } word
+                ? UnseenActor.Anonymous(SomeKinds.FromWord(word))
+                : UnseenActor.Named(named);
+            StartFight(who, timestampUtc);
+            Emit(timestampUtc, CombatEventKind.FightStart, actor, NameOf(who), null, null, null, text);
+            PublishUnseen(timestampUtc);
         }
         else if (line.Kind == LineKind.FightEnd)
         {
@@ -1105,10 +1070,11 @@ public sealed class CombatTracker
             // had was a correctly-coded line that no regex here recognised, and each one cost a fight
             // that never closed - so the untranslated line is now caught rather than ignored, and lands
             // in the clog verbatim, which is how the next unknown wording gets found.
-            var endedNpc = SoleActiveOnFightEnd(line);
-            Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, endedNpc, null, null, null, text);
-            if (endedNpc is not null)
-                End(endedNpc);
+            if (SoleOnFightEnd(line, WordIn(text)) is { } who)
+                Ending(who, UnseenOutcome.Ended, ownFight: true,
+                    timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, text);
+            else
+                Emit(timestampUtc, CombatEventKind.FightEndOther, CombatActor.Player, null, null, null, null, text);
         }
     }
 
@@ -1142,93 +1108,55 @@ public sealed class CombatTracker
     ///
     /// <para>Best-effort by nature. Same caution as NpcKilledYouNarrative's "sole active participant":
     /// our roster is what we managed to observe, not necessarily what is in the room.</para>
+    ///
+    /// <para><b>Who it can be about.</b> One named Creature and no anonymous slot: that Creature, unless
+    /// it is parked in the unseen group - then the line is an anonymous ending, and the book's counting
+    /// decides whose it was. Any anonymous slot open: an anonymous ending (with one slot and no row,
+    /// of that slot's word), so a fight against an opponent the player never saw named - an ogre dying
+    /// of poison in the dark - can still close. Otherwise nothing. <paramref name="word"/> is the word
+    /// the line's pronoun points at.</para>
     /// </summary>
-    private string? SoleActiveOnFightEnd(StyledLine line)
-        => line.Kind == LineKind.FightEnd && !_endedThisFrame && _active.Count == 1
-            ? _active.First()
-            : null;
-
-    /// <summary>The Creature a matched line names, with MUD2's "someone"/"something" resolved back
-    /// to a real participant where it can only mean one. Every widened pattern goes through here, so
-    /// the rule is stated once - see <see cref="ResolveAnonymous"/> for what it is.</summary>
-    private string NameFrom(Match m)
-        => m.Groups["npc"].Success ? m.Groups["npc"].Value : ResolveAnonymous(AnonymousName(m));
-
-    /// <summary>
-    /// Which creature "someone" is.
-    ///
-    /// <para>An invisible participant is the strongest answer available: MUD2 anonymises the
-    /// creature it made invisible and goes on naming everything else, so with exactly one faded
-    /// creature still engaged, an anonymous line can only be about that one - even in a pack where
-    /// the others are named on the lines either side of it.</para>
-    ///
-    /// <para>Failing that, and only while the player is known unable to see, attribution by class -
-    /// the operator's rule, stated at the code below. A sighted player with nothing faded has no
-    /// reason for the anonymity, and the operator's ruling is that an unexplained word is left as
-    /// the word: an unannounced attacker cannot be ruled out with certainty, and crediting its blow
-    /// to the sole engaged Creature would also teach that species the wrong kind for good.</para>
-    ///
-    /// <para><b>Where it cannot tell, it abstains rather than guesses</b>, and the cost of that is
-    /// deliberately asymmetric. An anonymous SWING opens a roster entry literally called "someone",
-    /// which is true and is worth drawing: something is hitting the player. An anonymous END closes
-    /// a fight against a name no roster holds, i.e. nothing, which leaves the encounter open for the
-    /// coded fight-end and the room-change backstop behind it - the same direction those two already
-    /// err in, and the only safe one in a pack.</para>
-    ///
-    /// <para><b>Best-effort by nature</b>, with the caution the narrative death line has carried
-    /// since a vampire blinded the player before killing them: our roster is what we managed to
-    /// observe, not what is in the room, and a player who cannot see cannot see arrivals either. Any
-    /// analysis that cares should treat a name resolved this way as the likeliest reading, never as
-    /// ground truth.</para>
-    /// </summary>
-    private string ResolveAnonymous(string word)
+    private UnseenActor? SoleOnFightEnd(StyledLine line, SomeKind word)
     {
-        string? onlyFaded = null;
-        foreach (var npc in _active)
+        if (line.Kind != LineKind.FightEnd || _endedThisFrame || _book is not { Closed: false } book)
+            return null;
+        if (_active.Count == 1 && book.AvailableSlots == 0)
         {
-            if (!_faded.Contains(npc))
-                continue;
-            if (onlyFaded is not null)
-                return word;   // two invisible opponents: the line says nothing about which
-            onlyFaded = npc;
+            var only = _active.First();
+            return book.Row(only) is { Parked: true } ? UnseenActor.Anonymous(word) : UnseenActor.Named(only);
         }
-        if (onlyFaded is not null)
-            return onlyFaded;
-
-        // Sighted, nothing faded: no known reason for the word, so no attribution. Every opponent seen
-        // so far announces itself under 08.00 (runs 49, 59, 60), which would make an unannounced
-        // Unseen attacker impossible - but that is not known for certain, and the cost is one-sided:
-        // a blow left on the word costs one row; a blow handed to the sole Creature engaged teaches
-        // its species the attacker's kind, and a species learned wrong is not seen fighting Unseen
-        // the next time.
-        if (!_cannotSee)
-            return word;
-
-        // Attribution by CLASS. MUD2 chooses the word per Creature - "someone" for the person-shaped,
-        // "something" for the rest - so a line of word W can only be about a Creature of that kind.
-        // The candidates are the engaged Creatures whose kind is W or not yet known, plus every
-        // Unseen participant of word W opened by its own 08.00 start (_unseenOpen - a count, since
-        // two of them share one roster name). Exactly one candidate: the line is its (and Emit then
-        // learns its kind from the word). Otherwise the line is the word's own row - two candidates
-        // cannot be told apart, and no later evidence can split what already landed. Run 49,
-        // "Someone hits you (103/120)" while zombie5 was engaged: two someone-candidates, so the
-        // word, not the zombie.
-        var kind = SomeKinds.FromWord(word);
-        string? soleNamed = null;
-        var candidates = _unseenOpen[(int)kind];
-        foreach (var npc in _active)
-        {
-            if (AnonymousOpponent.IsAnonymous(npc))
-                continue;
-            var known = Knowledge.Known(npc);
-            if (known is null || known == kind)
-            {
-                candidates++;
-                soleNamed = npc;
-            }
-        }
-        return candidates == 1 && soleNamed is not null ? soleNamed : word;
+        if (book.AvailableSlots == 1 && book.OpenRowCount == 0)
+            return UnseenActor.Anonymous(book.AvailableSlotsOf(SomeKind.Someone) == 1 ? SomeKind.Someone : SomeKind.Something);
+        if (book.AvailableSlots > 0)
+            return UnseenActor.Anonymous(word);
+        return null;
     }
+
+    /// <summary>The word a "You can fight it/him/her no longer." pronoun points at: "it" an animal,
+    /// "him" and "her" a person - the same split MUD2 makes between "something" and
+    /// "someone".</summary>
+    private static SomeKind PronounWord(string text)
+        => text.Contains(" him ", StringComparison.Ordinal) || text.Contains(" her ", StringComparison.Ordinal)
+            ? SomeKind.Someone
+            : SomeKinds.Default;
+
+    /// <summary>The anonymous word an unrecognised line uses anywhere in it, verbatim: "You can fight
+    /// someone no longer." (observed coded 08.12) names no Creature and still says which word.</summary>
+    private static SomeKind WordIn(string text)
+        => text.Contains(AnonymousOpponent.Person, StringComparison.OrdinalIgnoreCase) ? SomeKind.Someone
+         : text.Contains(AnonymousOpponent.Thing, StringComparison.OrdinalIgnoreCase) ? SomeKind.Something
+         : SomeKinds.Default;
+
+    /// <summary>The subject or object of a matched line: the Creature it names, or the anonymous word
+    /// it used.</summary>
+    private static UnseenActor ActorOf(Match m)
+        => m.Groups["npc"].Success
+            ? UnseenActor.Named(m.Groups["npc"].Value)
+            : UnseenActor.Anonymous(SomeKinds.FromWord(m.Groups["anon"].Value));
+
+    /// <summary>The participant name an event carries: the Creature, or the unseen group for an
+    /// anonymous line. An anonymous line never names a Creature.</summary>
+    private static string NameOf(UnseenActor who) => who.Name ?? AnonymousOpponent.Group;
 
     /// <summary>
     /// Whether the player can currently see, from whichever source reports it. Two conditions
@@ -1258,15 +1186,17 @@ public sealed class CombatTracker
         {
             if (cannotSee == _cannotSee)
                 return;
-            if (cannotSee && _encounterOpen)
-                // Sight lost mid-fight: everything engaged and named right now is the episode's
-                // pre-set. If an episode from an earlier blind spell in the same fight is still open
-                // (sight came back, the fight went on, sight went again), it stays - the named lines
-                // in between fed it. Out of combat nothing opens; Begin opens the episode when a fight
-                // starts already blind.
-                _episode ??= new UnseenEpisode(_active, Knowledge);
             _cannotSee = cannotSee;
-            PublishUnseen();
+            // Sight lost parks every open row; sight regained promotes none (only a named swing
+            // does). An encounter that opens later while the player cannot see starts its book
+            // that way - see Begin.
+            if (_encounterOpen && _book is { Closed: false } book)
+            {
+                if (cannotSee)
+                    book.SightLost();
+                else
+                    book.SightRegained();
+            }
             // Emitted whether or not a fight is open: the loss of sight routinely precedes the fight
             // it explains (a dark room, then something attacks), and the consumers that only care
             // inside an encounter already drop events arriving outside one.
@@ -1274,6 +1204,7 @@ public sealed class CombatTracker
                 cannotSee ? CombatEventKind.SightLost : CombatEventKind.SightRegained,
                 null, null, null, null, null,
                 $"({(cannotSee ? "sight lost" : "sight regained")}: {reason})");
+            PublishUnseen(timestampUtc);
         }
     }
 
@@ -1322,287 +1253,211 @@ public sealed class CombatTracker
             return;
         Emit(timestampUtc, CombatEventKind.EncounterForceEnded, null, null, null, null, null, $"(forced end: {reason})");
         _active.Clear();
-        CloseEncounter();
+        CloseEncounter(timestampUtc);
     }
 
-    private void Begin(string npc, bool byStart = false)
+    /// <summary>A named Creature joins <see cref="_active"/>, and the encounter opens if it is not open
+    /// yet - with a fresh <see cref="UnseenBook"/>. Null for an anonymous line, which only opens the
+    /// encounter: the unseen group's participants are the book's slots.</summary>
+    private void Begin(string? npc, DateTime timestampUtc)
     {
-        if (_active.Add(npc))
-        {
+        if (npc is not null && _active.Add(npc))
             ParticipantJoined?.Invoke(npc);
-            if (!AnonymousOpponent.IsAnonymous(npc))
-            {
-                NameAnUnseen(npc, byStart);
-                // Named while the player cannot see: the episode's engaged set grows by it. (Named
-                // after sight returned, LearnFrom tells the episode a survivor instead.)
-                if (_cannotSee)
-                    _episode?.NoteEngaged(npc);
-            }
-        }
-        if (!_encounterOpen)
-        {
-            _encounterOpen = true;
-            // Sight already lost when the fight opens: the episode opens with it. NoteCannotSee opens
-            // one only on the flag's rising edge, which a second fight in the same blind spell never
-            // produces; the opener is already in _active, so it is in the episode's pre-set.
-            if (_cannotSee)
-                _episode ??= new UnseenEpisode(_active, Knowledge);
-            // Load-bearing, not redundant with the frame boundary: MUD2 will close one encounter and
-            // open the next in the SAME frame (see this class's remarks), and with no prompt between
-            // them this is the only thing that clears a true left by the previous encounter's last
-            // kill. Without it the new encounter's first unnamed end could not be rescued.
-            _endedThisFrame = false;
-            InCombatChanged?.Invoke(true);
-        }
-    }
-
-    /// <summary>A fight OPENING on a coded start. For an anonymous word this is one more Unseen
-    /// Creature - the only place the count rises, because every attacker announces itself and a swing
-    /// from one already announced must not be counted again.</summary>
-    private void BeginAtStart(string npc)
-    {
-        if (AnonymousOpponent.IsAnonymous(npc))
-        {
-            var kind = (int)SomeKinds.FromWord(npc);
-            _unseenOpen[kind]++;
-            _unseenEver[kind]++;
-            if (_cannotSee)
-                _unseenBlind[kind]++;
-            PublishUnseen();
-        }
-        Begin(npc, byStart: true);
-    }
-
-    /// <summary>
-    /// A Creature named for the first time while the player can see, with an Unseen opponent still
-    /// open that announced itself while the player could not: the newly named Creature IS that
-    /// opponent (the operator's 1-for-1 rule - blind, "Someone is about to attack you", sight back,
-    /// "The thief hits you" names the someone). Its word is its known kind, else the one word with
-    /// such an opponent open; with both words open and the kind unknown nothing is claimed. The
-    /// naming teaches the species its kind, and the word's row retires (<see cref="CombatEventKind.UnseenNamed"/>)
-    /// once its last opponent has been named.
-    /// </summary>
-    private void NameAnUnseen(string npc, bool byStart)
-    {
+        if (_encounterOpen)
+            return;
+        _encounterOpen = true;
+        _openedUtc = timestampUtc;
+        _lastGroupEnding = DateTime.MinValue;
+        _book = new UnseenBook(SomeKindKnowledge.Known);
+        _stamps.Clear();
+        _reported.Clear();
+        _published = UnseenSnapshot.Empty;
+        _publishedVersion = -1;
         if (_cannotSee)
-            return;
-        if (UnseenKindOf(npc, _unseenBlind) is SomeKind kind)
-        {
-            _unseenBlind[(int)kind]--;
-            _unseenOpen[(int)kind]--;
-            RetireUnseen(npc, kind, carriesBlows: true);
-            return;
-        }
+            _book.SightLost();
+        if (_wokenThisFrame)
+            _book.WokenUp();
+        // Load-bearing, not redundant with the frame boundary: MUD2 will close one encounter and
+        // open the next in the SAME frame (see this class's remarks), and with no prompt between
+        // them this is the only thing that clears a true left by the previous encounter's last
+        // kill. Without it the new encounter's first unnamed end could not be rescued.
+        _endedThisFrame = false;
+        InCombatChanged?.Invoke(true);
+    }
 
-        // A player named while exactly one "someone" is open is that someone, however it came to be
-        // unseen - invisible and attacking while the player could see is the case the blind-only
-        // count above does not reach. Limited to a persona because naming one teaches nothing: a
-        // creature named while an invisible attacker is open may be a different Creature (a zombie
-        // joining one), and its species would be taught the wrong word for good. With two open the
-        // name cannot say which, and nothing is claimed.
-        if (PlayerOpponent.IsPersona(npc) && _unseenOpen[(int)SomeKind.Someone] == 1)
-        {
-            _unseenOpen[(int)SomeKind.Someone] = 0;
-            _unseenBlind[(int)SomeKind.Someone] = 0;
-            RetireUnseen(npc, SomeKind.Someone, carriesBlows: true);
-            return;
-        }
+    /// <summary>A fight OPENING on a coded start: a named Creature's row, or one more anonymous slot -
+    /// the only place the slot count rises, because every attacker announces itself.</summary>
+    private void StartFight(UnseenActor who, DateTime timestampUtc)
+    {
+        Begin(who.Name, timestampUtc);
+        _book!.Start(who);
+    }
 
-        // Every opponent announces itself with its own coded start (BeginAtStart), named or not. A
-        // Creature that first appears on a SWING line has therefore not been counted as anyone: it
-        // can only be one of the Unseen already counted, and that is the 1-for-1 the count exists
-        // for, blind or not (a Creature that turned invisible mid-fight, or one hunted while
-        // invisible, is anonymous with the player sighted). Same word choice as above - the species'
-        // known kind, else the one word with an Unseen open - and one opponent of the word is spent.
-        // With two of the word open the name cannot say which, and nothing is claimed.
-        if (!byStart && UnseenKindOf(npc, _unseenOpen) is SomeKind sighted && _unseenOpen[(int)sighted] == 1)
-        {
-            _unseenOpen[(int)sighted] = 0;
-            _unseenBlind[(int)sighted] = 0;
-            RetireUnseen(npc, sighted, carriesBlows: true);
-        }
+    /// <summary>A swing, either direction. A named one is its Creature's; an anonymous one is the
+    /// group's. An anonymous blow that nothing open could have thrown is an opponent whose start was
+    /// missed, and opens a slot for it.</summary>
+    private void Swing(UnseenActor who, DateTime timestampUtc)
+    {
+        Begin(who.Name, timestampUtc);
+        var book = _book!;
+        // A missed start: nothing open could have thrown it - no slot of its word, no open row whose
+        // class could produce the word - so it opens a slot. Otherwise the swing parks the rows that
+        // could have thrown it, and no slot opens.
+        if (who.Name is null && !book.HasOpenProducer(who.Word))
+            book.Start(who);
+        book.Swing(who);
     }
 
     /// <summary>
-    /// Which Unseen opponent a named Creature is, counted over <paramref name="counts"/>, or null for
-    /// "cannot say". The one-candidate rule narrowed to the two words: the species' kind if this
-    /// install has learned it, else the single word that has an Unseen open. Both words open with the
-    /// kind unknown is two candidates and the answer is nothing - the kind decided here is written
-    /// into <see cref="Knowledge"/>, which is persisted, so a guess outlives the encounter that made
-    /// it.
+    /// An ending line: the book is handed it, the event goes out under the name the book's answer
+    /// gives (the Creature, or the unseen group for an anonymous ending and for a named ending that
+    /// concluded an anonymous slot), then the encounter closes if nothing is left open. With no
+    /// encounter open the event still goes out, and nothing else happens.
     /// </summary>
-    private SomeKind? UnseenKindOf(string npc, int[] counts)
+    private void Ending(UnseenActor who, UnseenOutcome outcome, bool ownFight, DateTime timestampUtc,
+        CombatEventKind kind, CombatActor actor, string text)
     {
-        if (Knowledge.Known(npc) is SomeKind known)
-            return counts[(int)known] > 0 ? known : null;
-        var someone = counts[(int)SomeKind.Someone];
-        var something = counts[(int)SomeKind.Something];
-        if (someone > 0 && something == 0)
-            return SomeKind.Someone;
-        if (something > 0 && someone == 0)
-            return SomeKind.Something;
-        return null;
-    }
-
-    /// <summary>One Unseen opponent of <paramref name="kind"/> has been identified as
-    /// <paramref name="npc"/> and its slot is spent - the caller has already taken it off the counts.
-    /// The identification teaches the species its word, and the word's own row retires once the last
-    /// opponent standing behind it has been identified.
-    ///
-    /// <para><paramref name="carriesBlows"/> is true when the identification arrives as the Creature's
-    /// first named line, so its fight opens on the next event. The event then names the Creature
-    /// (<see cref="CombatEvent.IdentifiedAs"/>) provided the word only ever stood for one opponent
-    /// this encounter - with two or more, which blows were whose is not known.</para></summary>
-    private void RetireUnseen(string npc, SomeKind kind, bool carriesBlows)
-    {
-        Knowledge.Learn(npc, kind);
-        var word = SomeKinds.Word(kind);
-        if (_unseenOpen[(int)kind] == 0 && _active.Remove(word))
+        if (_book is not { Closed: false } book)
         {
-            var identified = carriesBlows && _unseenEver[(int)kind] == 1 ? npc : null;
-            Emit(_now, CombatEventKind.UnseenNamed, CombatActor.Npc, word, null, null, null,
-                $"({npc} was the {word})", identified);
-        }
-        PublishUnseen();
-    }
-
-    /// <summary>
-    /// A named END line for a Creature no line of this encounter ever named - see <see cref="End"/>.
-    /// It identifies one Unseen opponent and closes that one; with no single candidate nothing is
-    /// claimed and the word's row stays exactly as open as it was.
-    /// </summary>
-    private void UnseenEnded(string npc)
-    {
-        if (UnseenKindOf(npc, _unseenOpen) is not SomeKind kind)
+            Emit(timestampUtc, kind, actor, NameOf(who), null, null, null, text);
             return;
-        _unseenOpen[(int)kind]--;
-        if (_unseenBlind[(int)kind] > _unseenOpen[(int)kind])
-            _unseenBlind[(int)kind] = _unseenOpen[(int)kind];
-        // A kill line has already closed the Creature's own fight, in the event stream, ahead of this
-        // retirement: there is no open row under the new name for the word's blows to join.
-        RetireUnseen(npc, kind, carriesBlows: false);
-    }
-
-    private void End(string npc)
-    {
-        if (AnonymousOpponent.IsAnonymous(npc))
+        }
+        var id = book.End(who, outcome, ownFight);
+        if (id < 0)
         {
-            // "You have killed something." with more than one Unseen candidate: one fewer of them,
-            // without saying which (the operator's N--). The word's row stays open while any remain.
-            var kind = (int)SomeKinds.FromWord(npc);
-            if (_unseenOpen[kind] > 0)
-                _unseenOpen[kind]--;
-            if (_unseenBlind[kind] > _unseenOpen[kind])
-                _unseenBlind[kind] = _unseenOpen[kind];
-            PublishUnseen();
-            if (_unseenOpen[kind] > 0)
+            // A plain room-wide line, or a named ending the book has neither a row nor an available
+            // slot for: it may park rows, and it concludes nothing. A named one still goes out under
+            // its name, as with no encounter open.
+            if (ownFight && who.Name is not null)
             {
+                Emit(timestampUtc, kind, actor, who.Name, null, null, null, text);
                 _endedThisFrame = true;
-                return;
             }
+            PublishUnseen(timestampUtc);
+            return;
         }
-        else if (!_active.Contains(npc))
+        var concludedSlot = who.Name is null || book.ConclusionOf(id) is not null;
+        var name = concludedSlot ? AnonymousOpponent.Group : who.Name!;
+        var at = timestampUtc;
+        if (concludedSlot)
         {
-            // A named end for a Creature nothing in this encounter engaged by name. Observed in the
-            // dark Cellar: every exchange line was anonymous ("Something hits you (55/90).") and the
-            // kill line named the Creature anyway ("You have killed the rat18."). So the line is not
-            // stray prose - it identifies one Unseen opponent, and closing that one is what lets the
-            // encounter end at all.
-            UnseenEnded(npc);
+            if (at <= _lastGroupEnding)
+                at = _lastGroupEnding.AddTicks(1);
+            _lastGroupEnding = at;
         }
-        _active.Remove(npc);
+        _stamps[id] = new UnseenAward(name, at);
+        Emit(at, kind, actor, name, null, null, null, text, concludedName: concludedSlot ? who.Name : null);
+        if (!concludedSlot)
+            _active.Remove(name);
         _endedThisFrame = true;
-        if (_active.Count == 0)
-            CloseEncounter();
+        ReportBookOutcomes(timestampUtc);
+        PublishUnseen(timestampUtc);
+        if (OpenParticipants <= 0)
+            CloseEncounter(timestampUtc);
     }
 
-    private void EndAll()
+    /// <summary>"The X has fled by going/trying to go ..." - written from the creature's side, so
+    /// anything leaving the room can print it, including a creature disengaging from somebody else.
+    /// The code says whose fight it was: C08.11 marks the player's own. A named line ends an engaged
+    /// Creature's row whatever its code. An uncoded line about anyone else concludes nothing; a coded
+    /// one about a Creature never engaged is the conclusion of an anonymous slot while one is
+    /// available (<see cref="UnseenBook.AvailableSlots"/>), and is passed by otherwise.</summary>
+    private void CreatureFlight(StyledLine line, Match m, UnseenOutcome outcome, CombatEventKind kind,
+        DateTime timestampUtc, string text)
+    {
+        if (!_encounterOpen)
+            return;
+        var who = ActorOf(m);
+        var coded = line.Kind == LineKind.FightEnd;
+        if (who.Name is { } name && !_active.Contains(name)
+            && !(coded && _book is { Closed: false, AvailableSlots: > 0 }))
+            return;
+        Ending(who, outcome, ownFight: coded || who.Name is not null, timestampUtc, kind, CombatActor.Npc, text);
+    }
+
+
+    /// <summary>The player was killed. A named killer's line is the event, as ever. An unseen
+    /// killer's death is also one of the group's conclusions, so the history says "killed you" and
+    /// the session counts the death: the book is handed it before the encounter closes.</summary>
+    private void PlayerKilled(UnseenActor who, DateTime timestampUtc, string text)
+    {
+        if (who.Name is null && _book is { Closed: false })
+            Ending(who, UnseenOutcome.KilledYou, ownFight: true,
+                timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, text);
+        else
+            Emit(timestampUtc, CombatEventKind.KilledByNpc, CombatActor.Npc, NameOf(who), null, null, null, text);
+    }
+
+    /// <summary>The player's own flight or death: every fight ends at once. The book does not model
+    /// a flight; it is closed with the encounter.</summary>
+    private void EndAll(DateTime timestampUtc)
     {
         _active.Clear();
         _endedThisFrame = true;
-        CloseEncounter();
+        CloseEncounter(timestampUtc);
     }
 
-    private void CloseEncounter()
+    private void CloseEncounter(DateTime timestampUtc)
     {
         if (!_encounterOpen)
             return;
         _encounterOpen = false;
-        // Who was invisible is a fact about this encounter, not about the next one - see _faded.
-        _faded.Clear();
-        // Every word the episode was going to see, it has seen: its closing deductions run now.
-        _episode?.Close();
-        _episode = null;
-        Array.Clear(_unseenOpen);
-        Array.Clear(_unseenBlind);
-        Array.Clear(_unseenEver);
-        PublishUnseen();
+        if (_book is { Closed: false } book)
+        {
+            book.Close();
+            ReportBookOutcomes(timestampUtc);
+            PublishUnseen(timestampUtc);
+        }
         InCombatChanged?.Invoke(false);
     }
 
+    /// <summary>Emits one <see cref="CombatEventKind.UnseenRowEnded"/> per row the book concluded
+    /// without a line naming it - by counting, or as fate unseen at the close - and takes it off
+    /// <see cref="_active"/>.</summary>
+    private void ReportBookOutcomes(DateTime timestampUtc)
+    {
+        // After every group ending so far, so the history keeps the order the book concluded them in.
+        if (timestampUtc <= _lastGroupEnding)
+            timestampUtc = _lastGroupEnding.AddTicks(1);
+        foreach (var row in _book!.Rows)
+        {
+            if (row.Open || !(row.ByCounting || row.Outcome == MudSharp.Combat.UnseenOutcome.FateUnseen)
+                || !_reported.Add(row))
+                continue;
+            _active.Remove(row.Name);
+            var outcome = UnseenSnapshot.OutcomeOf(row.Outcome!.Value);
+            Emit(timestampUtc, CombatEventKind.UnseenRowEnded, CombatActor.Npc, row.Name, null, null, null,
+                row.ByCounting ? $"({row.Name}: {outcome} by counting)" : $"({row.Name}: fate unseen)",
+                outcome);
+        }
+    }
+
+    /// <summary>Emits <see cref="CombatEventKind.UnseenChanged"/> when the book's snapshot differs from
+    /// the one last published, after the line's own event. Nothing is built while
+    /// <see cref="UnseenBook.Version"/> is unchanged: a blow to an open row moves nothing the snapshot
+    /// carries.</summary>
+    private void PublishUnseen(DateTime timestampUtc)
+    {
+        if (_book is null || _book.Version == _publishedVersion)
+            return;
+        _publishedVersion = _book.Version;
+        SnapshotsBuilt++;
+        var snapshot = UnseenSnapshot.From(_book,
+            id => _stamps.TryGetValue(id, out var stamp) ? stamp : new UnseenAward(AnonymousOpponent.Group, _openedUtc),
+            _openedUtc);
+        if (snapshot.SameAs(_published))
+            return;
+        _published = snapshot;
+        Emit(timestampUtc, CombatEventKind.UnseenChanged, null, null, null, null, null,
+            $"(unseen: {snapshot.Count}{(snapshot.Parked.Count > 0 ? ", parked " + string.Join(", ", snapshot.Parked) : "")})",
+            unseen: snapshot);
+    }
+
     private void Emit(DateTime ts, CombatEventKind kind, CombatActor? actor, string? npc, string? weapon,
-        int? lo, int? hi, string raw, string? identifiedAs = null)
-    {
-        EventOccurred?.Invoke(new CombatEvent(ts, kind, actor, npc, weapon, lo, hi, raw, IdentifiedAs: identifiedAs));
-        LearnFrom(kind, npc, raw);
-    }
-
-    /// <summary>
-    /// What an event teaches about who is what. An anonymous line that was attributed to a NAMED
-    /// Creature - by a fade or by class elimination - has told us that Creature's word, so its species
-    /// learns it on the spot. One that could not be attributed feeds the open <see cref="_episode"/>
-    /// by what it was (a start, a swing, an end), and a named line arriving after sight returned tells
-    /// the episode who survived. Only the kinds that carry those facts are looked at; a weapon line
-    /// with "something" as the weapon is not about a Creature at all.
-    /// </summary>
-    private void LearnFrom(CombatEventKind kind, string? npc, string raw)
-    {
-        if (npc is null)
-            return;
-        var isStart = kind == CombatEventKind.FightStart;
-        var isSwing = kind is CombatEventKind.Hit or CombatEventKind.Miss
-                           or CombatEventKind.HitByNpc or CombatEventKind.MissByNpc;
-        var isEnd = kind is CombatEventKind.Kill or CombatEventKind.NpcFled or CombatEventKind.KilledByNpc;
-        if (!(isStart || isSwing || isEnd))
-            return;
-
-        var word = AnonymousWordIn(raw);
-        if (word is null)
-        {
-            // A named line. After sight has returned it names a survivor of the episode.
-            if (_episode is not null && !_cannotSee && !AnonymousOpponent.IsAnonymous(npc))
-                _episode.NoteNamed(npc);
-            return;
-        }
-
-        var wordKind = SomeKinds.FromWord(word);
-        if (!AnonymousOpponent.IsAnonymous(npc))
-        {
-            // Attributed to a Creature: the word is its kind.
-            Knowledge.Learn(npc, wordKind);
-            return;
-        }
-        if (_episode is null)
-            return;
-        if (isStart) _episode.NoteAnonymousStart(wordKind);
-        else if (isSwing) _episode.NoteAnonymousSwing(wordKind);
-        else _episode.NoteAnonymousEnd(wordKind);
-    }
-
-    /// <summary>The anonymous word a line was written with, as the sentence's subject or object, or
-    /// null for a line that names its Creature. Case-SENSITIVE, and that is the point: capitalised
-    /// at the start of the line is the subject, lower-cased after one of the verbs the swing and end
-    /// lines use is the object. A word anywhere else - "something" as a WEAPON in "has started to
-    /// use something to fight!" - matches neither and does not count.</summary>
-    private static string? AnonymousWordIn(string raw)
-    {
-        var m = AnonymousSubjectOrObject.Match(raw);
-        return m.Success ? AnonymousOpponent.Canonical(m.Groups["w"].Value) : null;
-    }
-
-    private static readonly Regex AnonymousSubjectOrObject = new(
-        @"^(?<w>Someone|Something)\b|\b(?:attack|hit|miss|killed by|killed) (?<w>someone|something)\b",
-        RegexOptions.Compiled);
+        int? lo, int? hi, string raw, FightOutcome? outcome = null, UnseenSnapshot? unseen = null,
+        string? concludedName = null)
+        => EventOccurred?.Invoke(new CombatEvent(ts, kind, actor, npc, weapon, lo, hi, raw,
+            Outcome: outcome, Unseen: unseen, ConcludedName: concludedName));
 
     /// <summary>Which event kind reports one parsed loadout line. Four kinds rather than one because
     /// the four are different facts - see CombatEventKind.ItemStowed for why a container move must not

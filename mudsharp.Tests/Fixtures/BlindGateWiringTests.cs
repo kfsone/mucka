@@ -8,20 +8,21 @@ namespace MudSharp.Tests.Fixtures;
 /// The three sources that tell the combat tracker the player is BLIND, each pinned on its own: the
 /// coded start, the coded end, and the FES flag behind both. A fourth, the FEI reply's "--" room
 /// section, is pinned beside its "oo" twin in <see cref="DarkSightWiringTests"/>. A dark room does the same to the wire
-/// and is the other half of the same flag - see <see cref="DarkSightWiringTests"/>. The flag is the
-/// one reason the tracker accepts for handing an anonymous line to a sole engaged Creature, so both
-/// edges of that knowledge have to be wired - and wired as a level, not an edge.
+/// and is the other half of the same flag - see <see cref="DarkSightWiringTests"/>. Losing sight
+/// parks every engaged Creature in the unseen group, so both edges of that knowledge have to be
+/// wired - and wired as a level, not an edge.
 ///
 /// <para>The replay fixture (<see cref="AnonymousOpponentReplayTests"/>) cannot pin either source:
 /// in the capture the coded line and a FES row with the flag set both land before the first
 /// anonymous swing, so deleting either hook alone leaves it green. Here each source is fed by
-/// itself, and each test asserts both the flag and what the flag did to the next anonymous blow.</para>
+/// itself, and each test asserts both the flag and what the flag did: whether the thief, whom
+/// "Something" cannot park, is parked.</para>
 ///
 /// <para>The clearing case is the one that bit. The coded &lt;11.00&gt; line sets the tracker blind
 /// without writing the FES snapshot's IsBlind, so a blind shorter than one heartbeat never shows FES
-/// a Y; a hook that reacted only to a CHANGE in that snapshot would see none, leave the tracker
-/// blind, and credit every later anonymous line for the rest of the session to whatever the player
-/// happened to be fighting. The FES flag is asserted as a level on every genuine reply instead.</para>
+/// a Y; a hook that reacted only to a CHANGE in that snapshot would see none and leave the tracker
+/// blind for the rest of the session. The FES flag is asserted as a level on every genuine reply
+/// instead.</para>
 /// </summary>
 public sealed class BlindGateWiringTests : IDisposable
 {
@@ -66,34 +67,45 @@ public sealed class BlindGateWiringTests : IDisposable
 
     public void Dispose() => _session.Dispose();
 
-    private string? WhoHitThePlayer()
-        => _events.LastOrDefault(e => e.Kind == CombatEventKind.HitByNpc)?.NpcName;
+    /// <summary>The rows parked in the unseen group after the anonymous blow, which is always the
+    /// group's. The thief is a seeded "someone", so "Something hits you" cannot park him: he is
+    /// parked only if the player cannot see.</summary>
+    private IReadOnlyList<string> Parked()
+    {
+        Assert.Equal(AnonymousOpponent.Group, _events.Last(e => e.Kind == CombatEventKind.HitByNpc).NpcName);
+        return _events.LastOrDefault(e => e.Unseen is not null)?.Unseen?.Parked ?? [];
+    }
+
+    /// <summary>Whether the open encounter's unseen group was told the player cannot see. Regaining
+    /// sight promotes no parked row, so a clear is read here.</summary>
+    private bool GroupCannotSee() => _events.Last(e => e.Unseen is not null).Unseen!.CannotSee;
 
     [Fact]
-    public void TheCodedBlindLine_AloneMakesTheSoleCreatureOwnAnAnonymousBlow()
+    public void TheCodedBlindLine_AloneParksTheEngagedCreature()
     {
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
-        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     [Fact]
     public void AFesRowWithTheFlagClear_ClearsABlindTheCodedLineSet()
     {
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
         // Sight returned inside one heartbeat: FES never saw a Y. The row says N, and that has to
         // be enough - reacting to N -> N as "no change" would leave the tracker blind.
         _session.Feed(Fes('N'));
-        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.False(_session.Combat.CannotSee);
-        Assert.Equal(AnonymousOpponent.Person, WhoHitThePlayer());
+        Assert.False(GroupCannotSee());
     }
 
     [Fact]
@@ -103,14 +115,14 @@ public sealed class BlindGateWiringTests : IDisposable
         // shared with deaf/dumb/cripple/glow, so the phrase is what identifies it. It is the
         // earliest statement that sight is back; the FES flag agrees up to a heartbeat later, and
         // in the gap MUD2 is already naming Creatures again.
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
         _session.Feed(DisableEnd("You have suddenly and magically regained your sight!"));
-        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.False(_session.Combat.CannotSee);
-        Assert.Equal(AnonymousOpponent.Person, WhoHitThePlayer());
+        Assert.False(GroupCannotSee());
         Assert.Equal("(sight regained: sight returned)",
             _events.Last(e => e.Kind is CombatEventKind.SightLost or CombatEventKind.SightRegained).RawText);
     }
@@ -136,26 +148,28 @@ public sealed class BlindGateWiringTests : IDisposable
     [InlineData("You have suddenly and magically regained your hearing!")]
     public void ADisablingEffectThatIsNotBlindnessEnding_DoesNotClearABlind(string phrase)
     {
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(DisableStart("You have suddenly and magically gone blind!"));
         _session.Feed(DisableEnd(phrase));
-        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 
     [Fact]
-    public void AFesRowWithTheFlagSet_AloneMakesTheSoleCreatureOwnAnAnonymousBlow()
+    public void AFesRowWithTheFlagSet_AloneParksTheEngagedCreature()
     {
         // The relog-into-an-already-blind-persona case: no coded line ever arrives, only the flag.
-        _session.Feed(Text("You attack the rat0."));
+        _session.Feed(Text("You attack the thief."));
         _session.Feed(Fes('Y'));
-        _session.Feed(Text("Someone hits you (50/60)."));
+        _session.Feed(Text("Something hits you (50/60)."));
         _session.Feed(PromptBytes);
 
         Assert.True(_session.Combat.CannotSee);
-        Assert.Equal("rat0", WhoHitThePlayer());
+        Assert.Equal(["thief"], Parked());
+        Assert.True(GroupCannotSee());
     }
 }

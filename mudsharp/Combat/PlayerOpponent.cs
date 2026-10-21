@@ -16,10 +16,14 @@ public static class PlayerOpponent
     /// alone in the group <c>npc</c> - the same group the creature alternatives fill, so a consumer
     /// reads one group whichever matched. The words "The", "You", "Someone" and "Something" are
     /// excluded because the patterns that carry this fragment also carry sentences that start with
-    /// them. An optional "Sir " / "Lady " prefix is accepted, as <c>PlayerNameParts</c> does.
+    /// them. An optional "Sir " / "Lady " prefix is accepted, as <c>PlayerNameParts</c> does. A title
+    /// word may carry a hyphen - "Kickflip the dragon-slaying necromancer hits you (53/105).",
+    /// verbatim from the operator's wire corpus. Every pattern
+    /// that carries this fragment is anchored at both ends, so a sentence that is not about a persona
+    /// still cannot match.
     /// </summary>
     public const string Persona =
-        @"(?!(?:The|You|Your|Someone|Something)\b)(?:(?:Sir|Lady) )?(?<npc>[A-Z][A-Za-z]+)(?: the [a-z]+(?: [a-z]+)*?)?";
+        @"(?!(?:The|You|Your|Someone|Something)\b)(?:(?:Sir|Lady) )?(?<npc>[A-Z][A-Za-z]+)(?: the [a-z]+(?:[- ][a-z]+)*?)?";
 
     /// <summary>Whether <paramref name="name"/> is a player's persona rather than a creature.</summary>
     public static bool IsPersona(string? name)

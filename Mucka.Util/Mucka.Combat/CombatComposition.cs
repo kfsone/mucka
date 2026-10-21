@@ -124,19 +124,15 @@ public static class CombatComposition
         return lastSpace < 0 || lastSpace == trimmed.Length - 1 ? trimmed : trimmed[(lastSpace + 1)..];
     }
 
-    /// <summary>The fight the comparison describes: the first still-unresolved one, falling back to
-    /// the first of the encounter so the block survives the post-kill grace window.</summary>
+    /// <summary>The fight the comparison describes: the live one the roster bolds
+    /// (<see cref="ParticipantRoster.PrimaryIndex"/> - a named Creature ahead of the unseen group),
+    /// falling back to the first of the encounter so the block survives the post-kill grace
+    /// window.</summary>
     public static FightSnapshot? PrimaryFight(CombatEncounterSnapshot snapshot)
     {
-        FightSnapshot? first = null;
-        foreach (var fight in snapshot.Fights)
-        {
-            first ??= fight;
-            if (!fight.IsResolved)
-                return fight;
-        }
-
-        return first;
+        var fights = snapshot.Fights;
+        var index = ParticipantRoster.PrimaryIndex(fights, f => f.NpcName, f => !f.IsResolved);
+        return index >= 0 ? fights[index] : fights.Count > 0 ? fights[0] : null;
     }
 
     /// <summary>

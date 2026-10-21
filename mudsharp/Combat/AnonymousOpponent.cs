@@ -8,13 +8,28 @@ namespace MudSharp.Combat;
 /// <see cref="Thing"/> - and not the cause, which may be the player blind, the room dark, or the
 /// Creature invisible. "somebody" occurs nowhere.
 ///
-/// <para>These are also the participant names the tracker reports when an anonymous line cannot be
-/// attributed to a known Creature, so the same constant is what a roster row, a fight record or a
-/// species index compares against to know it is looking at an unseen opponent rather than a
-/// Creature called "someone".</para>
+/// <para>Neither word is a participant name. Every anonymous line goes to the encounter's one unseen
+/// group (docs/unseen-presentation.md), which the event stream, the fight records and the rail name
+/// <see cref="Group"/>. Fight records written before the group existed carry the two words as
+/// names, so <see cref="IsAnonymous"/> answers for them too.</para>
 /// </summary>
 public static class AnonymousOpponent
 {
+    /// <summary>The participant name of the encounter's unseen group: every anonymous blow, and every
+    /// ending that concluded an unseen participant. Angle brackets, which a persona
+    /// (<see cref="PlayerOpponent.Persona"/>, letters only) cannot contain, so a player called
+    /// "Unseen" is never the group.</summary>
+    public const string Group = "<unseen>";
+
+    /// <summary>The group's name as a title.</summary>
+    public const string GroupAsSubject = "Unseen";
+
+    /// <summary>The group's name as the history draws it.</summary>
+    public const string GroupLabel = "unseen";
+
+    /// <summary>Exactly <see cref="Group"/>, ordinal: a persona called "Unseen" is a player.</summary>
+    public static bool IsGroup(string? name) => string.Equals(name, Group, StringComparison.Ordinal);
+
     /// <summary>A person-shaped Creature the player cannot see.</summary>
     public const string Person = "someone";
 
@@ -27,17 +42,19 @@ public static class AnonymousOpponent
     public const string PersonAsSubject = "Someone";
     public const string ThingAsSubject = "Something";
 
-    /// <summary>Whether <paramref name="name"/> is one of the two anonymous words rather than a
-    /// Creature's name. Case-insensitive, because the words appear capitalised as a sentence
-    /// subject and lower-cased as its object.</summary>
+    /// <summary>Whether <paramref name="name"/> is the unseen group or one of the two anonymous words
+    /// rather than a Creature's name. Case-insensitive, because the words appear capitalised as a
+    /// sentence subject and lower-cased as its object.</summary>
     public static bool IsAnonymous(string? name)
-        => string.Equals(name, Person, StringComparison.OrdinalIgnoreCase)
+        => IsGroup(name)
+        || string.Equals(name, Person, StringComparison.OrdinalIgnoreCase)
         || string.Equals(name, Thing, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>The subject spelling of an anonymous word however it was capitalised - what the
-    /// unknown badge is titled with. Null for anything that is not an anonymous word.</summary>
+    /// <summary>The title spelling of the group or an anonymous word however it was capitalised - what
+    /// the unseen badge is titled with. Null for anything that is neither.</summary>
     public static string? Subject(string word)
-        => string.Equals(word, Person, StringComparison.OrdinalIgnoreCase) ? PersonAsSubject
+        => IsGroup(word) ? GroupAsSubject
+         : string.Equals(word, Person, StringComparison.OrdinalIgnoreCase) ? PersonAsSubject
          : string.Equals(word, Thing,  StringComparison.OrdinalIgnoreCase) ? ThingAsSubject
          : null;
 

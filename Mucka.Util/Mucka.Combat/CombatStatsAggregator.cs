@@ -31,7 +31,10 @@ public sealed record CombatEncounterSnapshot(
     // honestly: those are ordered within themselves and carry no timestamps, so interleaving three
     // creatures' swings after the fact would be inventing a sequence. Recorded once, here, where the
     // order is still known. See MudSharp.Combat.SwingMark.
-    IReadOnlyList<SwingMark>? Exchange = null);
+    IReadOnlyList<SwingMark>? Exchange = null,
+    // The encounter's unseen group as the last CombatEventKind.UnseenChanged carried it: the rail's
+    // count and parked rows, and the history's unseen badges. Null before the first one.
+    UnseenSnapshot? Unseen = null);
 
 /// <summary>One NPC's fight within the current encounter, in first-engaged order. Includes fights
 /// that have already resolved, so a multi-NPC encounter shows "goat kill / ram live" rather than
@@ -102,8 +105,8 @@ public sealed record FightSnapshot(
     // The incoming counterpart to TheirDamage.Max. Zero is a legal value (a blow that took nothing
     // off), so read TheirDamage.Samples to ask whether anything was measured.
     double MinDamageTaken = 0,
-    // This fight opened under an anonymous word and was named later - see FightAccumulator.WasUnseen.
-    bool WasUnseen = false);
+    // The outcome came from counting anonymous endings - see FightAccumulator.ByCounting.
+    bool ByCounting = false);
 
 public sealed class CombatStatsAggregator
 {
@@ -199,10 +202,14 @@ public sealed class CombatStatsAggregator
     public bool InCombat { get; private set; }
     public bool HasEncounter => _encounterStartUtc is not null;
 
+    // The latest CombatEventKind.UnseenChanged payload of this encounter.
+    private UnseenSnapshot? _unseen;
+
     public void BeginEncounter(DateTime startedUtc)
     {
         InCombat = true;
         _encounterStartUtc = startedUtc;
+        _unseen = null;
         // Adopt a weapon equipped just before the client noticed the fight - see PendingWeaponWindow.
         // Still null in the ordinary case, which is correct: MUD2 starts every engagement empty-handed
         // until a line says otherwise.
@@ -256,6 +263,7 @@ public sealed class CombatStatsAggregator
     {
         InCombat = false;
         _encounterStartUtc = null;
+        _unseen = null;
         _currentWeapon = null;
         _youHits = 0;
         _youMisses = 0;
@@ -384,8 +392,24 @@ public sealed class CombatStatsAggregator
                 // The creature is still standing in the room, but it has LEFT COMBAT: a flee attempt
                 // ends combat whether or not it succeeds, so the player has to attack again to
                 // re-engage. This resolves the fight (CFledFail) and drops the creature from the live
-                // roster - it is no longer an opponent until re-engaged.
+                // roster - it is no longer an opponent until re-engaged. An ending naming the unseen
+                // group concluded one of its participants, not the group: see EndsTheGroup.
+                if (EndsTheGroup(combatEvent))
+                    break;
                 ResolveFight(combatEvent, FightOutcome.CFledFail);
+                RemoveParticipant(combatEvent.NpcName);
+                break;
+
+            case CombatEventKind.UnseenChanged:
+                _unseen = combatEvent.Unseen;
+                break;
+
+            case CombatEventKind.UnseenRowEnded:
+                // Counting, or the close, gave a parked Creature its ending. Never minted: a row the
+                // book holds always had a start or a swing, which opened its fight here.
+                if (combatEvent.NpcName is { } concluded && combatEvent.Outcome is { } handed
+                    && _fights.TryGetValue(concluded, out var row))
+                    row.Resolve(handed, combatEvent.TimestampUtc, byCounting: handed != FightOutcome.FateUnseen);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
 
@@ -464,30 +488,23 @@ public sealed class CombatStatsAggregator
             // player did it - see FightOutcome.NoMore. CombatTracker only emits it for a creature
             // already engaged, so it cannot open a bucket against something the player never fought.
             case CombatEventKind.NpcDied:
-                ResolveFight(combatEvent, OutcomeFor(combatEvent.Kind));
-                RemoveParticipant(combatEvent.NpcName);
-                break;
-
-            case CombatEventKind.UnseenNamed:
-                // The word stood for one Creature and now has its name: the same fight carries on
-                // under it, blows and all. Anything else retires the word's row and the Creature
-                // opens its own - see the kind.
-                if (combatEvent.IdentifiedAs is { } identified
-                    && combatEvent.NpcName is { } anonymousWord
-                    && IdentifyFight(anonymousWord, identified))
+                if (EndsTheGroup(combatEvent))
                     break;
-                ResolveFight(combatEvent, FightOutcome.Named);
+                ResolveFight(combatEvent, OutcomeFor(combatEvent.Kind));
                 RemoveParticipant(combatEvent.NpcName);
                 break;
 
             case CombatEventKind.KilledByNpc:
                 // The player died, which ends the WHOLE encounter - CombatTracker emits this once
                 // naming only the killer and then calls EndAll(), so no other fight gets its own
-                // close event. Resolve them all: "this fight ended with me dead" is true of every
-                // one of them, and leaving the others Unresolved would understate how badly a
-                // pile-on went.
+                // close event. Operator's rule: KILLED YOU only under the one the MUD says killed
+                // the player - the named Creature, or the unseen group for "Someone has killed
+                // you." Every other fight open at that moment ends as the force-end does
+                // (Interrupted), so none of them reads as the killer.
+                if (combatEvent.NpcName is { } killer && _fights.TryGetValue(killer, out var killerFight))
+                    killerFight.Resolve(FightOutcome.Died, combatEvent.TimestampUtc);
                 foreach (var fight in _fightOrder)
-                    fight.Resolve(FightOutcome.Died, combatEvent.TimestampUtc);
+                    fight.Resolve(FightOutcome.Interrupted, combatEvent.TimestampUtc);
                 RemoveParticipant(combatEvent.NpcName);
                 break;
 
@@ -531,7 +548,7 @@ public sealed class CombatStatsAggregator
             // keys off the "(forced end: ...)" raw text, which would put the distinction back at the
             // mercy of a reason string.
             case CombatEventKind.FightEndOther:
-                if (combatEvent.NpcName is not null)
+                if (combatEvent.NpcName is not null && !EndsTheGroup(combatEvent))
                 {
                     // Resolve as EndOther, not left Unresolved: the game positively closed this fight,
                     // and Unresolved has to keep meaning "we lost track of it" or the rows nobody can
@@ -610,7 +627,8 @@ public sealed class CombatStatsAggregator
             dps,
             theirDps,
             BuildFightSnapshots(nowUtc),
-            ExchangeSnapshot());
+            ExchangeSnapshot(),
+            _unseen);
     }
 
     /// <summary>The per-NPC fights of this encounter, in first-engaged order.</summary>
@@ -637,7 +655,7 @@ public sealed class CombatStatsAggregator
                 fight.ApproxDamageTaken,
                 fight.DurationAt(nowUtc),
                 fight.Outcome,
-                fight.IsResolved,
+                IsOver(fight),
                 fight.EndedUtc,
                 fight.HealthRung,
                 fight.HealthPhrase,
@@ -655,7 +673,7 @@ public sealed class CombatStatsAggregator
                 fight.DealtMinHigh,
                 fight.DealtMaxHigh,
                 fight.MinDamageTaken,
-                fight.WasUnseen));
+                fight.ByCounting));
         }
 
         return result;
@@ -750,31 +768,22 @@ public sealed class CombatStatsAggregator
         return fight;
     }
 
-    /// <summary>Re-files the open fight of an anonymous word under the Creature's name, in the same
-    /// roster position. False - and nothing touched - when there is no open fight under the word, or
-    /// the name already has an open one that two fights would collide in.</summary>
-    private bool IdentifyFight(string word, string name)
-    {
-        if (!_fights.TryGetValue(word, out var fight) || fight.IsResolved)
-            return false;
-        if (_fights.TryGetValue(name, out var existing) && !existing.IsResolved)
-            return false;
+    /// <summary>An ending naming the unseen group concluded one of its participants, which the
+    /// tracker's book accounts for (<see cref="CombatEncounterSnapshot.Unseen"/>). The group's own
+    /// fight - every anonymous blow - stays open for the rest of the encounter, so a later anonymous
+    /// blow lands in the same fight rather than opening a second one.</summary>
+    private static bool EndsTheGroup(CombatEvent combatEvent) => AnonymousOpponent.IsGroup(combatEvent.NpcName);
 
-        _fights.Remove(word);
-        _fights[name] = fight;
-        fight.IdentifyAs(name);
-
-        if (_activeNpcSet.Remove(word))
-        {
-            _activeNpcSet.Add(name);
-            var at = _activeNpcOrder.FindIndex(n => string.Equals(n, word, StringComparison.OrdinalIgnoreCase));
-            if (at >= 0)
-                _activeNpcOrder[at] = name;
-        }
-        if (_npcWeapons.Remove(word, out var weapon))
-            _npcWeapons[name] = weapon;
-        return true;
-    }
+    /// <summary>
+    /// The one place the unseen group's liveness is decided: its fight is an opponent in the
+    /// snapshot's <see cref="FightSnapshot.IsResolved"/> - which every live aggregate filters on (the
+    /// primary fight, the incoming tempo, the largest live blow) - only while somebody is unseen
+    /// (<see cref="UnseenSnapshot.Count"/> above zero, parked rows included). At zero it reads as
+    /// over, and comes back the moment the count rises again. Every other fight is its own
+    /// <see cref="FightAccumulator.IsResolved"/>.
+    /// </summary>
+    private bool IsOver(FightAccumulator fight)
+        => fight.IsResolved || (AnonymousOpponent.IsGroup(fight.NpcName) && (_unseen?.Count ?? 0) == 0);
 
     private void ResolveFight(CombatEvent combatEvent, FightOutcome outcome)
         => FightFor(combatEvent)?.Resolve(outcome, combatEvent.TimestampUtc);
@@ -787,7 +796,6 @@ public sealed class CombatStatsAggregator
         CombatEventKind.NpcFled => FightOutcome.CFled,
         CombatEventKind.NpcFleeFailed => FightOutcome.CFledFail,
         CombatEventKind.NpcDied => FightOutcome.NoMore,
-        CombatEventKind.UnseenNamed => FightOutcome.Named,
         CombatEventKind.YouFled => FightOutcome.UFled,
         CombatEventKind.YouFleeFailed => FightOutcome.UFledFail,
         _ => FightOutcome.Unresolved,

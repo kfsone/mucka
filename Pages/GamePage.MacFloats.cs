@@ -21,8 +21,9 @@ public partial class GamePage
     private (int Rows, int Live) _macFloatRosterShape = (-1, -1);
     private bool _macFloatsBuilt;
 
-    private readonly ContentView[] _macMarqueeHosts = new ContentView[2];
-    private readonly MacUnseenMarquee?[] _macMarquees = new MacUnseenMarquee?[2];
+    // One host: the roster makes at most one unseen badge (ParticipantRoster.Build).
+    private readonly ContentView[] _macMarqueeHosts = new ContentView[1];
+    private readonly MacUnseenMarquee?[] _macMarquees = new MacUnseenMarquee?[1];
     private bool _macMarqueesBuilt;
 
     private double _macRailWidthDp;

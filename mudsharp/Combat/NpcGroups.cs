@@ -26,7 +26,10 @@ public static class NpcGroups
         // An opponent the game would not name is not a species. Pluralising the word made
         // "someones" and "somethings" - buckets that mixed players, zombies, snakes and rats and
         // that every per-species index would then have learned from. The word itself is the group,
-        // so a reader can recognise it with AnonymousOpponent.IsAnonymous and keep it out.
+        // so a reader can recognise it with AnonymousOpponent.IsAnonymous and keep it out. The unseen
+        // group is its own group for the same reason.
+        if (AnonymousOpponent.IsGroup(name.Trim()))
+            return AnonymousOpponent.Group;
         if (AnonymousOpponent.Canonical(name.Trim()) is { } anonymous)
             return anonymous;
 
