@@ -1715,19 +1715,19 @@ public sealed class CombatRailView : SKCanvasView
         if (!line.HasSamples)
         {
             _text.Color = Dim(dim, GhostDim);
-            canvas.DrawText(
-                byPlayer ? "dmg done by" : "dmg done to",
-                StatTotalLeft + (StatTotalWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
+            DrawGhostLabel(
+                canvas, byPlayer ? "dmg done by" : "dmg done to",
+                StatTotalLeft + (StatTotalWidth / 2f), baseline, SKTextAlign.Center, StatTotalWidth);
             // "low/high/avg", not "min/max/avg". On the outgoing side the outer two are the UPPER
             // bounds of the smallest and largest blows, while the mean pools both ends - so three
             // identical (5-9) blows read 9 / 9 / 7, and a
             // label promising a minimum below the average would be contradicted by the commonest case
             // of all. "low" and "high" describe WHICH BLOW, which is what these actually are.
-            canvas.DrawText(
-                "low/high/avg",
-                StatShapeLeft + (StatShapeWidth / 2f), baseline, SKTextAlign.Center, _statSmallFont, _text);
-            canvas.DrawText(
-                "dmg/tick", StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, _statSmallFont, _text);
+            DrawGhostLabel(
+                canvas, "low/high/avg",
+                StatShapeLeft + (StatShapeWidth / 2f), baseline, SKTextAlign.Center, StatShapeWidth);
+            DrawGhostLabel(
+                canvas, "dmg/tick", StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, StatDptWidth);
             return;
         }
 
@@ -1755,9 +1755,26 @@ public sealed class CombatRailView : SKCanvasView
         else
         {
             _text.Color = Dim(dim, GhostDim);
-            canvas.DrawText(
-                "dmg/tick", StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, _statSmallFont, _text);
+            DrawGhostLabel(
+                canvas, "dmg/tick", StatDptLeft + StatDptWidth, baseline, SKTextAlign.Right, StatDptWidth);
         }
+    }
+
+    /// <summary>A ghost label, shrunk to fit its column when the platform's face runs wide (the
+    /// fallback face on a Mac) rather than printing into the neighbouring label. One narrow gutter
+    /// is kept, so two adjacent labels never touch.</summary>
+    private void DrawGhostLabel(SKCanvas canvas, string text, float x, float baseline, SKTextAlign align, float width)
+    {
+        const float Gutter = 6f;
+        var avail = width - Gutter;
+        var natural = _statSmallFont.MeasureText(text);
+        if (natural <= avail)
+        {
+            canvas.DrawText(text, x, baseline, align, _statSmallFont, _text);
+            return;
+        }
+        using var fitted = new SKFont(_statSmallFont.Typeface, _statSmallFont.Size * avail / natural);
+        canvas.DrawText(text, x, baseline, align, fitted, _text);
     }
 
     /// <summary>

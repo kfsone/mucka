@@ -22,7 +22,7 @@ public partial class ScorePanelView : ContentView
         // A resize or a font change can re-wrap the controls while a list is open.
         ScoreControls.SizeChanged += (_, _) => ReplaceOpenList();
 #if MACCATALYST
-        ResizeGrip.HandlerChanged += (_, _) => InstallMacResize();
+        ScorePanel.HandlerChanged += (_, _) => InstallMacResize();
 #endif
     }
 
@@ -160,18 +160,25 @@ public partial class ScorePanelView : ContentView
 #if MACCATALYST
     private readonly List<UIKit.UIGestureRecognizer> _macResize = [];
 
-    // MAUI's pan recognizer takes direct touches only, which a mouse is not on a Mac, so the grip
-    // gets a native one that accepts the indirect pointer. The drag is measured in window
-    // coordinates: the panel is centred, so the grip moves under the pointer as the panel grows.
+    /// <summary>How far from the panel's bottom-right corner a press still starts a resize.</summary>
+    private const double MacGripReach = 36;
+
+    // MAUI's pan recognizer takes direct touches only, which a mouse is not on a Mac, so the panel
+    // gets a native one that accepts the pointer. It is on the panel rather than the grip label,
+    // which sits partly outside its cell (TranslationX/Y) where UIKit's hit test does not reach, and
+    // it begins only for a press in the corner. The drag is measured in window coordinates: the
+    // panel is centred, so the corner moves under the pointer as the panel grows.
     private void InstallMacResize()
     {
-        if (ResizeGrip.Handler?.PlatformView is not UIKit.UIView view) return;
+        if (ScorePanel.Handler?.PlatformView is not UIKit.UIView view) return;
         foreach (var old in _macResize)
             view.RemoveGestureRecognizer(old);
         _macResize.Clear();
         var pan = new UIKit.UIPanGestureRecognizer(g =>
         {
             var t = g.TranslationInView(g.View?.Window);
+            if (g.State != UIKit.UIGestureRecognizerState.Changed)
+                Mucka.Core.CrashLog.Info("score-resize", $"{g.State} {t.X:0} {t.Y:0}");
             switch (g.State)
             {
                 case UIKit.UIGestureRecognizerState.Began:
@@ -190,8 +197,19 @@ public partial class ScorePanelView : ContentView
             }
         })
         {
-            AllowedTouchTypes = [Foundation.NSNumber.FromInt32((int)UIKit.UITouchType.IndirectPointer)],
+            AllowedTouchTypes =
+            [
+                Foundation.NSNumber.FromInt32((int)UIKit.UITouchType.IndirectPointer),
+                Foundation.NSNumber.FromInt32((int)UIKit.UITouchType.Direct),
+            ],
             CancelsTouchesInView = false,
+            ShouldRecognizeSimultaneously = (_, _) => true,
+        };
+        pan.ShouldReceiveTouch = (_, touch) =>
+        {
+            if (!ResizeGrip.IsVisible) return false;
+            var p = touch.LocationInView(view);
+            return p.X >= view.Bounds.Width - MacGripReach && p.Y >= view.Bounds.Height - MacGripReach;
         };
         view.AddGestureRecognizer(pan);
         _macResize.Add(pan);
