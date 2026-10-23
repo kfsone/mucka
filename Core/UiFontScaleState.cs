@@ -29,23 +29,39 @@ public sealed class UiFontScaleState : INotifyPropertyChanged
         }
     }
 
-    /// <summary>Reads the saved step from mucka.ini off the UI thread and applies it on the UI thread.</summary>
-    public static void LoadSavedStepInBackground()
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var step = UiFontScale.Parse(await SettingsStore.GetGlobalValueAsync(UiFontScale.IniKey).ConfigureAwait(false));
-                if (step != UiFontScale.Normal)
-                    MainThread.BeginInvokeOnMainThread(() => Current.Step = step);
-            }
-            catch (Exception ex)
-            {
-                CrashLog.Write("UiFontScale", ex);
-            }
-        });
-    }
+}
+
+/// <summary>The side panel's width at the step: <see cref="Mucka.Combat.CombatRailResize.SidePanelWidthAt"/>
+/// of <see cref="UiFontScale.PanelScale"/>.</summary>
+public sealed class SidePanelWidthConverter : IValueConverter
+{
+    public static readonly SidePanelWidthConverter Instance = new();
+
+    // Android keeps the authored width: on a phone a panel widened with the step would take the
+    // screen. Its text still scales and may wrap.
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+#if ANDROID
+        => Mucka.Combat.CombatRailResize.SidePanelWidthDp;
+#else
+        => Mucka.Combat.CombatRailResize.SidePanelWidthAt(
+            UiFontScale.PanelScale(value is int step ? step : UiFontScale.Normal));
+#endif
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
+/// <summary><c>WidthRequest="{core:SidePanelWidth}"</c>: the side panel's width, live with the UI font step.</summary>
+public sealed class SidePanelWidthExtension : IMarkupExtension<BindingBase>
+{
+    public BindingBase ProvideValue(IServiceProvider serviceProvider) => Create();
+
+    /// <summary>The same binding, for views built in code.</summary>
+    public static BindingBase Create()
+        => new Binding(nameof(UiFontScaleState.Step), BindingMode.OneWay, SidePanelWidthConverter.Instance,
+            source: UiFontScaleState.Current);
+
+    object IMarkupExtension.ProvideValue(IServiceProvider serviceProvider) => ProvideValue(serviceProvider);
 }
 
 /// <summary>Multiplies the authored size passed as the converter parameter by the step's scale.</summary>

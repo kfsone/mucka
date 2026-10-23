@@ -35,8 +35,8 @@ public sealed record ClientSettings
     // dialog's Save and theirs is one click on a menu row. See Profile.ShowCombatRail.
 
     // -- Display tab settings (always global, never per-profile) --------------
-    /// <summary>UI font size step for the chrome (<see cref="Mucka.Ui.UiFontScale"/>): 0 Normal,
-    /// 1 Large, 2 Larger. The live value is <see cref="UiFontScaleState.Step"/>.</summary>
+    /// <summary>UI font size step for the chrome (<see cref="Mucka.Ui.UiFontScale"/>), from its Min to its Max with
+    /// 0 Normal. The live value is <see cref="UiFontScaleState.Step"/>.</summary>
     public int UiFontStep { get; init; }
     /// <summary>Global default maximum terminal columns; 0 = auto-size.</summary>
     public int DefaultMaxColumns { get; init; }

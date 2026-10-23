@@ -318,14 +318,18 @@ public static class SettingsStore
         => SetGlobalValueAsync(key, value ? "yes" : "no");
 
     /// <summary>Writes one key of the global <c>[settings]</c> section and nothing else.</summary>
-    public static async Task SetGlobalValueAsync(string key, string value)
+    public static Task SetGlobalValueAsync(string key, string value) => SetGlobalValuesAsync((key, value));
+
+    /// <summary>Writes some keys of the global <c>[settings]</c> section, in one write, and nothing else.</summary>
+    public static async Task SetGlobalValuesAsync(params (string Key, string Value)[] values)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
             var path = ResolvePath();
             var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
-            ini.Set("settings", key, value);
+            foreach (var (key, value) in values)
+                ini.Set("settings", key, value);
             await ini.SaveAsync(path).ConfigureAwait(false);
         }
         finally
@@ -336,11 +340,57 @@ public static class SettingsStore
 
     /// <summary>Reads one key of the global <c>[settings]</c> section; null when absent.</summary>
     public static async Task<string?> GetGlobalValueAsync(string key)
+        => (await GetGlobalValuesAsync(key).ConfigureAwait(false))[0];
+
+    /// <summary>Reads some keys of the global <c>[settings]</c> section in one load, in the order
+    /// asked; null for each one absent.</summary>
+    public static async Task<string?[]> GetGlobalValuesAsync(params string[] keys)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
-            return (await LoadIniAsync().ConfigureAwait(false)).Get("settings", key);
+            var ini = await LoadIniAsync().ConfigureAwait(false);
+            return [.. keys.Select(k => ini.Get("settings", k))];
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
+    /// <summary>The Text size page's answer: the UI step, the Game Font, the chat colour theme when one
+    /// was picked (its own four colours, the faces left alone), and the key that says it was answered,
+    /// in one write. See docs/font-setup-design.md.</summary>
+    public static async Task SaveFontSetupAsync(Mucka.Ui.FontSetupChoice choice, MudSharp.Models.ChatTheme? theme)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
+            ini.Set("settings", Mucka.Ui.UiFontScale.IniKey, Mucka.Ui.UiFontScale.Format(choice.UiStep));
+            ini.Set("settings", "fontsize", choice.GameFontPx.ToString(CultureInfo.InvariantCulture));
+            ini.Set("settings", Mucka.Ui.FontSetup.DoneKey, "yes");
+            if (theme is not null)
+                MudSharp.Models.ChatColorKeys.Write(ini.Set, theme, theme.EmoteHex, theme.SayHex, theme.ShoutHex, theme.TellHex);
+            await ini.SaveAsync(path).ConfigureAwait(false);
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
+    /// <summary>The stored chat colour theme, and the palette the stored colours and faces make.</summary>
+    public static async Task<(MudSharp.Models.ChatTheme Theme, MudSharp.Models.ChatColorizer.Palette Palette)> LoadChatColoursAsync()
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var ini = await LoadIniAsync().ConfigureAwait(false);
+            var c = MudSharp.Models.ChatColorKeys.Read(ini.Get);
+            var faces = MudSharp.Models.ChatColorKeys.ReadFaces(ini.Get);
+            return (c.Theme, MudSharp.Models.ChatColorizer.ResolvePalette(c.Theme, c.Emote, c.Say, c.Shout, c.Tell, faces));
         }
         finally
         {
@@ -471,7 +521,7 @@ public static class SettingsStore
     {
         var path = ResolvePath();
         var ini  = IniFile.Load(path);
-        if (GlobalSettingsMigration.Apply(ini) && persist)
+        if ((GlobalSettingsMigration.Apply(ini) | Mucka.Ui.UiFontScale.MigrateLegacyKey(ini.Get, ini.Set, ini.Remove)) && persist)
         {
             try { await ini.SaveAsync(path).ConfigureAwait(false); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

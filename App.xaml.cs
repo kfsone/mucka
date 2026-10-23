@@ -9,27 +9,29 @@ public partial class App : Application
 	public App()
 	{
 		InitializeComponent();
-		Core.UiFontScaleState.LoadSavedStepInBackground();
 	}
 
+    // The window opens at once, on a blank page; the profile page replaces it when StartupSequence
+    // is done - docs/font-setup-design.md, "The window".
     protected override Window CreateWindow(IActivationState? activationState)
     {
         SoundService.Play("mucka_theme.wav");
 
-        var connectPage = IPlatformApplication.Current!.Services.GetRequiredService<ConnectPage>();
-        var window = new Window(new NavigationPage(connectPage)
+#if DESKTOP
+        var importPath = Core.CommandLineArgs.Current.ImportPath;
+#else
+        string? importPath = null;
+#endif
+        // One NavigationPage for the window's whole life: the profile page replaces the start-up page
+        // inside it.
+        var startupPage = new StartupPage(importPath);
+        var nav = new NavigationPage(startupPage)
         {
             BarBackgroundColor = Color.FromArgb("#161b22"),
             BarTextColor = Colors.White,
-        });
-#if MACCATALYST
-        Core.MacStartupImport.ShowResultWhenShown(connectPage);
-#endif
-        // Profile-mode launches title the window with the profile name so a specific
-        // instance is easy to spot in the taskbar / process list; otherwise app + version.
-        window.Title = Core.CommandLineArgs.Current.Profile is { Length: > 0 } profile
-            ? profile
-            : $"mucka {AppInfo.VersionString}";
+        };
+        var window = new Window(nav) { Title = LaunchTitle };
+        _ = ShowProfilePageAsync(nav, startupPage);
 
 #if DESKTOP
         // Default-size the window at launch - WinUI's default is enormous. Sized for the game
@@ -41,6 +43,11 @@ public partial class App : Application
 #endif
 #if WINDOWS
         window.HandlerChanged += (s, e) => SetWindowIcon(window);
+        // Observed: Window.Title reaches the native window (the taskbar shows it) but MAUI's default
+        // title bar drew no text, so the window looked anonymous. This one shows Window.Title, live.
+        var titleBar = new TitleBar { ForegroundColor = Colors.White, BackgroundColor = Color.FromArgb("#161b22") };
+        titleBar.SetBinding(TitleBar.TitleProperty, new Binding(nameof(Window.Title), source: window));
+        window.TitleBar = titleBar;
 #endif
 
         // Closing the main window tears the app down -- take the auxiliary windows ($map,
@@ -54,6 +61,43 @@ public partial class App : Application
         };
 
         return window;
+    }
+
+    // Profile-mode launches title the window with the profile name so a specific instance is easy
+    // to spot in the taskbar / process list; otherwise app + version.
+    private static string LaunchTitle => Core.CommandLineArgs.Current.Profile is { Length: > 0 } profile
+        ? profile
+        : $"mucka {AppInfo.VersionString}";
+
+    private static async Task ShowProfilePageAsync(NavigationPage nav, Page startupPage)
+    {
+        Core.StartupSequence.Result? startup = null;
+        try
+        {
+            startup = await Core.StartupSequence.RunAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The profile page still opens, at the step the app started with.
+            Core.CrashLog.Write("Startup", ex);
+        }
+
+        try
+        {
+            await MainThread.InvokeOnMainThreadAsync(async () =>
+            {
+                if (startup is not null)
+                    Core.UiFontScaleState.Current.Step = startup.Font.UiStep;
+                var connectPage = IPlatformApplication.Current!.Services.GetRequiredService<ConnectPage>();
+                connectPage.Startup = startup;
+                nav.Navigation.InsertPageBefore(connectPage, startupPage);
+                await nav.PopToRootAsync(animated: false);
+            });
+        }
+        catch (Exception ex)
+        {
+            Core.CrashLog.Write("Startup", ex);
+        }
     }
 
 #if WINDOWS

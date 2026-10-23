@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- The game page's chrome that the Text size page also draws (Pages/FontSetupPage), so its
+     examples are the real thing - docs/font-setup-design.md. -->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:core="clr-namespace:Mucka.Core"
+    xmlns:vm="clr-namespace:Mucka.ViewModels"
+    xmlns:beh="clr-namespace:Mucka.Behaviors">
+
+    <!-- The wide bar's lesser figures - each stat's /max and the score's gain - a point under
+         StatLabelStyle's size. -->
+    <OnPlatform x:Key="StatMinorFontSize" x:TypeArguments="x:Double" Default="12">
+        <On Platform="WinUI" Value="13"/>
+        <On Platform="MacCatalyst" Value="14"/>
+    </OnPlatform>
+
+    <Style x:Key="StatLabelStyle" TargetType="Label">
+        <Setter Property="TextColor" Value="White"/>
+        <Setter Property="FontSize" Value="{core:ScaledFont Size={OnPlatform WinUI=14, MacCatalyst=15, Default=13}, Tight=True}"/>
+        <Setter Property="VerticalOptions" Value="Center"/>
+        <Setter Property="FontFamily" Value="{OnPlatform Android='monospace', WinUI='Cascadia Mono', Default='Cascadia Mono'}"/>
+    </Style>
+
+    <!-- One who-list row: persona name at full size, title/level prefix and suffix 2pt smaller.
+         Used by the docked list, the floating list and the Text size page. -->
+    <DataTemplate x:Key="WhoEntryTemplate" x:DataType="vm:WhoEntry">
+        <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+            <Label.FormattedText>
+                <FormattedString>
+                    <Span Text="{Binding DisplayPrefix}"
+                          TextColor="{Binding DisplayColor}"
+                          FontSize="{core:ScaledFont 9}"
+                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                    <Span Text="{Binding DisplayName}"
+                          TextColor="{Binding DisplayColor}"
+                          FontSize="{core:ScaledFont 11}"
+                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                    <Span Text="{Binding DisplaySuffix}"
+                          TextColor="{Binding DisplayColor}"
+                          FontSize="{core:ScaledFont 9}"
+                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                </FormattedString>
+            </Label.FormattedText>
+            <!-- Compositor (off-UI-thread) fade in/out on join/leave. -->
+            <Label.Behaviors>
+                <beh:WhoEntryFadeBehavior/>
+            </Label.Behaviors>
+        </Label>
+    </DataTemplate>
+</ResourceDictionary>

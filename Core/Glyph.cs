@@ -14,12 +14,18 @@ public static class Glyph
     public const string ChevronDown = "\u25BE";
     /// <summary>Right-pointing triangle: a collapsed group.</summary>
     public const string TriangleRight = "\u25B6";
+    /// <summary>Up-pointing triangle: scroll up, more above.</summary>
+    public const string TriangleUp = "\u25B2";
     /// <summary>Down-pointing triangle: an expanded group.</summary>
     public const string TriangleDown = "\u25BC";
     /// <summary>Leftwards arrow with hook: the there-and-back (u-turn) button.</summary>
     public const string UTurn = "\u21A9";
     /// <summary>Clockwise open circle arrow: a reset-to-defaults button.</summary>
     public const string Reset = "\u21BB";
+    /// <summary>Gear, text presentation: Settings, named in text that points at it.</summary>
+    public const string Settings = "\u2699\ufe0e";
+    /// <summary>Minus sign: a decrease button, the width of its "+" partner.</summary>
+    public const string Minus = "\u2212";
     /// <summary>Multiplication X: a close button.</summary>
     public const string Close = "\u2715";
     /// <summary>Leftwards arrow: bytes received from the server.</summary>

@@ -14,7 +14,7 @@
          the code-behind re-grids by actual width - narrow puts the logo beside a height-capped
          list, then the form below. Width-based (not OnIdiom) so a phone in landscape goes wide. -->
     <Grid x:Name="RootGrid"
-          RowDefinitions="Auto,*"
+          RowDefinitions="Auto,*,Auto"
           ColumnDefinitions="256,1,*">
 
         <!-- Narrow-only title strip: app name + version.
@@ -84,15 +84,33 @@
             </CollectionView.ItemTemplate>
         </CollectionView>
 
+        <!-- The Text size page again (Pages/FontSetupPage). Large on purpose: a player who cannot
+             read this page has to be able to find this. -->
+        <Button x:Name="FontSetupButton"
+                Grid.Row="2" Grid.Column="0"
+                Text="Aa  Text size"
+                Clicked="OnFontSetupClicked"
+                IsVisible="{OnPlatform Default=True, Android=False}"
+                BackgroundColor="#1a1a1a"
+                TextColor="#58a6ff"
+                BorderColor="#333333"
+                BorderWidth="1"
+                CornerRadius="6"
+                FontSize="{core:ScaledFont 16}"
+                MinimumHeightRequest="44"
+                Margin="12,8"
+                Padding="16,8"
+                SemanticProperties.Description="Change the text size"/>
+
         <!-- Separator between the profile panel and the form -->
         <BoxView x:Name="Separator"
-                 Grid.Row="0" Grid.RowSpan="2"
+                 Grid.Row="0" Grid.RowSpan="3"
                  Grid.Column="1"
                  Color="#333333"
                  WidthRequest="1" />
 
         <ScrollView x:Name="FormScroll"
-                    Grid.Row="0" Grid.RowSpan="2"
+                    Grid.Row="0" Grid.RowSpan="3"
                     Grid.Column="2"
                     VerticalOptions="Center">
             <VerticalStackLayout HorizontalOptions="{OnIdiom Phone=Fill, Default=Center}"

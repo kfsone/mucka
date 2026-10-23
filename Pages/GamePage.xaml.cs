@@ -214,11 +214,11 @@ public partial class GamePage : ContentPage
     private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
     private readonly WheelNotches _wheelNotches = new();
     // -- Window minimum-size enforcement -------------------------------------
-    // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) own width, unrelated to the combat
+    // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) authored width, unrelated to the combat
     // rail - lives in Mucka.Combat.CombatRailResize alongside the rest of this file's
-    // window-sizing constants, and SidePanelBorder's WidthRequest in GamePage.xaml reads it through
-    // x:Static; that panel keeps the width the player already plays with. The Combat Rail is a
-    // wholly separate, additional panel and never docks inside this one.
+    // window-sizing constants. SidePanelBorder's WidthRequest binds it scaled by the UI font step
+    // (SidePanelScale here). The Combat Rail is a wholly separate, additional panel and never docks
+    // inside this one.
 
     // - Combat Rail: the additional right-edge panel -
     // Own width constants, deliberately separate from SidePanelWidthDp above. Shown/hidden by the
@@ -314,6 +314,7 @@ public partial class GamePage : ContentPage
                 _vm.SettingsSaved       += OnSettingsSaved;
                 _vm.ToastRequested      += ShowToast;
                 _vm.PropertyChanged     += OnVmPropertyChanged;
+                UiFontScaleState.Current.PropertyChanged += OnUiFontStepChanged;
                 Terminal.HistoryModeChanged += OnHistoryModeChanged;
                 Terminal.FocusInputRequested += OnFocusInputRequested;
                 Terminal.SpanInsertTextRequested += OnTerminalSpanInsertTextRequested;
@@ -562,6 +563,7 @@ public partial class GamePage : ContentPage
         _vm.SettingsSaved       -= OnSettingsSaved;
         _vm.ToastRequested      -= ShowToast;
         _vm.PropertyChanged     -= OnVmPropertyChanged;
+        UiFontScaleState.Current.PropertyChanged -= OnUiFontStepChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
         Terminal.SpanInsertTextRequested -= OnTerminalSpanInsertTextRequested;
@@ -1122,6 +1124,22 @@ public partial class GamePage : ContentPage
 
     // Reacts to settings applied from the config dialog: font size changes re-style the
     // terminal; column changes re-fit the window (Windows) and re-wrap the view. The window
+#if DESKTOP
+    /// <summary>How much wider the side panel is than authored at the live UI font step.</summary>
+    private static double SidePanelScale => Mucka.Ui.UiFontScale.PanelScale(UiFontScaleState.Current.Step);
+#endif
+
+    // The side panel widens with the UI font step, so the window's floor moves with it.
+    private void OnUiFontStepChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+#if WINDOWS
+        UpdateWindowMinimumWidth();
+#elif MACCATALYST
+        BeginMacResizeSettle();
+        FitMacWindow();
+#endif
+    }
+
     // re-fit hangs off MaxColumns only: ApplyClientSettings raises it (unconditionally) after
     // FontSize, so one resize sees both new values instead of resizing twice.
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -1450,7 +1468,7 @@ public partial class GamePage : ContentPage
     /// </summary>
     internal static double PreferredWindowWidthDp(
         double charWidthDp, bool panelExpanded, double viewColumns = CombatRailResize.DefaultViewColumns)
-        => CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, viewColumns);
+        => CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, viewColumns, SidePanelScale);
 
     /// <summary>
     /// Attaches a Win32 window subclass on first call so that WM_GETMINMAXINFO can be
@@ -1551,7 +1569,7 @@ public partial class GamePage : ContentPage
         var railShown = _vm.SidePanel.IsCombatPanelVisible;
         var initial = CombatRailResize.ComputeInitialWidth(
             MinWindowWidthPx(dpi), dpi, _vm.MaxColumns, CharWidthDp,
-            _vm.SidePanel.IsPanelExpanded, railShown, RailPanelWidthDp);
+            _vm.SidePanel.IsPanelExpanded, railShown, RailPanelWidthDp, SidePanelScale);
 
         _railWidthApplied = railShown;
         _railDeltaAppliedDp = initial.AppliedDeltaDp;
@@ -3435,7 +3453,7 @@ public partial class GamePage : ContentPage
             _railDeltaAppliedDp = showing
                 ? CombatRailResize.SeedAppliedDeltaDp(
                     appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
-                    RailPanelWidthDp)
+                    RailPanelWidthDp, SidePanelScale)
                 : 0.0;
             _railWidthApplied = showing;
             return;
@@ -3449,7 +3467,7 @@ public partial class GamePage : ContentPage
         // apply the one real side effect (Resize), remember the new delta.
         var result = CombatRailResize.ComputeToggle(
             showing, appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
-            _railDeltaAppliedDp, RailPanelWidthDp);
+            _railDeltaAppliedDp, RailPanelWidthDp, SidePanelScale);
         var targetWidth = result.TargetWidthPx;
         _railDeltaAppliedDp = result.NewAppliedDeltaDp;
         _railWidthApplied = showing;

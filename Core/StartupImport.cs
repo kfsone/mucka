@@ -1,32 +1,32 @@
-#if WINDOWS
-using System.Runtime.InteropServices;
+#if DESKTOP
 using Mucka.Store;
 
 namespace Mucka.Core;
 
 /// <summary>
-/// <c>mucka -import &lt;file&gt;</c>: runs <see cref="DatabaseImport"/> before the app builds, so
-/// nothing has opened the database, and reports the result in a message box. Mucka then starts as
-/// normal either way.
+/// <c>mucka -import &lt;file&gt;</c>: runs <see cref="DatabaseImport"/> during start-up, behind the
+/// already-open window and before the profile page exists, so nothing has opened the database yet.
+/// <see cref="StartupSequence"/> calls it off the UI thread; the profile page reports the outcome
+/// in an alert. Mucka then starts as normal either way.
 ///
-/// <para>The merge is MAUI-free and lives in <c>Mucka.Store</c>; this is only the start-up hook and
-/// the box. A native box rather than a page, because there is no window yet.</para>
+/// <para>The merge is MAUI-free and lives in <c>Mucka.Store</c>; this is only the start-up hook.</para>
 /// </summary>
 internal static class StartupImport
 {
-    private const uint MbOk = 0x0, MbIconError = 0x10, MbIconInformation = 0x40;
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, EntryPoint = "MessageBoxW")]
-    private static extern int MessageBox(IntPtr owner, string text, string caption, uint type);
-
-    internal static void RunIfRequested()
+    /// <summary>The outcome, or null when no import was asked for.</summary>
+    internal static DatabaseImportOutcome? RunIfRequested()
     {
         if (CommandLineArgs.Current.ImportPath is not { } path)
-            return;
+            return null;
 
-        var outcome = DatabaseImport.Run(MuckaPaths.GetDatabasePath(), Path.GetFullPath(path));
-        _ = MessageBox(IntPtr.Zero, outcome.Message, "Mucka import",
-            MbOk | (outcome.Ok ? MbIconInformation : MbIconError));
+        try
+        {
+            return DatabaseImport.Run(MuckaPaths.GetDatabasePath(), Path.GetFullPath(path));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return new DatabaseImportOutcome(false, $"Import failed, and your database was not changed: {ex.Message}");
+        }
     }
 }
 #endif

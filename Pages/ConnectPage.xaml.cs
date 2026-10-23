@@ -72,7 +72,8 @@ public partial class ConnectPage : ContentPage
         {
             RootGrid.RowDefinitions = new RowDefinitionCollection(
                 new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Star });
+                new RowDefinition { Height = GridLength.Star },
+                new RowDefinition { Height = GridLength.Auto });   // Text size button
             RootGrid.ColumnDefinitions = new ColumnDefinitionCollection(
                 new ColumnDefinition { Width = 256 },
                 new ColumnDefinition { Width = 1 },
@@ -80,9 +81,10 @@ public partial class ConnectPage : ContentPage
 
             Grid.SetRow(HeaderPanel, 0);  Grid.SetColumn(HeaderPanel, 0);  Grid.SetColumnSpan(HeaderPanel, 1);
             Grid.SetRow(ProfileList, 1);  Grid.SetColumn(ProfileList, 0);  Grid.SetColumnSpan(ProfileList, 1);
-            Grid.SetRow(Separator, 0);    Grid.SetRowSpan(Separator, 2);
+            Grid.SetRow(FontSetupButton, 2); Grid.SetColumn(FontSetupButton, 0); Grid.SetColumnSpan(FontSetupButton, 1);
+            Grid.SetRow(Separator, 0);    Grid.SetRowSpan(Separator, 3);
             Grid.SetColumn(Separator, 1); Grid.SetColumnSpan(Separator, 1);
-            Grid.SetRow(FormScroll, 0);   Grid.SetRowSpan(FormScroll, 2);
+            Grid.SetRow(FormScroll, 0);   Grid.SetRowSpan(FormScroll, 3);
             Grid.SetColumn(FormScroll, 2); Grid.SetColumnSpan(FormScroll, 1);
             Grid.SetRow(TitleBar, 0);     Grid.SetColumn(TitleBar, 0);     Grid.SetColumnSpan(TitleBar, 1);
 
@@ -98,10 +100,13 @@ public partial class ConnectPage : ContentPage
                 new RowDefinition { Height = GridLength.Auto },   // title strip
                 new RowDefinition { Height = GridLength.Auto },   // logo + list band
                 new RowDefinition { Height = 1 },                 // separator
-                new RowDefinition { Height = GridLength.Star });  // form
+                new RowDefinition { Height = GridLength.Star },   // form
+                new RowDefinition { Height = GridLength.Auto });  // Text size button
             RootGrid.ColumnDefinitions = new ColumnDefinitionCollection(
                 new ColumnDefinition { Width = NarrowLogoColumnDp },
                 new ColumnDefinition { Width = GridLength.Star });
+
+            Grid.SetRow(FontSetupButton, 4); Grid.SetColumn(FontSetupButton, 0); Grid.SetColumnSpan(FontSetupButton, 2);
 
             Grid.SetRow(TitleBar, 0);     Grid.SetColumn(TitleBar, 0);     Grid.SetColumnSpan(TitleBar, 2);
             Grid.SetRow(HeaderPanel, 1);  Grid.SetColumn(HeaderPanel, 0);  Grid.SetColumnSpan(HeaderPanel, 1);
@@ -134,13 +139,19 @@ public partial class ConnectPage : ContentPage
         }
     }
 
+    /// <summary>What App's start-up found: an import outcome to report and whether the Text size page
+    /// has been answered. Null when the start-up failed, which leaves both alone.</summary>
+    internal StartupSequence.Result? Startup { get; set; }
+
+    // The start-up questions, asked once. Held as a task because this page appears again whenever a
+    // modal on it closes, and that appearance must wait for them too rather than run past them.
+    private Task? _startupQuestions;
+
     protected override async void OnAppearing()
     {
         base.OnAppearing();
-#if MACCATALYST
-        if (!_vm.IsDirectConnectMode && Interlocked.Exchange(ref _passwordChoiceAsked, 1) == 0)
-            _ = AskPasswordStorageAsync();
-#endif
+        _startupQuestions ??= AskStartupQuestionsAsync();
+        await _startupQuestions;
         if (!_vm.IsDirectConnectMode || Interlocked.Exchange(ref _autoConnectAttempted, 1) != 0)
         {
             return;
@@ -153,17 +164,124 @@ public partial class ConnectPage : ContentPage
         }
     }
 
+    // One modal at a time, from the first appearance of this page, so the window is already up:
+    // the import's outcome, then the Text size page, then (Mac) where passwords are kept.
+    // Each in its own try, so one that fails does not skip the ones after it.
+    private async Task AskStartupQuestionsAsync()
+    {
+        await Task.Yield();
+        try
+        {
+            if (Startup?.Import is { } import)
+                await DisplayAlertAsync("Mucka import", import.Message, "OK");
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("StartupImportAlert", ex);
+        }
+        try
+        {
+            if (Startup is { PromptFontSetup: true } startup)
+                await RunFontSetupAsync(startup.Font, firstRun: true);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("FontSetup", ex);
+        }
 #if MACCATALYST
-    private int _passwordChoiceAsked;
+        if (!_vm.IsDirectConnectMode)
+            await AskPasswordStorageAsync();
+#endif
+    }
 
-    // Asked once, from the first appearance of this page, so the window is already up; never on the
-    // game pages. Until it is answered nothing is stored anywhere (see ProfileStore).
+    /// <summary>Opens the Text size page with <paramref name="initial"/> and saves what it returns -
+    /// on Skip or Cancel, the sizes it opened with, which also records that it was answered.</summary>
+    private async Task RunFontSetupAsync(Mucka.Ui.FontSetupChoice initial, bool firstRun)
+    {
+        if (firstRun)
+        {
+            // The plain size picker first: from here on the player can read this page's own words,
+            // and Skip on the next page keeps what was picked here.
+            var picked = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await Navigation.PushModalAsync(new InterfaceSizePage(initial.UiStep, picked));
+            initial = initial with { UiStep = await picked.Task };
+            UiFontScaleState.Current.Step = initial.UiStep;
+#if DESKTOP
+            FitWindowForWizard(initial.UiStep);
+#endif
+        }
+        var (theme, palette) = await Task.Run(SettingsStore.LoadChatColoursAsync);
+        var tcs = new TaskCompletionSource<FontSetupResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await Navigation.PushModalAsync(new FontSetupPage(initial, initial.UiStep, firstRun, palette, theme, tcs));
+        var result = await tcs.Task ?? new FontSetupResult(initial, null);
+        // After the load, which would otherwise overwrite it with what the file held before the save;
+        // and applied even when the save fails, so this run uses what was chosen.
+        await _vm.LoadProfilesTask;
+        _vm.ApplyFontSetup(result.Sizes.GameFontPx, result.Theme);
+        await Task.Run(() => SettingsStore.SaveFontSetupAsync(result.Sizes, result.Theme));
+    }
+
+#if DESKTOP
+    // The Text Wizard laid out at the default step fits in this much window; a bigger step wants a
+    // bigger window, up to most of the screen. The window only grows.
+    private const double WizardWidthDp = 1000;
+    private const double WizardHeightDp = 820;
+    private const double WizardScreenShare = 0.9;
+
+    private void FitWindowForWizard(int step)
+    {
+        if (Window is not { } window) return;
+        var scale = Mucka.Ui.UiFontScale.ScaleFor(step);
+#if MACCATALYST
+        var screen = UIKit.UIScreen.MainScreen.Bounds;
+        double screenW = screen.Width, screenH = screen.Height;
+#else
+        var info = DeviceDisplay.Current.MainDisplayInfo;
+        if (info.Density <= 0) return;
+        double screenW = info.Width / info.Density, screenH = info.Height / info.Density;
+#endif
+        var width = Math.Min(WizardWidthDp * scale, screenW * WizardScreenShare);
+        var height = Math.Min(WizardHeightDp * scale, screenH * WizardScreenShare);
+        if (window.Width < width) window.Width = width;
+        if (window.Height < height) window.Height = height;
+    }
+#endif
+
+    private bool _fontSetupOpen;
+
+    /// <summary>The Text size button: the page again, opened with what the app runs at now.</summary>
+    private async void OnFontSetupClicked(object? sender, EventArgs e)
+    {
+        // Set before the first await: a second click while the stored size is being read would
+        // otherwise open a second page.
+        if (_fontSetupOpen || Navigation.ModalStack.Count > 0) return;
+        _fontSetupOpen = true;
+        try
+        {
+            var fontPx = await Task.Run(() => SettingsStore.GetGlobalValueAsync("fontsize"));
+            var current = new Mucka.Ui.FontSetupChoice(UiFontScaleState.Current.Step,
+                int.TryParse(fontPx, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var px) && px > 0
+                    ? px : GameViewModel.DefaultFontSizePx);
+            await RunFontSetupAsync(current, firstRun: false);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write("FontSetup", ex);
+        }
+        finally
+        {
+            _fontSetupOpen = false;
+        }
+    }
+
+#if MACCATALYST
+    // Never asked on the game pages. Until it is answered nothing is stored anywhere (see ProfileStore).
     private async Task AskPasswordStorageAsync()
     {
         try
         {
             if (await SettingsStore.GetSecurePasswordsAsync() is not null) return;
-            await Task.Yield();
             var tcs = new TaskCompletionSource<bool>();
             await Navigation.PushModalAsync(new PasswordStorePage(tcs));
             var secure = await tcs.Task;

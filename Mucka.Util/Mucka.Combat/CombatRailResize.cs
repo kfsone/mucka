@@ -20,10 +20,12 @@ namespace Mucka.Combat;
 public static class CombatRailResize
 {
     // -- Layout constants, moved here from GamePage.xaml.cs verbatim ----------------------------
-    // SidePanelBorder's WidthRequest in GamePage.xaml reads this through x:Static - the LEFT panel
-    // (Online/Items/Map), unrelated to the combat rail. That panel keeps the width the player
-    // already plays with.
+    // The LEFT panel's (Online/Items/Map) authored width, unrelated to the combat rail. It widens
+    // with the UI font step - see SidePanelWidthAt.
     public const double SidePanelWidthDp = 228.0;
+
+    /// <summary>The side panel's width at a panel scale (<c>UiFontScale.PanelScale</c>).</summary>
+    public static double SidePanelWidthAt(double sidePanelScale) => SidePanelWidthDp * sidePanelScale;
     // Left gutter the terminal renderer pads text with - must match TerminalView.LeftPadDip.
     public const double TerminalGutterDp = 4.0;
     // Horizontal window chrome (resize borders) not part of the client area; small fudge so the
@@ -77,11 +79,13 @@ public static class CombatRailResize
     /// renderer's left gutter, the side panel when expanded, and the window frame. Deliberately never
     /// includes the combat rail - see <see cref="CombatPanelWidthDp"/>'s own remarks - so this
     /// function's callers each decide separately whether to reserve the rail on top.
+    /// <paramref name="sidePanelScale"/> widens the side panel with the UI font step.
     /// </summary>
     public static double PreferredWindowWidthDp(
-        double charWidthDp, bool panelExpanded, double viewColumns = DefaultViewColumns)
+        double charWidthDp, bool panelExpanded, double viewColumns = DefaultViewColumns,
+        double sidePanelScale = 1.0)
         => viewColumns * charWidthDp + TerminalGutterDp
-         + (panelExpanded ? SidePanelWidthDp : 0.0) + WindowChromeDp;
+         + (panelExpanded ? SidePanelWidthAt(sidePanelScale) : 0.0) + WindowChromeDp;
 
     /// <summary>Converts a dp measurement to physical pixels, rounding up - used for floors/minimums,
     /// where under-reserving by a fraction of a pixel is the wrong direction to round.</summary>
@@ -135,9 +139,10 @@ public static class CombatRailResize
         double charWidthDp,
         bool panelExpanded,
         double appliedDeltaDp,
-        double panelWidthDp)
+        double panelWidthDp,
+        double sidePanelScale = 1.0)
     {
-        var floorPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns), dpi);
+        var floorPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns, sidePanelScale), dpi);
 
         int targetWidth;
         if (showing)
@@ -151,7 +156,7 @@ public static class CombatRailResize
             else
             {
                 var naturalPx = DpToPxCeil(
-                    PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns + 2.0), dpi);
+                    PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns + 2.0, sidePanelScale), dpi);
                 var slackPx = Math.Max(0, currentWidthPx - naturalPx);
                 deltaPx = Math.Max(0, neededPx - slackPx);
             }
@@ -198,11 +203,11 @@ public static class CombatRailResize
     /// </summary>
     public static double SeedAppliedDeltaDp(
         int currentWidthPx, double dpi, int maxColumns, double charWidthDp, bool panelExpanded,
-        double panelWidthDp)
+        double panelWidthDp, double sidePanelScale = 1.0)
     {
         var naturalPx = maxColumns <= 0
-            ? DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns), dpi)
-            : DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns + 2.0), dpi);
+            ? DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns, sidePanelScale), dpi)
+            : DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, maxColumns + 2.0, sidePanelScale), dpi);
 
         var slackPx = Math.Max(0, currentWidthPx - naturalPx);
         var railPx = DpToPxRound(panelWidthDp, dpi);
@@ -243,10 +248,10 @@ public static class CombatRailResize
     /// and leave the window too wide from the first frame, with no later event to correct it.</param>
     public static InitialSize ComputeInitialWidth(
         int minWidthPx, double dpi, int maxColumns, double charWidthDp,
-        bool panelExpanded, bool railShown, double panelWidthDp)
+        bool panelExpanded, bool railShown, double panelWidthDp, double sidePanelScale = 1.0)
     {
         var columns = maxColumns > 0 ? maxColumns + 2.0 : DefaultViewColumns;
-        var targetPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, columns), dpi);
+        var targetPx = DpToPxCeil(PreferredWindowWidthDp(charWidthDp, panelExpanded, columns, sidePanelScale), dpi);
         if (targetPx < minWidthPx) targetPx = minWidthPx;
 
         if (!railShown) return new InitialSize(targetPx, 0.0);

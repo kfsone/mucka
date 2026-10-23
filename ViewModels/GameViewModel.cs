@@ -233,7 +233,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int FontSize => _fontSize;
     public const double CharWidthPerFontPx = Mucka.Terminal.TerminalColumns.CharWidthPerFontPx;
     /// <summary>Default terminal font size in pixels when the profile does not override it.</summary>
-    public const int DefaultFontSizePx = 15;
+    public const int DefaultFontSizePx = Mucka.Ui.FontSetup.DefaultGameFontPx;
     // Character width in MAUI logical pixels for the current font size.
     public double CharWidthDp => _fontSize * CharWidthPerFontPx;
     public int Volume => _volume;
@@ -2494,7 +2494,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void ApplyFontSize(int px)
     {
-        px = px > 0 ? Math.Clamp(px, 9, 24) : DefaultFontSizePx;
+        px = px > 0 ? Mucka.Ui.FontSetup.ClampGameFont(px) : DefaultFontSizePx;
         if (px == _fontSize) return;
         _fontSize = px;
         OnPropertiesChanged(nameof(FontSize), nameof(CharWidthDp));

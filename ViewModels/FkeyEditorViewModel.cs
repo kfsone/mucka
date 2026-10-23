@@ -82,8 +82,26 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public double FontSize
     {
         get => _fontSize;
-        set => SetAndNotify(ref _fontSize, Math.Clamp(Math.Round(value), 9, 24), [nameof(FontSizeDisplay)]);
+        set => SetAndNotify(ref _fontSize, Math.Clamp(Math.Round(value), Mucka.Ui.FontSetup.MinGameFontPx, Mucka.Ui.FontSetup.MaxGameFontPx), [nameof(FontSizeDisplay), nameof(FontSizeName), nameof(FontSizeValue)]);
     }
+
+    /// <summary>The Game Text Size slider: whole pixels, so the thumb is put back on one after a drag
+    /// even when the size did not change.</summary>
+    public double FontSizeValue
+    {
+        get => _fontSize;
+        set
+        {
+            FontSize = value;
+            OnPropertyChanged();
+        }
+    }
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding FontSizeMinimum}); a binding cannot resolve a static member.")]
+    public double FontSizeMinimum => Mucka.Ui.FontSetup.MinGameFontPx;
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding FontSizeMaximum}); a binding cannot resolve a static member.")]
+    public double FontSizeMaximum => Mucka.Ui.FontSetup.MaxGameFontPx;
 
     public double Columns
     {
@@ -123,6 +141,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
 
     public int    FontSizeDisplay            => (int)Math.Round(_fontSize);
+    /// <summary>The Game Font as the Text size page names it: "Default", or its offset.</summary>
+    public string FontSizeName => Mucka.Ui.FontSetup.GameFontName(FontSizeDisplay);
     public int    ColumnsDisplay             => (int)Math.Round(_columns);
     /// <summary>The columns row's text: "auto (44)" on an auto profile, the count the terminal is
     /// using in the brackets; the chosen maximum otherwise.</summary>
@@ -252,9 +272,27 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public int UiFontStep
     {
         get => _uiFontStep;
-        set => SetAndNotify(ref _uiFontStep, Mucka.Ui.UiFontScale.Clamp(value), [nameof(UiFontStepName)]);
+        set => SetAndNotify(ref _uiFontStep, Mucka.Ui.UiFontScale.Clamp(value), [nameof(UiFontStepName), nameof(UiFontStepValue)]);
     }
-    public string UiFontStepName => Mucka.Ui.UiFontScale.Names[_uiFontStep];
+    public string UiFontStepName => Mucka.Ui.UiFontScale.Name(_uiFontStep);
+
+    /// <summary>The Mucka Text Size slider: whole steps, so the thumb is put back on one after a drag
+    /// even when the step did not change.</summary>
+    public double UiFontStepValue
+    {
+        get => _uiFontStep;
+        set
+        {
+            UiFontStep = (int)Math.Round(value);
+            OnPropertyChanged();
+        }
+    }
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding UiFontStepMinimum}); a binding cannot resolve a static member.")]
+    public double UiFontStepMinimum => Mucka.Ui.UiFontScale.Min;
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding UiFontStepMaximum}); a binding cannot resolve a static member.")]
+    public double UiFontStepMaximum => Mucka.Ui.UiFontScale.Max;
 
     public double DisplayColumns
     {
@@ -296,10 +334,24 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     }
     private int _chatThemeIndex;
 
-    private ChatTheme SelectedChatTheme => ChatTheme.All[_chatThemeIndex];
+    internal ChatTheme SelectedChatTheme => ChatTheme.All[_chatThemeIndex];
+
+    /// <summary>A theme picked on the Text size page: selected, and its four colours loaded into the
+    /// rows with the faces left alone, even when it is the theme already selected.</summary>
+    internal void ApplyChatTheme(ChatTheme theme)
+    {
+        var index = ChatTheme.All.ToList().IndexOf(theme);
+        if (index < 0) return;
+        if (index != _chatThemeIndex)
+        {
+            _chatThemeIndex = index;
+            OnPropertyChanged(nameof(SelectedChatThemeIndex));
+        }
+        LoadChatPalette(theme.ApplyTo(ChatPalette));
+    }
 
     /// <summary>The rows' colours and faces as a palette.</summary>
-    private ChatColorizer.Palette ChatPalette => new(EmoteColor.Rgb, SayColor.Rgb, ShoutColor.Rgb, TellColor.Rgb,
+    internal ChatColorizer.Palette ChatPalette => new(EmoteColor.Rgb, SayColor.Rgb, ShoutColor.Rgb, TellColor.Rgb,
         ChatColors.Aggregate(ChatFaces.Default, (faces, row) => row.WriteFaces(faces)));
 
     private void LoadChatPalette(ChatColorizer.Palette palette)
@@ -394,14 +446,10 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand PlayBeepCommand { get; }
     public ICommand ResetSoundsCommand { get; }
     public ICommand ResetChatColorsCommand { get; }
-    public ICommand IncrFontSizeCommand { get; }
-    public ICommand DecrFontSizeCommand { get; }
     public ICommand IncrColumnsCommand { get; }
     public ICommand DecrColumnsCommand { get; }
     public ICommand IncrStatFreqCommand { get; }
     public ICommand DecrStatFreqCommand { get; }
-    public ICommand IncrUiFontStepCommand { get; }
-    public ICommand DecrUiFontStepCommand { get; }
     public ICommand IncrDisplayColumnsCommand { get; }
     public ICommand DecrDisplayColumnsCommand { get; }
     public ICommand IncrDisplayDreamwordOffsetCommand { get; }
@@ -432,7 +480,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _onSave   = onSave;
         CanSave   = onSave != null;
 
-        _fontSize = settings.FontSize > 0 ? Math.Clamp(settings.FontSize, 9, 24) : GameViewModel.DefaultFontSizePx;
+        _fontSize = settings.FontSize > 0 ? Mucka.Ui.FontSetup.ClampGameFont(settings.FontSize) : GameViewModel.DefaultFontSizePx;
         _columnsIsAuto = settings.MaxColumns <= 0;
         // Auto starts from the columns the terminal is using, so +/- steps from what is on screen.
         _columns  = Math.Clamp(
@@ -560,14 +608,10 @@ public sealed class FkeyEditorViewModel : BaseViewModel
             CloseRequested?.Invoke();
         });
 
-        IncrFontSizeCommand = new Command(() => FontSize += 1);
-        DecrFontSizeCommand = new Command(() => FontSize -= 1);
         IncrColumnsCommand  = new Command(() => Columns  += 1);
         DecrColumnsCommand  = new Command(() => Columns  -= 1);
         IncrStatFreqCommand = new Command(() => StatUpdateFrequency += 5);
         DecrStatFreqCommand = new Command(() => StatUpdateFrequency -= 5);
-        IncrUiFontStepCommand              = new Command(() => UiFontStep += 1);
-        DecrUiFontStepCommand              = new Command(() => UiFontStep -= 1);
         IncrDisplayColumnsCommand          = new Command(() => DisplayColumns          += 1);
         DecrDisplayColumnsCommand          = new Command(() => DisplayColumns          -= 1);
         IncrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  += 1);

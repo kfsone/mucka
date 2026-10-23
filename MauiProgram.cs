@@ -11,12 +11,7 @@ public static class MauiProgram
 {
     public static MauiApp CreateMauiApp()
     {
-#if WINDOWS
-        // First thing, before anything can open the database.
-        StartupImport.RunIfRequested();
-#elif MACCATALYST
-        MacStartupImport.RunIfRequested();
-#endif
+        // -import runs later, behind the open window: see StartupSequence.
         var builder = MauiApp.CreateBuilder();
         builder
             .UseMauiApp<App>()

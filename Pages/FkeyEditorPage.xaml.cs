@@ -118,18 +118,56 @@ public partial class FkeyEditorPage : ContentPage
     }
 
     private bool _closed;
+    private FontSetupPage? _fontSetup;
+
+    /// <summary>
+    /// The Text size page over this one. Its choice comes back into this page's own fields, which
+    /// take effect on Apply or Save like the rest of them; the live UI step goes back to what it was,
+    /// so Cancel here still cancels it.
+    /// </summary>
+    private async void OnFontSetupClicked(object? sender, EventArgs e)
+    {
+        if (_fontSetup is not null || _closed) return;
+        try
+        {
+            var live = Mucka.Core.UiFontScaleState.Current.Step;
+            var tcs = new TaskCompletionSource<FontSetupResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _fontSetup = new FontSetupPage(
+                new Mucka.Ui.FontSetupChoice(_vm.UiFontStep, _vm.FontSizeDisplay), live, firstRun: false,
+                _vm.ChatPalette, _vm.SelectedChatTheme, tcs);
+            await Navigation.PushModalAsync(_fontSetup, Mucka.Core.NavAnimation.Animated);
+            var result = await tcs.Task;
+            _fontSetup = null;
+            Mucka.Core.UiFontScaleState.Current.Step = live;
+            if (result is not null)
+            {
+                _vm.UiFontStep = result.Sizes.UiStep;
+                _vm.FontSize = result.Sizes.GameFontPx;
+                if (result.Theme is { } theme)
+                    _vm.ApplyChatTheme(theme);
+            }
+        }
+        catch (Exception ex)
+        {
+            _fontSetup = null;
+            Mucka.Core.CrashLog.Write("FontSetup", ex);
+        }
+    }
 
     /// <summary>
     /// Closes this page, at most once, and only while it is genuinely the top modal. Both guards
     /// matter because GamePage can close this page out from under the player (being dropped from
     /// the game outranks editing settings) - a bare <c>PopModalAsync()</c> racing that would pop
-    /// whatever is on top instead, which is by then the persona-login overlay.
+    /// whatever is on top instead, which is by then the persona-login overlay. The Text size page,
+    /// when it is open over this one, is closed first, as a Cancel.
     /// </summary>
     public async Task CloseAsync()
     {
         if (_closed)
             return;
         _closed = true;
+        if (_fontSetup is { } fontSetup)
+            await fontSetup.CloseAsync(null);
 
         var stack = Navigation.ModalStack;
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))

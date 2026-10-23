@@ -253,7 +253,9 @@ public sealed class ConnectViewModel : BaseViewModel
             // The game page's terminal sits beside the side panel, so the page's width overstates
             // what the terminal gets by the panel and the gutter. Observed on the Mac with auto
             // columns: told ~150, the terminal wrapped the server's already-wrapped lines again.
-            var terminalWidthDp = PageWidthDp - Mucka.Combat.CombatRailResize.SidePanelWidthDp
+            var terminalWidthDp = PageWidthDp
+                                  - Mucka.Combat.CombatRailResize.SidePanelWidthAt(
+                                      Mucka.Ui.UiFontScale.PanelScale(UiFontScaleState.Current.Step))
                                   - Mucka.Combat.CombatRailResize.TerminalGutterDp;
 #else
             var terminalWidthDp = PageWidthDp;
@@ -607,6 +609,23 @@ public sealed class ConnectViewModel : BaseViewModel
         if (_cmdArgs.User != null) TelnetLoginName = _cmdArgs.User;
         if (_cmdArgs.Account != null) AccountId = _cmdArgs.Account;
         if (_cmdArgs.Password != null) Password = _cmdArgs.Password;
+    }
+
+    /// <summary>The Game Font and chat colour theme chosen on the Text size page: global, so every
+    /// cached profile takes them, and the next connection starts with them. A null theme leaves the
+    /// colours alone.</summary>
+    public void ApplyFontSetup(int px, MudSharp.Models.ChatTheme? theme)
+    {
+        foreach (var p in SavedProfiles)
+        {
+            p.FontSize = px;
+            if (theme is null) continue;
+            p.ChatTheme = theme;
+            p.EmoteColor = theme.EmoteHex;
+            p.SayColor = theme.SayHex;
+            p.ShoutColor = theme.ShoutHex;
+            p.TellColor = theme.TellHex;
+        }
     }
 
     /// <summary>

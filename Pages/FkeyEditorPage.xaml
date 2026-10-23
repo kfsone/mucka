@@ -515,37 +515,46 @@
                     <!-- - General - -->
                     <Label Text="General" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"/>
 
+                    <!-- The Text Wizard (Pages/FontSetupPage), for the two sizes and the chat colours
+                         together, with examples. -->
+                    <Button Text="Mucka Text Wizard" Clicked="OnFontSetupClicked"
+                            IsVisible="{OnPlatform Default=True, Android=False}"
+                            HorizontalOptions="Start"
+                            BackgroundColor="#2d333b" TextColor="#58a6ff"
+                            FontSize="{core:ScaledFont 13}" MinimumHeightRequest="30"
+                            CornerRadius="4" Padding="12,0"
+                            ToolTipProperties.Text="Choose the Mucka and game text sizes and the chat colours, with examples. Takes effect on Apply or Save."/>
+
+                    <!-- The same two sliders as the Text Wizard, Tiny to Large. -->
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Game Font" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
-                               ToolTipProperties.Text="Size of the game text in the terminal window."/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="&#x2212;" Command="{Binding DecrFontSizeCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding FontSizeDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
-                                   WidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
-                            <Button Text="+" Command="{Binding IncrFontSizeCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
+                        <Label Grid.Column="0" Text="Mucka Text Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                               ToolTipProperties.Text="Buttons, menus, the status bar and who is online. Takes effect on Apply or Save."/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                            <Label Text="Tiny" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Slider Maximum="{Binding UiFontStepMaximum}" Minimum="{Binding UiFontStepMinimum}"
+                                    Value="{Binding UiFontStepValue, Mode=TwoWay}"
+                                    WidthRequest="240" VerticalOptions="Center"
+                                    MinimumTrackColor="#58a6ff" MaximumTrackColor="#2d333b" ThumbColor="White"
+                                    SemanticProperties.Description="Mucka text size"/>
+                            <Label Text="Large" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Label Text="{Binding UiFontStepName, StringFormat='Size: {0}'}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                   MinimumWidthRequest="110" VerticalOptions="Center"/>
                         </HorizontalStackLayout>
                     </Grid>
 
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="UI Font" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
-                               ToolTipProperties.Text="Size of the text everywhere in the application except the game text in the terminal window. Takes effect on Apply or Save."/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="&#x2212;" Command="{Binding DecrUiFontStepCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding UiFontStepName}" TextColor="White" FontSize="{core:ScaledFont 13}"
-                                   WidthRequest="64" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
-                            <Button Text="+" Command="{Binding IncrUiFontStepCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
+                        <Label Grid.Column="0" Text="Game Text Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                               ToolTipProperties.Text="Everything the game says to you: rooms, chat and the rest."/>
+                        <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
+                            <Label Text="Tiny" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Slider Maximum="{Binding FontSizeMaximum}" Minimum="{Binding FontSizeMinimum}"
+                                    Value="{Binding FontSizeValue, Mode=TwoWay}"
+                                    WidthRequest="240" VerticalOptions="Center"
+                                    MinimumTrackColor="#58a6ff" MaximumTrackColor="#2d333b" ThumbColor="White"
+                                    SemanticProperties.Description="Game text size"/>
+                            <Label Text="Large" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Label Text="{Binding FontSizeName, StringFormat='Size: {0}'}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                   MinimumWidthRequest="110" VerticalOptions="Center"/>
                         </HorizontalStackLayout>
                     </Grid>
 

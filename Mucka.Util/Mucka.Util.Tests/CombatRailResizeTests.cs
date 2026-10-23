@@ -567,4 +567,31 @@ public class CombatRailResizeTests
         Assert.Equal(800 + 298, reserved.TargetWidthPx);
         Assert.Equal(298.0, reserved.AppliedDeltaDp);
     }
+
+    // -- The side panel widens with the UI font step (docs/font-setup-design.md) ---------------------
+
+    [Fact]
+    public void PreferredWidth_WidensBySidePanelScale_OnlyWhenThePanelIsShown()
+    {
+        var authored = CombatRailResize.PreferredWindowWidthDp(8.0, panelExpanded: true, 80.0);
+        var scaled = CombatRailResize.PreferredWindowWidthDp(8.0, panelExpanded: true, 80.0, sidePanelScale: 1.25);
+        Assert.Equal(CombatRailResize.SidePanelWidthDp * 0.25, scaled - authored, 6);
+        Assert.Equal(
+            CombatRailResize.PreferredWindowWidthDp(8.0, panelExpanded: false, 80.0),
+            CombatRailResize.PreferredWindowWidthDp(8.0, panelExpanded: false, 80.0, sidePanelScale: 1.25));
+    }
+
+    [Fact]
+    public void InitialWidth_CarriesTheSidePanelScale()
+    {
+        var authored = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 0, dpi: Dpi100, maxColumns: 0, charWidthDp: 8.0,
+            panelExpanded: true, railShown: false, panelWidthDp: CombatRailResize.CombatPanelWidthDp);
+        var scaled = CombatRailResize.ComputeInitialWidth(
+            minWidthPx: 0, dpi: Dpi100, maxColumns: 0, charWidthDp: 8.0,
+            panelExpanded: true, railShown: false, panelWidthDp: CombatRailResize.CombatPanelWidthDp,
+            sidePanelScale: 1.5);
+        Assert.Equal(904, authored.TargetWidthPx);
+        Assert.Equal(904 + 114, scaled.TargetWidthPx);
+    }
 }

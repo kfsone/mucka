@@ -11,7 +11,7 @@ public partial class GamePage
     /// <summary>Same member the Windows build exposes, which App.CreateWindow calls.</summary>
     internal static double PreferredWindowWidthDp(
         double charWidthDp, bool panelExpanded, double viewColumns = CombatRailResize.DefaultViewColumns)
-        => CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, viewColumns);
+        => CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, viewColumns, SidePanelScale);
 
     /// <summary>Called once from OnAppearing: sizes the window for the terminal plus the panel, then
     /// keeps its minimum and width in step with the panel and the column count.</summary>
@@ -229,7 +229,7 @@ public partial class GamePage
         var current = CurrentMacWidth(window);
         var result = CombatRailResize.ComputeToggle(
             showing, (int)Math.Round(current), 96, columns, CharWidthDp,
-            _vm.SidePanel.IsPanelExpanded, _macRailDeltaDp, RailPanelWidthDp);
+            _vm.SidePanel.IsPanelExpanded, _macRailDeltaDp, RailPanelWidthDp, SidePanelScale);
         _macRailDeltaDp = result.NewAppliedDeltaDp;
         _macRailApplied = showing;
         // Never past the screen.
