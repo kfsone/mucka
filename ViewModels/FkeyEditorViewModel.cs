@@ -309,13 +309,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ChatColorEditorItem SayColor     { get; }
     public ChatColorEditorItem ShoutColor   { get; }
     public ChatColorEditorItem TellColor    { get; }
-    public IReadOnlyList<ChatColorEditorItem> ChatColors => [EmoteColor, SayColor, ShoutColor, TellColor];
+    public IReadOnlyList<ChatColorEditorItem> ChatColors => new[] { EmoteColor, SayColor, ShoutColor, TellColor };
 
     /// <summary>The Theme drop-down's entries, in <see cref="ChatTheme.All"/> order.</summary>
     [SuppressMessage("Performance", "CA1822:Mark members as static",
         Justification = "Bound from XAML ({Binding ChatThemeNames}); a binding cannot resolve a static member.")]
     public IReadOnlyList<string> ChatThemeNames => s_chatThemeNames;
-    private static readonly IReadOnlyList<string> s_chatThemeNames = [.. ChatTheme.All.Select(t => t.Name)];
+    private static readonly IReadOnlyList<string> s_chatThemeNames = ChatTheme.All.Select(t => t.Name).ToArray();
 
     /// <summary>
     /// The drop-down's theme. Picking one loads its four colours into the rows and leaves the faces;
@@ -505,11 +505,12 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         ShoutColor   = new("Shout",       SpeechPart.Shout,   chatPalette);
         TellColor    = new("Tell",        SpeechPart.Tell,    chatPalette);
         // The names and framing of every line are the Emotes row's.
-        SayColor.Examples     = [.. ChatExampleText.Say.Select(t => new ChatExampleLine(EmoteColor, SayColor, t))];
-        ShoutColor.Examples   = [.. ChatExampleText.Shout.Select(t => new ChatExampleLine(EmoteColor, ShoutColor, t))];
-        TellColor.Examples    = [.. ChatExampleText.Tell.Select(t => new ChatExampleLine(EmoteColor, TellColor, t))];
-        EmoteColor.Examples = [.. ChatExampleText.Emote.Select(t => new ChatExampleLine(EmoteColor, EmoteColor, t))];
-        ChatExamples = [.. SayColor.Examples, .. ShoutColor.Examples, .. TellColor.Examples, .. EmoteColor.Examples];
+        SayColor.Examples     = ChatExampleText.Say.Select(t => new ChatExampleLine(EmoteColor, SayColor, t)).ToArray();
+        ShoutColor.Examples   = ChatExampleText.Shout.Select(t => new ChatExampleLine(EmoteColor, ShoutColor, t)).ToArray();
+        TellColor.Examples    = ChatExampleText.Tell.Select(t => new ChatExampleLine(EmoteColor, TellColor, t)).ToArray();
+        EmoteColor.Examples = ChatExampleText.Emote.Select(t => new ChatExampleLine(EmoteColor, EmoteColor, t)).ToArray();
+        ChatExamples = SayColor.Examples.Concat(ShoutColor.Examples).Concat(TellColor.Examples)
+            .Concat(EmoteColor.Examples).ToArray();
         ResetChatColorsCommand = new Command(() => LoadChatPalette(SelectedChatTheme.ResetPalette()));
         _displayDreamwordOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         _showOnline    = settings.ShowOnline;

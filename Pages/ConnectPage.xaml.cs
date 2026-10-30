@@ -402,8 +402,8 @@ public partial class ConnectPage : ContentPage
                 // pushed, so nothing is lost while guided login runs. GamePage is only pushed once
                 // guided login has actually finished (or immediately, for non-guided profiles):
                 // pushing it earlier and then covering it would trigger its OnDisappearing, which
-                // disposes the connection (see GamePage.OnDisappearing -> GameViewModel.DisposeAsync
-                // -> conn.DisposeAsync).
+                // ends the session (GamePage.EndSession -> GameViewModel.DisposeAsync ->
+                // conn.DisposeAsync).
                 var gameVm = new GameViewModel(conn, profile, saveSettings, persistCombatRailVisibility,
                     persistCombatStats);
 

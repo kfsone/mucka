@@ -18,8 +18,7 @@ public partial class GamePage : ContentPage
     private readonly GameViewModel _vm;
     private readonly bool _exitOnDisconnect;
     // Slow (1 s) timer for anti-idle only. Output is NOT polled here - it is drained
-    // event-driven via _vm.OutputAvailable -> OnOutputAvailable (see DoFlushWork). This field
-    // also doubles as the page-initialised sentinel (null == not yet set up).
+    // event-driven via _vm.OutputAvailable -> OnOutputAvailable (see DoFlushWork).
     private IDispatcherTimer?      _antiIdleTimer;
     private IDispatcherTimer?      _toastTimer;
 
@@ -93,7 +92,6 @@ public partial class GamePage : ContentPage
     // dropped from the game outranks whatever the player was configuring: leaving the editor
     // sitting there hides the fact that they are no longer in the game at all.
     private FkeyEditorPage? _fkeyEditorPage;
-    private bool _eventsSubscribed;
     private double _floatTransX;
     private double _floatTransY;
     private double _floatMapTransX;
@@ -204,7 +202,7 @@ public partial class GamePage : ContentPage
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
     private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
     private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap -> settings
-    // Invariant #0's enforcement, entire. Built on appear, disposed on disappear; see
+    // Invariant #0's enforcement, entire. Built in AttachWindow, disposed in DetachWindow; see
     // Behaviors/FocusGuard.cs - and do NOT start a second list of "elements that must not steal
     // focus" anywhere in this file. That list is what FocusGuard replaced.
     private Mucka.Behaviors.FocusGuard? _focusGuard;
@@ -244,9 +242,7 @@ public partial class GamePage : ContentPage
     // Set once this page has given the window its preferred width. Per page instance, which is per
     // connection: ConnectPage builds a new GamePage each time, so coming back in from the connect
     // page re-sizes for the profile just chosen, while returning from a modal re-appears this same
-    // instance and leaves the player's own sizing alone. The flag is needed because OnDisappearing
-    // tears the window subclass down, so OnAppearing's whole Windows block - this sizing included -
-    // runs again on every appearance, not just the first.
+    // instance and leaves the player's own sizing alone.
     private bool             _preferredSizeApplied;
     private IntPtr           _hwnd = IntPtr.Zero;
     private WndProcDelegate? _wndProcDelegate;
@@ -285,6 +281,8 @@ public partial class GamePage : ContentPage
         _fkeyEditorPage = null;
         _isGuidedLoginOverlayOpen = false;
         base.OnAppearing();
+        // The session this page showed is over and the page is on its way out; nothing to attach.
+        if (_sessionEnded) return;
 #if MACCATALYST
         // Every appearance, not only the first: leaving for a modal clears it in OnDisappearing.
         SetUpMacHotkeys();
@@ -296,195 +294,17 @@ public partial class GamePage : ContentPage
         try { DeviceDisplay.Current.KeepScreenOn = _vm.KeepScreenOn; }
         catch (Exception ex) { CrashLog.Write("KeepScreenOn", ex); }
 
-        if (_antiIdleTimer == null)
+        if (!_attached)
         {
-            // A boolean latch against double-subscribe: OnAppearing can run again without an
-            // intervening OnDisappearing, and the handlers are only ever detached there, where the
-            // flag is cleared.
-            if (!_eventsSubscribed)
-            {
-                _vm.OutputAvailable     += OnOutputAvailable;
-                _vm.Disconnected        += OnDisconnected;
-                _vm.RequestFocus        += FocusInput;
-                _vm.SidePanel.RequestFocus += FocusInput;
-                _vm.SidePanel.FloatingOpenDisplaySettings += OnFloatingOpenDisplaySettings;
-                _vm.ConfigRequested     += OnConfigRequested;
-                _vm.GuidedLoginReentryRequested += OnGuidedLoginReentryRequested;
-                _vm.ChatModeChanged     += OnChatModeChanged;
-                _vm.SettingsSaved       += OnSettingsSaved;
-                _vm.ToastRequested      += ShowToast;
-                _vm.PropertyChanged     += OnVmPropertyChanged;
-                UiFontScaleState.Current.PropertyChanged += OnUiFontStepChanged;
-                Terminal.HistoryModeChanged += OnHistoryModeChanged;
-                Terminal.FocusInputRequested += OnFocusInputRequested;
-                Terminal.SpanInsertTextRequested += OnTerminalSpanInsertTextRequested;
-                // Re-negotiate columns when the display rotates (see OnMainDisplayInfoChanged).
-                DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
-                _vm.AnnotationReady += OnAnnotationReady;
-                _eventsSubscribed = true;
-            }
-
-            Terminal.SetFontSize(_vm.FontSize);
-            Terminal.Columns = _vm.EffCols;
-            Terminal.ChatPalette = _vm.ChatPalette;
-
-            _antiIdleTimer = Dispatcher.CreateTimer();
-            _antiIdleTimer.Interval = TimeSpan.FromSeconds(1);
-            _antiIdleTimer.Tick += OnAntiIdleTick;
-            _antiIdleTimer.Start();
-            _vm.SidePanel.InitializeFadeTimer(Dispatcher);
-
-            // Catch-up drain: if any output arrived before OutputAvailable was subscribed above,
-            // its wake-up fired into the void and left the VM's guard armed. This clears the guard
-            // (via FlushPendingLines) and paints the backlog; a no-op when nothing is queued.
-            Dispatcher.Dispatch(DoFlushWork);
-
-            if (Window is not null)
-            {
-                Window.Activated += OnWindowActivated;
-                Window.Title = _vm.WindowTitle;   // profile-only until a character is identified
-            }
-#if MACCATALYST
-            SetUpMacWindow();
-#endif
-
-#if WINDOWS
-            try
-            {
-                // Hook window root to keep keyboard focus pinned to the input box (GettingFocus
-                // bounce) and to register hotkeys as KeyboardAccelerators. Hotkeys are NOT a
-                // per-keystroke handler: the framework invokes our callback only when an
-                // accelerator matches, so ordinary typing runs zero managed key code.
-                if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
-                    fwin.Content is Microsoft.UI.Xaml.UIElement froot)
-                {
-                    _rootElement = froot;
-                    // WinUI Activated fires synchronously before pointer events, so the
-                    // activation timestamp is always set before PointerPress can run.
-                    fwin.Activated += OnWinUIWindowActivated;
-                    RegisterHotkeyAccelerators(froot);
-                    // Invariant #0, whole and automatic: FocusGuard keeps the keyboard on the
-                    // command box for EVERY element under this page, by tree position rather than
-                    // by name - so a widget added later is covered without anyone remembering to
-                    // register it. It owns the focus veto, the refocus backstop, and the
-                    // non-focusable marking. Nothing to wire up per control; see
-                    // Behaviors/FocusGuard.cs.
-                    _focusGuard = new Mucka.Behaviors.FocusGuard(
-                        froot,
-                        () => Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement,
-                        () => _inputTextBox,
-                        () => KeyboardOwnedElsewhere,
-                        FocusInput);
-                }
-                else
-                {
-                    // No window root means Invariant #0 has NO enforcement this session. That is
-                    // the failure mode worth the most noise: it looks exactly like normal until
-                    // the player clicks something, and then nothing works and nothing says why.
-                    CrashLog.Write("FocusGuard", new InvalidOperationException(
-                        "Window root unavailable - Invariant #0 is unenforced for this session."));
-                }
-#if FOCUS_DIAG
-                Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
-                Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
-                Microsoft.UI.Xaml.Input.FocusManager.GotFocus += OnFmGotFocus;
-                Microsoft.UI.Xaml.Input.FocusManager.LostFocus += OnFmLostFocus;
-                InputEntry.Focused += (_, _) => FocusDiag("maui.Entry Focused");
-                InputEntry.Unfocused += (_, _) => FocusDiag("maui.Entry Unfocused");
-#endif
-                // Hook the native TextBox so Up/Down/Esc keys work in the entry.
-                // Apply now AND on handler change: if the platform view already exists when
-                // this runs, HandlerChanged never fires again, and without the direct call the
-                // TwoWay Text binding stays live (per-keystroke VM round-trips, which causes
-                // typing lag) and Up/Down/Esc/Enter handling silently degrades.
-                InputEntry.HandlerChanged += OnInputHandlerChanged;
-                OnInputHandlerChanged(InputEntry, EventArgs.Empty);
-                // Right-click on Fn opens the settings page (left-click toggles the fkey bar).
-                // Apply now and on handler change, since platform views can be recreated.
-                FnButton.HandlerChanged += OnFnButtonHandlerChanged;
-                OnFnButtonHandlerChanged(FnButton, EventArgs.Empty);
-                // Hook the terminal canvas for mouse-wheel scrollback.
-                Terminal.HandlerChanged += OnTerminalHandlerChanged;
-                OnTerminalHandlerChanged(Terminal, EventArgs.Empty);
-                // The play button must read the native TextBox like the Enter path does (no Text
-                // binding on Windows): shadow the XAML SendCommand and send via Clicked, or it
-                // sends a blank line and strands the typed text in the box.
-                SendButton.Command = null;
-                SendButton.Clicked -= OnSendButtonClicked;
-                SendButton.Clicked += OnSendButtonClicked;
-                _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
-                // Enforce minimum window width based on the configured terminal columns, and
-                // (same handler) drive the Combat Rail's trim, glow and rules on glow-level changes.
-                _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
-                CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
-                OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
-                CombatPanelTrim.HandlerChanged += OnCombatPanelTrimHandlerChanged;
-                OnCombatPanelTrimHandlerChanged(CombatPanelTrim, EventArgs.Empty);
-                // The stats setting is restored from mucka.ini before this page exists, so the width
-                // it implies has to be applied once here - nothing will raise the change event for a
-                // value that was already false when the panel was built. Before the handler wiring
-                // below, so those handlers position their overlays against the right width first time.
-                CombatPanelCanvas.ShowStats = RailShowStats;
-                CombatPanelBorder.WidthRequest = RailPanelWidthDp;
-                _vm.SidePanel.CombatStatsChanged += OnCombatStatsChanged;
-                CombatTickSweep.HandlerChanged += OnCombatTickSweepHandlerChanged;
-                OnCombatTickSweepHandlerChanged(CombatTickSweep, EventArgs.Empty);
-                CombatFleePill.HandlerChanged += OnCombatFleePillHandlerChanged;
-                OnCombatFleePillHandlerChanged(CombatFleePill, EventArgs.Empty);
-                CombatFleePillHit.HandlerChanged += OnCombatFleePillHitHandlerChanged;
-                OnCombatFleePillHitHandlerChanged(CombatFleePillHit, EventArgs.Empty);
-                CombatMetronomeHit.HandlerChanged += OnCombatMetronomeHandlerChanged;
-                OnCombatMetronomeHandlerChanged(CombatMetronomeHit, EventArgs.Empty);
-                // Before the floats, so the float labels added after these stay topmost.
-                SetupUnseenMarquees();
-                SetupCombatFloats();
-                SetupWindowMinimumSize();
-                // Size the window once so the terminal view fits ~82 columns + the side panel,
-                // rather than inheriting WinUI's oversized default window width.
-                SetPreferredInitialWindowSize();
-                // A persisted "show combat rail" preference (SidePanelViewModel.IsCombatPanelVisible,
-                // restored from the global [settings] key in GameViewModel's constructor via
-                // Profile.ShowCombatRail) can already be true here, before this page ever sets
-                // it - so nothing will raise the PropertyChanged that normally drives this resize.
-                // Apply the current state once, directly, so the very first frame already has room
-                // for the rail if it starts shown. This is the one exception to "the window never
-                // resizes itself" - the FIRST layout still has to account for a state that started
-                // true; every resize after this point remains driven by an explicit toggle.
-                //
-                // ResizeWindowForCombatPanel's baseline does not consult EffCols: auto columns have no
-                // slack to measure, and fixed columns measure against the configured MaxColumns+2, not
-                // the negotiated column count. Both MaxColumns and SidePanel.IsPanelExpanded are set
-                // synchronously in GameViewModel's constructor, with no dependency on a layout pass
-                // having run yet, so this seed-at-startup call computes the same delta here as it
-                // would once OnSizeAllocated has fired.
-                //
-                // SEEDING, not toggling: adopt what the window already carries rather than adding to
-                // it. SetPreferredInitialWindowSize above has normally already sized this window and
-                // recorded the rail delta it applied, which makes this a no-op - it returns as soon
-                // as the window's state matches what the view model asks for. It still runs because
-                // that sizing bails when the window handle or AppWindow is not available, and a page
-                // that believes it has added nothing can never give the rail's width back.
-                ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible, seeding: true);
-                // The rail's state is only known once the line above has run, and an ADOPTED window
-                // (a relog, or a profile switch into one that shows the rail) can be narrower than
-                // the columns plus the rail need - seeding infers a delta but deliberately never
-                // resizes. UpdateWindowMinimumWidth reserves the rail in its own force-grow floor, so
-                // running it here is what guarantees the invariant the rail depends on: while the rail
-                // is shown the window is never narrower than the configured columns plus the rail.
-                // A window already wide enough is left exactly as the player had it.
-                UpdateWindowMinimumWidth();
-#if INPUT_DIAG
-                StartUiThreadProbe();
-#endif
-            }
-            catch (Exception ex) { CrashLog.Write("OnAppearing/Windows", ex); }
-#endif
+            AttachWindow();
+            AttachSession();
+            _attached = true;
         }
         else
         {
             // Returning from a modal we pushed ourselves (FkeyEditor, the Persona Login overlay):
             // events and platform hooks are still active; just resume the timer.
-            _antiIdleTimer.Start();
+            _antiIdleTimer?.Start();
         }
 
         FocusInput();
@@ -516,6 +336,208 @@ public partial class GamePage : ContentPage
 #endif
     }
 
+    // Two lifetimes meet on this page. The window's - its root, hotkeys, focus enforcement, the
+    // native command box and terminal hooks - belongs to the page being shown. The session's - the
+    // view model's events, the anti-idle timer, the combat layers, the window sizing a profile asks
+    // for - belongs to the connection. AttachWindow/DetachWindow and AttachSession/DetachSession hold
+    // one each; EndSession is the one path that ends the connection.
+    private bool _attached;
+    private bool _sessionEnded;
+
+    /// <summary>Hooks the window and this page's own controls. Nothing here depends on which session
+    /// the page is showing, beyond reading the current view model when a handler fires.</summary>
+    private void AttachWindow()
+    {
+        UiFontScaleState.Current.PropertyChanged += OnUiFontStepChanged;
+        Terminal.HistoryModeChanged += OnHistoryModeChanged;
+        Terminal.FocusInputRequested += OnFocusInputRequested;
+        Terminal.SpanInsertTextRequested += OnTerminalSpanInsertTextRequested;
+        // Re-negotiate columns when the display rotates (see OnMainDisplayInfoChanged).
+        DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
+        if (Window is not null)
+            Window.Activated += OnWindowActivated;
+
+#if WINDOWS
+        try
+        {
+            // Hook window root to keep keyboard focus pinned to the input box (GettingFocus
+            // bounce) and to register hotkeys as KeyboardAccelerators. Hotkeys are NOT a
+            // per-keystroke handler: the framework invokes our callback only when an
+            // accelerator matches, so ordinary typing runs zero managed key code.
+            if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
+                fwin.Content is Microsoft.UI.Xaml.UIElement froot)
+            {
+                _rootElement = froot;
+                // WinUI Activated fires synchronously before pointer events, so the
+                // activation timestamp is always set before PointerPress can run.
+                fwin.Activated += OnWinUIWindowActivated;
+                RegisterHotkeyAccelerators(froot);
+                // Invariant #0, whole and automatic: FocusGuard keeps the keyboard on the
+                // command box for EVERY element under this page, by tree position rather than
+                // by name - so a widget added later is covered without anyone remembering to
+                // register it. It owns the focus veto, the refocus backstop, and the
+                // non-focusable marking. Nothing to wire up per control; see
+                // Behaviors/FocusGuard.cs.
+                _focusGuard = new Mucka.Behaviors.FocusGuard(
+                    froot,
+                    () => Handler?.PlatformView as Microsoft.UI.Xaml.FrameworkElement,
+                    () => _inputTextBox,
+                    () => KeyboardOwnedElsewhere,
+                    FocusInput);
+            }
+            else
+            {
+                // No window root means Invariant #0 has NO enforcement this session. That is
+                // the failure mode worth the most noise: it looks exactly like normal until
+                // the player clicks something, and then nothing works and nothing says why.
+                CrashLog.Write("FocusGuard", new InvalidOperationException(
+                    "Window root unavailable - Invariant #0 is unenforced for this session."));
+            }
+#if FOCUS_DIAG
+            Microsoft.UI.Xaml.Input.FocusManager.GettingFocus += OnFmGettingFocus;
+            Microsoft.UI.Xaml.Input.FocusManager.LosingFocus += OnFmLosingFocus;
+            Microsoft.UI.Xaml.Input.FocusManager.GotFocus += OnFmGotFocus;
+            Microsoft.UI.Xaml.Input.FocusManager.LostFocus += OnFmLostFocus;
+            InputEntry.Focused += (_, _) => FocusDiag("maui.Entry Focused");
+            InputEntry.Unfocused += (_, _) => FocusDiag("maui.Entry Unfocused");
+#endif
+            // Hook the native TextBox so Up/Down/Esc keys work in the entry.
+            // Apply now AND on handler change: if the platform view already exists when
+            // this runs, HandlerChanged never fires again, and without the direct call the
+            // TwoWay Text binding stays live (per-keystroke VM round-trips, which causes
+            // typing lag) and Up/Down/Esc/Enter handling silently degrades.
+            InputEntry.HandlerChanged += OnInputHandlerChanged;
+            OnInputHandlerChanged(InputEntry, EventArgs.Empty);
+            // Right-click on Fn opens the settings page (left-click toggles the fkey bar).
+            // Apply now and on handler change, since platform views can be recreated.
+            FnButton.HandlerChanged += OnFnButtonHandlerChanged;
+            OnFnButtonHandlerChanged(FnButton, EventArgs.Empty);
+            // Hook the terminal canvas for mouse-wheel scrollback.
+            Terminal.HandlerChanged += OnTerminalHandlerChanged;
+            OnTerminalHandlerChanged(Terminal, EventArgs.Empty);
+            // The play button must read the native TextBox like the Enter path does (no Text
+            // binding on Windows): shadow the XAML SendCommand and send via Clicked, or it
+            // sends a blank line and strands the typed text in the box.
+            SendButton.Command = null;
+            SendButton.Clicked -= OnSendButtonClicked;
+            SendButton.Clicked += OnSendButtonClicked;
+            // The window subclass that holds the minimum width. The width it holds is the session's,
+            // applied again by AttachSession once the profile's columns and panels are known.
+            SetupWindowMinimumSize();
+#if INPUT_DIAG
+            StartUiThreadProbe();
+#endif
+        }
+        catch (Exception ex) { CrashLog.Write("AttachWindow/Windows", ex); }
+#endif
+    }
+
+    /// <summary>Hooks the session: the view model's events, the anti-idle timer, the terminal's
+    /// settings, the combat layers, and the window size the profile asks for.</summary>
+    private void AttachSession()
+    {
+        _vm.OutputAvailable     += OnOutputAvailable;
+        _vm.Disconnected        += OnDisconnected;
+        _vm.RequestFocus        += FocusInput;
+        _vm.SidePanel.RequestFocus += FocusInput;
+        _vm.SidePanel.FloatingOpenDisplaySettings += OnFloatingOpenDisplaySettings;
+        _vm.ConfigRequested     += OnConfigRequested;
+        _vm.GuidedLoginReentryRequested += OnGuidedLoginReentryRequested;
+        _vm.ChatModeChanged     += OnChatModeChanged;
+        _vm.SettingsSaved       += OnSettingsSaved;
+        _vm.ToastRequested      += ShowToast;
+        _vm.PropertyChanged     += OnVmPropertyChanged;
+        _vm.AnnotationReady     += OnAnnotationReady;
+
+        Terminal.SetFontSize(_vm.FontSize);
+        Terminal.Columns = _vm.EffCols;
+        Terminal.ChatPalette = _vm.ChatPalette;
+
+        _antiIdleTimer = Dispatcher.CreateTimer();
+        _antiIdleTimer.Interval = TimeSpan.FromSeconds(1);
+        _antiIdleTimer.Tick += OnAntiIdleTick;
+        _antiIdleTimer.Start();
+        _vm.SidePanel.InitializeFadeTimer(Dispatcher);
+
+        // Catch-up drain: if any output arrived before OutputAvailable was subscribed above,
+        // its wake-up fired into the void and left the VM's guard armed. This clears the guard
+        // (via FlushPendingLines) and paints the backlog; a no-op when nothing is queued.
+        Dispatcher.Dispatch(DoFlushWork);
+
+        if (Window is not null)
+            Window.Title = _vm.WindowTitle;   // profile-only until a character is identified
+#if MACCATALYST
+        SetUpMacWindow();
+#endif
+
+#if WINDOWS
+        try
+        {
+            _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
+            // Enforce minimum window width based on the configured terminal columns, and
+            // (same handler) drive the Combat Rail's trim, glow and rules on glow-level changes.
+            _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
+            CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
+            OnCombatPanelGlowHandlerChanged(CombatPanelGlow, EventArgs.Empty);
+            CombatPanelTrim.HandlerChanged += OnCombatPanelTrimHandlerChanged;
+            OnCombatPanelTrimHandlerChanged(CombatPanelTrim, EventArgs.Empty);
+            // The stats setting is restored from mucka.ini before this page exists, so the width
+            // it implies has to be applied once here - nothing will raise the change event for a
+            // value that was already false when the panel was built. Before the handler wiring
+            // below, so those handlers position their overlays against the right width first time.
+            CombatPanelCanvas.ShowStats = RailShowStats;
+            CombatPanelBorder.WidthRequest = RailPanelWidthDp;
+            _vm.SidePanel.CombatStatsChanged += OnCombatStatsChanged;
+            CombatTickSweep.HandlerChanged += OnCombatTickSweepHandlerChanged;
+            OnCombatTickSweepHandlerChanged(CombatTickSweep, EventArgs.Empty);
+            CombatFleePill.HandlerChanged += OnCombatFleePillHandlerChanged;
+            OnCombatFleePillHandlerChanged(CombatFleePill, EventArgs.Empty);
+            CombatFleePillHit.HandlerChanged += OnCombatFleePillHitHandlerChanged;
+            OnCombatFleePillHitHandlerChanged(CombatFleePillHit, EventArgs.Empty);
+            CombatMetronomeHit.HandlerChanged += OnCombatMetronomeHandlerChanged;
+            OnCombatMetronomeHandlerChanged(CombatMetronomeHit, EventArgs.Empty);
+            // Before the floats, so the float labels added after these stay topmost.
+            SetupUnseenMarquees();
+            SetupCombatFloats();
+            // Size the window once so the terminal view fits ~82 columns + the side panel,
+            // rather than inheriting WinUI's oversized default window width.
+            SetPreferredInitialWindowSize();
+            // A persisted "show combat rail" preference (SidePanelViewModel.IsCombatPanelVisible,
+            // restored from the global [settings] key in GameViewModel's constructor via
+            // Profile.ShowCombatRail) can already be true here, before this page ever sets
+            // it - so nothing will raise the PropertyChanged that normally drives this resize.
+            // Apply the current state once, directly, so the very first frame already has room
+            // for the rail if it starts shown. This is the one exception to "the window never
+            // resizes itself" - the FIRST layout still has to account for a state that started
+            // true; every resize after this point remains driven by an explicit toggle.
+            //
+            // ResizeWindowForCombatPanel's baseline does not consult EffCols: auto columns have no
+            // slack to measure, and fixed columns measure against the configured MaxColumns+2, not
+            // the negotiated column count. Both MaxColumns and SidePanel.IsPanelExpanded are set
+            // synchronously in GameViewModel's constructor, with no dependency on a layout pass
+            // having run yet, so this seed-at-startup call computes the same delta here as it
+            // would once OnSizeAllocated has fired.
+            //
+            // SEEDING, not toggling: adopt what the window already carries rather than adding to
+            // it. SetPreferredInitialWindowSize above has normally already sized this window and
+            // recorded the rail delta it applied, which makes this a no-op - it returns as soon
+            // as the window's state matches what the view model asks for. It still runs because
+            // that sizing bails when the window handle or AppWindow is not available, and a page
+            // that believes it has added nothing can never give the rail's width back.
+            ResizeWindowForCombatPanel(_vm.SidePanel.IsCombatPanelVisible, seeding: true);
+            // The rail's state is only known once the line above has run, and an ADOPTED window
+            // (a relog, or a profile switch into one that shows the rail) can be narrower than
+            // the columns plus the rail need - seeding infers a delta but deliberately never
+            // resizes. UpdateWindowMinimumWidth reserves the rail in its own force-grow floor, so
+            // running it here is what guarantees the invariant the rail depends on: while the rail
+            // is shown the window is never narrower than the configured columns plus the rail.
+            // A window already wide enough is left exactly as the player had it.
+            UpdateWindowMinimumWidth();
+        }
+        catch (Exception ex) { CrashLog.Write("AttachSession/Windows", ex); }
+#endif
+    }
+
     protected override void OnNavigatedTo(NavigatedToEventArgs args)
     {
         base.OnNavigatedTo(args);
@@ -544,10 +566,35 @@ public partial class GamePage : ContentPage
             _antiIdleTimer?.Stop();
             return;
         }
+        EndSession();
+    }
+
+    /// <summary>Ends the session this page shows: unhooks it and the window, and disposes the view
+    /// model, which closes the connection. The one path that does, and safe to call more than once -
+    /// a leave path calls it before it navigates, and the disappearance that follows calls it again.
+    /// The dispose is not awaited, so the page can go at once rather than after the socket has
+    /// closed.</summary>
+    private void EndSession()
+    {
+        if (_sessionEnded) return;
+        _sessionEnded = true;
+        if (_attached)
+        {
+            DetachSession();
+            DetachWindow();
+            _attached = false;
+        }
+        // AsTask() consumes the ValueTask exactly once, which fire-and-forget needs: a discarded
+        // ValueTask can be recycled by a pooling implementation while it is still in flight.
+        _ = ObserveDisposeAsync(_vm.DisposeAsync().AsTask());
+    }
+
+    /// <summary>Undoes <see cref="AttachSession"/>.</summary>
+    private void DetachSession()
+    {
 #if MACCATALYST
         TearDownMacCombat();
 #endif
-
         DeviceDisplay.Current.KeepScreenOn = false;
         _antiIdleTimer?.Stop();
         _antiIdleTimer = null;
@@ -563,19 +610,54 @@ public partial class GamePage : ContentPage
         _vm.SettingsSaved       -= OnSettingsSaved;
         _vm.ToastRequested      -= ShowToast;
         _vm.PropertyChanged     -= OnVmPropertyChanged;
+        _vm.AnnotationReady     -= OnAnnotationReady;
+        // Backing out to the profile menu: drop the char@profile title back to the generic form.
+        if (Window is not null)
+            Window.Title = $"mucka {AppInfo.VersionString}";
+#if WINDOWS
+        _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
+        _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
+        _vm.SidePanel.CombatStatsChanged -= OnCombatStatsChanged;
+        CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
+        CombatPanelTrim.HandlerChanged -= OnCombatPanelTrimHandlerChanged;
+        CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
+        CombatFleePill.HandlerChanged -= OnCombatFleePillHandlerChanged;
+        CombatFleePillHit.HandlerChanged -= OnCombatFleePillHitHandlerChanged;
+        CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
+        CombatMetronomeHit.HandlerChanged -= OnCombatMetronomeHandlerChanged;
+        TeardownCombatFloats();
+        TeardownUnseenMarquees();
+        // A thread-pool timer outlives its page unless stopped; a metronome still clicking after the
+        // window closed is the audible version of the RO_E_CLOSED crash class below.
+        _combatMetronome.Dispose();
+        // Belt-and-braces alongside PulseLayer's own host.Unloaded hook (see PulseLayer's remarks):
+        // stop any running Composition animation before this page's own teardown proceeds, so a
+        // torn-down visual can never still have a live animation referencing it (the RO_E_CLOSED
+        // crash class). The tick sweep is the same crash class.
+        _combatPanelPulse?.Stop();
+        _combatPanelPulse = null;
+        _combatPanelTrimPulse?.Stop();
+        _combatPanelTrimPulse = null;
+        _combatTickSweep?.Stop();
+        _combatTickSweep = null;
+        _combatFleePulse?.Stop();
+        _combatFleePulse = null;
+        // Both tick instruments have just been torn down, so whatever they logged is complete - write
+        // it out here rather than leaving the tail of a fight buffered in memory at exit.
+        Mucka.Core.TickDiag.Flush();
+#endif
+    }
+
+    /// <summary>Undoes <see cref="AttachWindow"/>.</summary>
+    private void DetachWindow()
+    {
         UiFontScaleState.Current.PropertyChanged -= OnUiFontStepChanged;
         Terminal.HistoryModeChanged -= OnHistoryModeChanged;
         Terminal.FocusInputRequested -= OnFocusInputRequested;
         Terminal.SpanInsertTextRequested -= OnTerminalSpanInsertTextRequested;
         DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
-        _vm.AnnotationReady -= OnAnnotationReady;
-        _eventsSubscribed = false;
         if (Window is not null)
-        {
             Window.Activated -= OnWindowActivated;
-            // Backing out to the profile menu: drop the char@profile title back to the generic form.
-            Window.Title = $"mucka {AppInfo.VersionString}";
-        }
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window fwin &&
             fwin.Content is Microsoft.UI.Xaml.UIElement froot)
@@ -615,44 +697,11 @@ public partial class GamePage : ContentPage
             _terminalElement.PointerReleased -= OnTerminalPointerReleased;
             _terminalElement = null;
         }
-        _vm.OpenRawConsoleRequested -= OnOpenRawConsoleRequested;
-        _vm.SidePanel.PropertyChanged -= OnSidePanelPropertyChanged;
-        _vm.SidePanel.CombatStatsChanged -= OnCombatStatsChanged;
-        CombatPanelGlow.HandlerChanged -= OnCombatPanelGlowHandlerChanged;
-        CombatPanelTrim.HandlerChanged -= OnCombatPanelTrimHandlerChanged;
-        CombatTickSweep.HandlerChanged -= OnCombatTickSweepHandlerChanged;
-        CombatFleePill.HandlerChanged -= OnCombatFleePillHandlerChanged;
-        CombatFleePillHit.HandlerChanged -= OnCombatFleePillHitHandlerChanged;
-        CombatFleePillHit.Clicked -= OnCombatFleePillClicked;
-        CombatMetronomeHit.HandlerChanged -= OnCombatMetronomeHandlerChanged;
-        TeardownCombatFloats();
-        TeardownUnseenMarquees();
-        // A thread-pool timer outlives its page unless stopped; a metronome still clicking after the
-        // window closed is the audible version of the RO_E_CLOSED crash class below.
-        _combatMetronome.Dispose();
-        // Belt-and-braces alongside PulseLayer's own host.Unloaded hook (see PulseLayer's remarks):
-        // stop any running Composition animation before this page's own teardown proceeds, so a
-        // torn-down visual can never still have a live animation referencing it (the RO_E_CLOSED
-        // crash class). The tick sweep is the same crash class.
-        _combatPanelPulse?.Stop();
-        _combatPanelPulse = null;
-        _combatPanelTrimPulse?.Stop();
-        _combatPanelTrimPulse = null;
-        _combatTickSweep?.Stop();
-        _combatTickSweep = null;
-        _combatFleePulse?.Stop();
-        _combatFleePulse = null;
-        // Both tick instruments have just been torn down, so whatever they logged is complete - write
-        // it out here rather than leaving the tail of a fight buffered in memory at exit.
-        Mucka.Core.TickDiag.Flush();
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
         StopUiThreadProbe();
 #endif
 #endif
-        // AsTask() consumes the ValueTask exactly once, which fire-and-forget needs: a discarded
-        // ValueTask can be recycled by a pooling implementation while it is still in flight.
-        _ = ObserveDisposeAsync(_vm.DisposeAsync().AsTask());
     }
 
     private static async Task ObserveDisposeAsync(Task disposing)
@@ -902,9 +951,12 @@ public partial class GamePage : ContentPage
             await LeaveGameAsync();
     }
 
-    /// <summary>Back to the profile page. Closing the connection is OnDisappearing's job (it disposes the
-    /// view model), so this only leaves: the page is gone at once, not after the socket has closed.</summary>
-    private Task<Page> LeaveGameAsync() => Navigation.PopAsync(Mucka.Core.NavAnimation.Animated);
+    /// <summary>Ends the session and goes back to the profile page.</summary>
+    private Task<Page> LeaveGameAsync()
+    {
+        EndSession();
+        return Navigation.PopAsync(Mucka.Core.NavAnimation.Animated);
+    }
 
     // Dragging is only allowed while the windlet is unlocked (the lock icon toggles it).
     private void OnFloatingPanelPanUpdated(object? sender, PanUpdatedEventArgs e)
@@ -1201,7 +1253,7 @@ public partial class GamePage : ContentPage
         Dispatcher.Dispatch(async () =>
         {
             if (await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
-                await Navigation.PopAsync();
+                await LeaveGameAsync();
         });
         return true;   // swallow the back action; pop only on confirmation
 #elif MACCATALYST
@@ -1989,11 +2041,10 @@ public partial class GamePage : ContentPage
         _floatBrushMiss ??= FloatBrush(0x76, 0x76, 0x76);
         _floatBrushGain ??= FloatBrush(0x16, 0xC6, 0x0C);
 
-        // OnAppearing's Windows block runs on every appearance (it is deliberately outside the
-        // _eventsSubscribed guard, so its handler hookups pair with OnDisappearing's teardown), but
-        // the pool itself must be built exactly once - a second pass would add four more Labels to
-        // the panel every time the page came back. The elements outlive teardown; only their
-        // Composition animators are released and re-attached below.
+        // AttachSession runs once per session, but the pool itself must be built exactly once - a
+        // second pass would add four more Labels to the panel every time a session attached. The
+        // elements outlive teardown; only their Composition animators are released and re-attached
+        // below.
         for (var i = 0; i < _combatFloatLabels.Length && !_combatFloatsBuilt; i++)
         {
             var label = new Label
@@ -3540,6 +3591,7 @@ public partial class GamePage : ContentPage
             if (_exitOnDisconnect)
             {
                 var window = Window ?? (Application.Current?.Windows is [var first, ..] ? first : null);
+                EndSession();
                 if (window != null)
                 {
                     Application.Current?.CloseWindow(window);
@@ -3547,7 +3599,7 @@ public partial class GamePage : ContentPage
                 return;
             }
 
-            await Navigation.PopAsync(Mucka.Core.NavAnimation.Animated);
+            await LeaveGameAsync();
         });
     }
 }
