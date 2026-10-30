@@ -117,21 +117,35 @@
                                  Spacing="16"
                                  Padding="24">
                 <Grid ColumnDefinitions="80,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
                       RowSpacing="10"
                       ColumnSpacing="10">
 
-                    <!-- Profile name: full-width, no label -->
-                    <Entry Grid.Row="0"
-                           Grid.Column="0"
-                           Grid.ColumnSpan="2"
-                           Text="{Binding ProfileName}"
-                           TextColor="White"
-                           BackgroundColor="#161b22"
-                           PlaceholderColor="#444444"
-                           Placeholder="profile name"
-                           SemanticProperties.Description="Profile name"
-                           ReturnType="Next" />
+                    <!-- Profile name: full-width, no label; Rename renames the highlighted profile -->
+                    <Grid Grid.Row="0"
+                          Grid.Column="0"
+                          Grid.ColumnSpan="2"
+                          ColumnDefinitions="*,Auto"
+                          ColumnSpacing="8">
+                        <Entry Grid.Column="0"
+                               Text="{Binding ProfileName}"
+                               TextColor="White"
+                               BackgroundColor="#161b22"
+                               PlaceholderColor="#444444"
+                               Placeholder="profile name"
+                               SemanticProperties.Description="Profile name"
+                               ReturnType="Next" />
+                        <Button Grid.Column="1"
+                                Text="Rename"
+                                Command="{Binding RenameProfileCommand}"
+                                IsEnabled="{Binding CanConnect}"
+                                BackgroundColor="#1a1a1a"
+                                TextColor="#58a6ff"
+                                BorderColor="#333333"
+                                BorderWidth="1"
+                                CornerRadius="6"
+                                Padding="12,0" />
+                    </Grid>
 
                     <!-- Host + Port side by side -->
                     <Label Grid.Row="1"
@@ -163,7 +177,7 @@
                                ReturnType="Next" />
                     </Grid>
 
-                    <!-- Use SSH: desktop only; the MUD User in Advanced is the SSH user -->
+                    <!-- Use SSH: not on Android; the SSH user is the profile's loginname in mucka.ini -->
                     <Grid Grid.Row="2"
                           Grid.Column="1"
                           ColumnDefinitions="Auto,*"
@@ -180,18 +194,47 @@
                                VerticalOptions="Center"/>
                     </Grid>
 
+                    <!-- MUD Login: off, the account fields are disabled and not sent -->
+                    <Grid Grid.Row="3"
+                          Grid.Column="0"
+                          Grid.ColumnSpan="2"
+                          ColumnDefinitions="Auto,Auto,Auto"
+                          HorizontalOptions="Start"
+                          ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding TelnetLoginEnabled}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="MUD Login"
+                               TextColor="#888888"
+                               VerticalOptions="Center"/>
+                        <Label Grid.Column="2"
+                               Text="&#x24D8;"
+                               TextColor="#1f6feb"
+                               FontSize="{core:ScaledFont 16}"
+                               VerticalOptions="Center">
+                            <Label.GestureRecognizers>
+                                <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
+                            </Label.GestureRecognizers>
+                        </Label>
+                    </Grid>
+
                     <!-- Account + Password side by side -->
-                    <Label Grid.Row="3"
+                    <Label Grid.Row="4"
                            Grid.Column="0"
+                           Opacity="{Binding LoginFieldsOpacity}"
                            Text="Account"
                            TextColor="#888888"
                            VerticalOptions="Center" />
-                    <Grid Grid.Row="3"
+                    <Grid Grid.Row="4"
                           Grid.Column="1"
+                          Opacity="{Binding LoginFieldsOpacity}"
                           ColumnDefinitions="*,*"
                           ColumnSpacing="8">
                         <Entry Grid.Column="0"
                                Text="{Binding AccountId}"
+                               IsEnabled="{Binding TelnetLoginEnabled}"
                                TextColor="White"
                                BackgroundColor="#161b22"
                                PlaceholderColor="#444444"
@@ -199,6 +242,7 @@
                                ReturnType="Next" />
                         <Entry Grid.Column="1"
                                Text="{Binding Password}"
+                               IsEnabled="{Binding TelnetLoginEnabled}"
                                IsPassword="True"
                                TextColor="White"
                                BackgroundColor="#161b22"
@@ -209,14 +253,16 @@
                                ReturnType="Done" />
                     </Grid>
 
-                    <Grid Grid.Row="4"
+                    <Grid Grid.Row="5"
                           Grid.Column="0"
+                          Opacity="{Binding LoginFieldsOpacity}"
                           Grid.ColumnSpan="2"
                           ColumnDefinitions="Auto,Auto"
                           HorizontalOptions="Start"
                           ColumnSpacing="8">
                         <CheckBox Grid.Column="0"
                                   IsChecked="{Binding RememberPassword}"
+                                  IsEnabled="{Binding TelnetLoginEnabled}"
                                   Color="#1f6feb"
                                   VerticalOptions="Center"/>
                         <Label Grid.Column="1"
@@ -226,8 +272,9 @@
                     </Grid>
 
                     <!-- Persona Login: automate the MUD Shell (login through persona select/create) -->
-                    <Grid Grid.Row="5"
+                    <Grid Grid.Row="6"
                           Grid.Column="0"
+                          Opacity="{Binding LoginFieldsOpacity}"
                           Grid.ColumnSpan="2"
                           ColumnDefinitions="Auto,*"
                           RowDefinitions="Auto,Auto"
@@ -237,6 +284,7 @@
                               ColumnSpacing="8">
                             <CheckBox Grid.Column="0"
                                       IsChecked="{Binding GuidedLogin}"
+                                      IsEnabled="{Binding TelnetLoginEnabled}"
                                       Color="#1f6feb"
                                       VerticalOptions="Center"/>
                             <Label Grid.Column="1"
@@ -247,6 +295,7 @@
                         <Entry Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
                                Text="{Binding GuidedLoginPersona}"
                                IsVisible="{Binding GuidedLogin}"
+                               IsEnabled="{Binding TelnetLoginEnabled}"
                                TextColor="White"
                                BackgroundColor="#161b22"
                                PlaceholderColor="#444444"
@@ -256,12 +305,12 @@
                     </Grid>
 
                     <!-- Line Width: terminal columns advertised via NAWS -->
-                    <Label Grid.Row="6"
+                    <Label Grid.Row="7"
                            Grid.Column="0"
                            Text="Line Width"
                            TextColor="#888888"
                            VerticalOptions="Center"/>
-                    <Grid Grid.Row="6"
+                    <Grid Grid.Row="7"
                           Grid.Column="1"
                           ColumnDefinitions="80,*"
                           ColumnSpacing="8">
@@ -286,12 +335,12 @@
                     </Grid>
 
                     <!-- Anti-Idle: keep-alive interval -->
-                    <Label Grid.Row="7"
+                    <Label Grid.Row="8"
                            Grid.Column="0"
                            Text="Anti-Idle"
                            TextColor="#888888"
                            VerticalOptions="Center"/>
-                    <Grid Grid.Row="7"
+                    <Grid Grid.Row="8"
                           Grid.Column="1"
                           ColumnDefinitions="80,*"
                           ColumnSpacing="8">
@@ -311,7 +360,7 @@
                     </Grid>
                 </Grid>
 
-                <Grid ColumnDefinitions="*,Auto"
+                <Grid ColumnDefinitions="*,Auto,Auto"
                       ColumnSpacing="8">
                     <Button Grid.Column="0"
                             Text="{Binding ConnectButtonText}"
@@ -321,8 +370,20 @@
                             TextColor="White"
                             CornerRadius="6"
                             HeightRequest="48" />
-                    <!-- This server's score history, without connecting. -->
+                    <!-- The form to its profile, without connecting. -->
                     <Button Grid.Column="1"
+                            Text="{Binding SaveButtonText}"
+                            Command="{Binding SaveProfileCommand}"
+                            IsEnabled="{Binding CanConnect}"
+                            BackgroundColor="#1a1a1a"
+                            TextColor="#58a6ff"
+                            BorderColor="#333333"
+                            BorderWidth="1"
+                            CornerRadius="6"
+                            HeightRequest="48"
+                            Padding="16,0" />
+                    <!-- This server's score history, without connecting. -->
+                    <Button Grid.Column="2"
                             x:Name="ScoreButton"
                             Text="Score  &#x1F50D;"
                             Clicked="OnScoreClicked"
@@ -351,46 +412,6 @@
                 <!-- Advanced section -->
                 <VerticalStackLayout IsVisible="{Binding AdvancedVisible}"
                                      Spacing="10">
-
-                    <!-- MUD Login: checkbox + label + help -->
-                    <Grid ColumnDefinitions="Auto,*,Auto"
-                          ColumnSpacing="8">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding TelnetLoginEnabled}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="MUD Login"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                        <Label Grid.Column="2"
-                               Text="&#x24D8;"
-                               TextColor="#1f6feb"
-                               FontSize="{core:ScaledFont 16}"
-                               VerticalOptions="Center">
-                            <Label.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
-                            </Label.GestureRecognizers>
-                        </Label>
-                    </Grid>
-
-                    <!-- MUD User (TelnetLoginName) -->
-                    <Grid ColumnDefinitions="80,*"
-                          ColumnSpacing="10">
-                        <Label Grid.Column="0"
-                               Text="MUD User"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                        <Entry Grid.Column="1"
-                               Text="{Binding TelnetLoginName}"
-                               IsEnabled="{Binding LoginNameEditable}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="mud"
-                               SemanticProperties.Description="MUD login username"
-                               ReturnType="Done"/>
-                    </Grid>
 
                     <!-- Keep Screen On (Android and iOS) -->
                     <Grid ColumnDefinitions="Auto,Auto"

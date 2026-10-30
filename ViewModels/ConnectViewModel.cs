@@ -122,13 +122,8 @@ public sealed class ConnectViewModel : BaseViewModel
             {
                 Port = standard ? TelnetPort : Port == 0 ? _portBeforeSsh : 0;
             }
-            OnPropertyChanged(nameof(LoginNameEditable));
         }
     }
-
-    /// <summary>The MUD User is also the SSH user, so it stays editable with SSH on even when the
-    /// telnet login is off.</summary>
-    public bool LoginNameEditable => TelnetLoginEnabled || UseSsh;
 
     public string StatusText { get => _statusText; set => Set(ref _statusText, value); }
     public bool IsConnecting
@@ -186,15 +181,19 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public Color PasswordPlaceholderColor
         => RememberedPasswordUnfetched ? Color.FromArgb("#cccccc") : Color.FromArgb("#444444");
+    /// <summary>"MUD Login": the client logs in with the account and password. Off, those fields are
+    /// disabled and not sent, and the player logs in by hand.</summary>
     public bool TelnetLoginEnabled
     {
         get => _telnetLoginEnabled;
-        set
-        {
-            if (Set(ref _telnetLoginEnabled, value))
-                OnPropertyChanged(nameof(LoginNameEditable));
-        }
+        set { if (Set(ref _telnetLoginEnabled, value)) OnPropertyChanged(nameof(LoginFieldsOpacity)); }
     }
+
+    /// <summary>The account rows are dimmed while MUD Login is off: the fields set their own colours,
+    /// so being disabled does not show on its own.</summary>
+    public double LoginFieldsOpacity => _telnetLoginEnabled ? 1.0 : 0.4;
+    /// <summary>The shell login (and SSH user). Not on the page: read from and written to the
+    /// profile's <c>loginname</c> key in mucka.ini, so it can be changed there.</summary>
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
     public int MaxColumns
     {
@@ -246,6 +245,13 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
     public ICommand DeleteProfileCommand { get; }
+    public ICommand SaveProfileCommand { get; }
+    public ICommand RenameProfileCommand { get; }
+
+    /// <summary>"Save", or "Saved" for a moment after a save.</summary>
+    public string SaveButtonText { get => _saveButtonText; private set => Set(ref _saveButtonText, value); }
+    private string _saveButtonText = SaveLabel;
+    private const string SaveLabel = "Save";
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired { get; set; }
 
@@ -256,6 +262,8 @@ public sealed class ConnectViewModel : BaseViewModel
         ConnectCommand = new AsyncCommand(ConnectAsync);
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
+        SaveProfileCommand = new AsyncCommand(SaveProfileAsync);
+        RenameProfileCommand = new AsyncCommand(RenameProfileAsync);
         ShowTelnetHelpCommand = new Command(async () =>
         {
             var page = Application.Current?.Windows is [var window, ..] ? window.Page : null;
@@ -263,7 +271,7 @@ public sealed class ConnectViewModel : BaseViewModel
             {
                 await page.DisplayAlertAsync(
                     "Telnet Login",
-                    "MUSE games (MUD2, MUD1) require a telnet login of \"mud\" followed by your Account ID and password.\n\nLeave checked for automatic login. Uncheck to log in by hand.\n\nWith Use SSH checked, the MUD User is the SSH user.\n\nFor anything else, please file an issue on GitHub.",
+                    "MUSE games (MUD2, MUD1) require a telnet login of \"mud\" followed by your Account ID and password.\n\nChecked, Mucka logs in with the Account and Password above. Unchecked, they are not sent and you log in by hand.\n\nFor anything else, please file an issue on GitHub.",
                     "OK");
             }
         });
@@ -361,89 +369,9 @@ public sealed class ConnectViewModel : BaseViewModel
                 Host.Trim(),
                 DreamwordCarry)).ConfigureAwait(true);
 
-            // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
-            // profile - they are not editable on this page but must not reset on connect.
-            var saved = SavedProfiles.FirstOrDefault(p =>
-                string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
-
             await conn.ConnectAsync(Host.Trim(), port, useSsh);
 
-            var profile = new Profile
-            {
-                Name = ProfileName,
-                Host = Host.Trim(),
-                Port = port,
-                UseSsh = useSsh,
-                AccountId = accountId,
-                RememberPassword = RememberPassword,
-                TelnetLoginEnabled = TelnetLoginEnabled,
-                TelnetLoginName = loginName,
-                MaxColumns = MaxColumns,
-                AntiIdleSeconds = AntiIdleSeconds,
-                KeepScreenOn = KeepScreenOn,
-                GuidedLogin = GuidedLogin,
-                GuidedLoginPersona = GuidedLoginPersona.Trim(),
-                DefaultHotkeys = saved?.DefaultHotkeys ?? true,
-                FontSize = saved?.FontSize ?? 0,
-                Volume = saved?.Volume ?? 75,
-                StatUpdateFrequency = saved?.StatUpdateFrequency ?? 10,
-                MuteBeepPermanently = saved?.MuteBeepPermanently ?? false,
-                LogResetDiagnostics = saved?.LogResetDiagnostics ?? false,
-                FkeysPerProfile = saved?.FkeysPerProfile ?? false,
-                Fkeys = saved?.Fkeys ?? new string[36],
-                // `saved` is already hydrated from mucka.ini by LoadProfilesAsync's ApplyTo overlay,
-                // but this fresh Profile does not inherit from it automatically - every settings
-                // field has to be carried across explicitly, or it silently reverts to its C#
-                // default here and the ini sync below (SaveCurrentProfileAsync) writes that default
-                // back to disk. Any new settings field must be added HERE as well as to
-                // ClientSettings, Profile and SettingsStore.
-                Sounds = saved?.Sounds ?? new SoundSettings(),
-                // The always-global Display block and the Combat Rail's two global flags. Carried across for exactly the reason above, and
-                // each fallback is the matching Profile default - a wrong fallback here is
-                // indistinguishable from the field being missing altogether. What this failing
-                // looks like in the hands: a value saved in [settings] is read into `saved` at
-                // startup, dropped here, and the live default is what the session runs on, so the
-                // ini keeps the player's answer and the client keeps ignoring it.
-                DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
-                DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
-                EmoteColor = saved?.EmoteColor ?? MudSharp.Models.ChatTheme.Default.EmoteHex,
-                SayColor = saved?.SayColor ?? MudSharp.Models.ChatTheme.Default.SayHex,
-                ShoutColor = saved?.ShoutColor ?? MudSharp.Models.ChatTheme.Default.ShoutHex,
-                TellColor = saved?.TellColor ?? MudSharp.Models.ChatTheme.Default.TellHex,
-                ChatTheme = saved?.ChatTheme ?? MudSharp.Models.ChatTheme.Default,
-                ChatFaces = saved?.ChatFaces ?? MudSharp.Models.ChatFaces.Default,
-                ShowOnline = saved?.ShowOnline ?? true,
-                ShowInventory = saved?.ShowInventory ?? true,
-                ShowItemsHere = saved?.ShowItemsHere ?? true,
-                ShowMapCompass = saved?.ShowMapCompass ?? true,
-                MaxOnlineDisplay = saved?.MaxOnlineDisplay ?? 0,
-                OnlineNamesOnly = saved?.OnlineNamesOnly ?? false,
-                OnlineForgetWindow = saved?.OnlineForgetWindow ?? 5,
-                FloatOnline = saved?.FloatOnline ?? false,
-                FloatCompass = saved?.FloatCompass ?? false,
-                ShowCombatRail = saved?.ShowCombatRail ?? false,
-                ShowCombatStats = saved?.ShowCombatStats ?? true,
-            };
-            // Overlay mucka.ini over the block above, on EVERY connect and not only for a brand-new
-            // profile. The ini is the authoritative store; `saved` is a cache read once at app start
-            // and never re-read for the life of the run, so a value the settings dialog's Save wrote
-            // to the file after that is on disk while the cache still holds the old one, and a relog
-            // inside one run restores what the player turned off. The fields above stay: ApplyTo only writes the
-            // keys the file actually has, so they are the defaults for the ones it does not.
-            // The page-edited column count wins over the stored one.
-            try
-            {
-                var stored = await SettingsStore.LoadProfileAsync(profile.Name);
-                if (stored is not null)
-                {
-                    stored.ApplyTo(profile);
-                    profile.MaxColumns = MaxColumns;
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] mucka.ini seed failed for '{profile.Name}': {ex}");
-            }
+            var profile = await BuildFormProfileAsync(port, useSsh, accountId, loginName);
             if (!IsDirectConnectMode)
             {
                 await SaveCurrentProfileAsync(profile);
@@ -473,6 +401,95 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
+    /// <summary>The profile this page's form describes: its own fields, every setting carried over
+    /// from the saved profile of the same name, and mucka.ini laid over both. What Connect starts a
+    /// session with and what Save writes.</summary>
+    private async Task<Profile> BuildFormProfileAsync(int port, bool useSsh, string accountId, string loginName)
+    {
+        // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
+        // profile - they are not editable on this page but must not reset on connect.
+        var saved = SavedProfiles.FirstOrDefault(p =>
+            string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
+
+        var profile = new Profile
+        {
+            Name = ProfileName,
+            Host = Host.Trim(),
+            Port = port,
+            UseSsh = useSsh,
+            AccountId = accountId,
+            RememberPassword = RememberPassword,
+            TelnetLoginEnabled = TelnetLoginEnabled,
+            TelnetLoginName = loginName,
+            MaxColumns = MaxColumns,
+            AntiIdleSeconds = AntiIdleSeconds,
+            KeepScreenOn = KeepScreenOn,
+            GuidedLogin = GuidedLogin,
+            GuidedLoginPersona = GuidedLoginPersona.Trim(),
+            DefaultHotkeys = saved?.DefaultHotkeys ?? true,
+            FontSize = saved?.FontSize ?? 0,
+            Volume = saved?.Volume ?? 75,
+            StatUpdateFrequency = saved?.StatUpdateFrequency ?? 10,
+            MuteBeepPermanently = saved?.MuteBeepPermanently ?? false,
+            LogResetDiagnostics = saved?.LogResetDiagnostics ?? false,
+            FkeysPerProfile = saved?.FkeysPerProfile ?? false,
+            Fkeys = saved?.Fkeys ?? new string[36],
+            // `saved` is already hydrated from mucka.ini by LoadProfilesAsync's ApplyTo overlay,
+            // but this fresh Profile does not inherit from it automatically - every settings
+            // field has to be carried across explicitly, or it silently reverts to its C#
+            // default here and the ini sync below (SaveCurrentProfileAsync) writes that default
+            // back to disk. Any new settings field must be added HERE as well as to
+            // ClientSettings, Profile and SettingsStore.
+            Sounds = saved?.Sounds ?? new SoundSettings(),
+            // The always-global Display block and the Combat Rail's two global flags. Carried across for exactly the reason above, and
+            // each fallback is the matching Profile default - a wrong fallback here is
+            // indistinguishable from the field being missing altogether. What this failing
+            // looks like in the hands: a value saved in [settings] is read into `saved` at
+            // startup, dropped here, and the live default is what the session runs on, so the
+            // ini keeps the player's answer and the client keeps ignoring it.
+            DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
+            DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
+            EmoteColor = saved?.EmoteColor ?? MudSharp.Models.ChatTheme.Default.EmoteHex,
+            SayColor = saved?.SayColor ?? MudSharp.Models.ChatTheme.Default.SayHex,
+            ShoutColor = saved?.ShoutColor ?? MudSharp.Models.ChatTheme.Default.ShoutHex,
+            TellColor = saved?.TellColor ?? MudSharp.Models.ChatTheme.Default.TellHex,
+            ChatTheme = saved?.ChatTheme ?? MudSharp.Models.ChatTheme.Default,
+            ChatFaces = saved?.ChatFaces ?? MudSharp.Models.ChatFaces.Default,
+            ShowOnline = saved?.ShowOnline ?? true,
+            ShowInventory = saved?.ShowInventory ?? true,
+            ShowItemsHere = saved?.ShowItemsHere ?? true,
+            ShowMapCompass = saved?.ShowMapCompass ?? true,
+            MaxOnlineDisplay = saved?.MaxOnlineDisplay ?? 0,
+            OnlineNamesOnly = saved?.OnlineNamesOnly ?? false,
+            OnlineForgetWindow = saved?.OnlineForgetWindow ?? 5,
+            FloatOnline = saved?.FloatOnline ?? false,
+            FloatCompass = saved?.FloatCompass ?? false,
+            ShowCombatRail = saved?.ShowCombatRail ?? false,
+            ShowCombatStats = saved?.ShowCombatStats ?? true,
+        };
+        // Overlay mucka.ini over the block above, on EVERY connect and not only for a brand-new
+        // profile. The ini is the authoritative store; `saved` is a cache read once at app start
+        // and never re-read for the life of the run, so a value the settings dialog's Save wrote
+        // to the file after that is on disk while the cache still holds the old one, and a relog
+        // inside one run restores what the player turned off. The fields above stay: ApplyTo only writes the
+        // keys the file actually has, so they are the defaults for the ones it does not.
+        // The page-edited column count wins over the stored one.
+        try
+        {
+            var stored = await SettingsStore.LoadProfileAsync(profile.Name);
+            if (stored is not null)
+            {
+                stored.ApplyTo(profile);
+                profile.MaxColumns = MaxColumns;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] mucka.ini seed failed for '{profile.Name}': {ex}");
+        }
+        return profile;
+    }
+
     private void SelectProfile(Profile p)
     {
         if (IsConnecting)
@@ -499,7 +516,7 @@ public sealed class ConnectViewModel : BaseViewModel
         Port = p.Port;
         _useSsh = p.UseSsh && SshAvailable;
         _portBeforeSsh = 0;
-        OnPropertiesChanged(nameof(UseSsh), nameof(LoginNameEditable));
+        OnPropertyChanged(nameof(UseSsh));
         AccountId = p.AccountId;
         RememberPassword = p.RememberPassword;
         TelnetLoginEnabled = p.TelnetLoginEnabled;
@@ -590,6 +607,114 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             Password = string.Empty;
         }
+    }
+
+    /// <summary>Writes the form to its profile without connecting.</summary>
+    private async Task SaveProfileAsync()
+    {
+        if (IsConnecting || IsDirectConnectMode) return;
+        var name = ProfileName.Trim();
+        if (name.Length == 0)
+        {
+            StatusText = "Give the profile a name to save it.";
+            HasError = true;
+            return;
+        }
+        ProfileName = name;
+        HasError = false;
+        StatusText = string.Empty;
+        try
+        {
+            var useSsh = UseSsh && SshAvailable;
+            var port = Port > 0 ? Port : useSsh ? SshPort : TelnetPort;
+            var profile = await BuildFormProfileAsync(port, useSsh, AccountId.Trim(), TelnetLoginName.Trim());
+            await SaveCurrentProfileAsync(profile);
+            RedrawProfileRow(profile.Name);
+            // As on connect: an empty box over a stored password that was never fetched is not a
+            // request to delete it.
+            var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(Password)
+                && (_passwordFetchFailed || RememberedPasswordUnfetched);
+            if (!storedPasswordUnread)
+                await SavePasswordAsync(profile.Name, RememberPassword ? Password : null);
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Could not save: {ex.Message}";
+            HasError = true;
+            return;
+        }
+        SaveButtonText = "Saved";
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        SaveButtonText = SaveLabel;
+    }
+
+    /// <summary>Renames the highlighted profile: its list entry, its sections in mucka.ini and its
+    /// stored password all move to the new name.</summary>
+    private async Task RenameProfileAsync()
+    {
+        if (IsConnecting || IsDirectConnectMode || _selectedProfile is not { } profile) return;
+        var page = Application.Current?.Windows is [var window, ..] ? window.Page : null;
+        if (page == null) return;
+
+        var oldName = profile.Name;
+        var input = await page.DisplayPromptAsync(
+            "Rename Profile",
+            $"New name for \"{oldName}\":",
+            accept: "Rename",
+            cancel: "Cancel",
+            initialValue: oldName);
+        var newName = input?.Trim();
+        if (IsConnecting || string.IsNullOrEmpty(newName) || newName == oldName) return;
+
+        var taken = SavedProfiles.Any(p => !ReferenceEquals(p, profile)
+            && string.Equals(p.Name, newName, StringComparison.OrdinalIgnoreCase));
+        string? password = null;
+        if (!taken)
+        {
+            // Read before the sections move: on a Mac the password can be in the profile's own section.
+            try { password = await ProfileStore.GetPasswordAsync(oldName); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] password read for rename failed for '{oldName}': {ex}");
+            }
+        }
+        if (taken || !await SettingsStore.RenameProfileAsync(oldName, newName))
+        {
+            await page.DisplayAlertAsync("Rename Profile", $"There is already a profile called \"{newName}\".", "OK");
+            return;
+        }
+
+        profile.Name = newName;
+        if (!string.IsNullOrEmpty(password))
+        {
+            // The password is a nicety to carry over; failing to must not undo the rename.
+            try
+            {
+                await ProfileStore.SetPasswordAsync(newName, password);
+                await ProfileStore.SetPasswordAsync(oldName, null);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] password move failed for '{oldName}': {ex}");
+            }
+        }
+        ProfileName = newName;
+        RedrawProfileRow(newName);
+    }
+
+    // Profile raises no change notifications, so a row whose name or host has changed is put back
+    // into the list to redraw it, and the highlight follows it.
+    private void RedrawProfileRow(string name)
+    {
+        var idx = -1;
+        for (var i = 0; i < SavedProfiles.Count; i++)
+            if (string.Equals(SavedProfiles[i].Name, name, StringComparison.OrdinalIgnoreCase)) { idx = i; break; }
+        if (idx < 0) return;
+        var p = SavedProfiles[idx];
+        SavedProfiles.RemoveAt(idx);
+        SavedProfiles.Insert(idx, p);
+        _selectedProfile = p;
+        OnPropertyChanged(nameof(SelectedProfile));
     }
 
     private async Task DeleteProfileAsync()

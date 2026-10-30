@@ -323,7 +323,7 @@ public partial class ConnectPage : ContentPage
         {
             await MainThread.InvokeOnMainThreadAsync(async () =>
             {
-                page = new GuidedLoginPage(vm);
+                page = new GuidedLoginPage(vm, profile.FontSize);
                 await Navigation.PushAsync(page, Mucka.Core.NavAnimation.Animated);
             });
 
@@ -407,7 +407,9 @@ public partial class ConnectPage : ContentPage
                 var gameVm = new GameViewModel(conn, profile, saveSettings, persistCombatRailVisibility,
                     persistCombatStats);
 
-                if (profile.GuidedLogin)
+                // Persona Login drives the shell after the client's own login; with MUD Login off the
+                // player is logging in by hand, and the overlay would sit over the prompts they need.
+                if (profile.GuidedLogin && profile.TelnetLoginEnabled)
                 {
                     gameVm.BeginLoginFlow();
                     var result = await RunGuidedLoginOverlayAsync(

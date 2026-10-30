@@ -440,6 +440,26 @@ public static class SettingsStore
         }
     }
 
+    /// <summary>Moves a profile's sections in mucka.ini to a new name (<see cref="ProfileRename"/>).
+    /// False, with the file unchanged, when the new name belongs to another profile.</summary>
+    public static async Task<bool> RenameProfileAsync(string oldName, string newName)
+    {
+        await s_gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolvePath();
+            var ini = await LoadIniAsync(persist: false).ConfigureAwait(false);
+            if (!ProfileRename.Apply(ini, oldName, newName))
+                return false;
+            await ini.SaveAsync(path).ConfigureAwait(false);
+            return true;
+        }
+        finally
+        {
+            s_gate.Release();
+        }
+    }
+
 #if MACCATALYST
     private const string ProfilePasswordKey = "password";
 
