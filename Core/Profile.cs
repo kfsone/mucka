@@ -9,6 +9,8 @@ public class Profile
     public string Name { get; set; } = "MUD2";
     public string Host { get; set; } = "mud2.co.uk";
     public int Port { get; set; } = 23;
+    /// <summary>Connect over SSH instead of telnet. Desktop only; the login name is the SSH user.</summary>
+    public bool UseSsh { get; set; }
     public string AccountId { get; set; } = string.Empty;
     public bool RememberPassword { get; set; }
     public bool TelnetLoginEnabled { get; set; } = true;

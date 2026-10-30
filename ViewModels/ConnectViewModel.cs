@@ -21,6 +21,10 @@ public sealed class ConnectViewModel : BaseViewModel
     private string _profileName = string.Empty;
     private string _host = "mud2.co.uk";
     private int _port = 23;
+    private bool _useSsh;
+    private int _portBeforeSsh;
+    private const int TelnetPort = 23;
+    private const int SshPort = 22;
     private string _statusText = string.Empty;
     private string _progressText = string.Empty;
     private bool _passwordFetchAttempted;
@@ -52,7 +56,80 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
     public string Host { get => _host; set => Set(ref _host, value); }
-    public int Port { get => _port; set => Set(ref _port, value); }
+    /// <summary>0 means the port field is empty; connecting then uses the transport's own port.</summary>
+    public int Port
+    {
+        get => _port;
+        set
+        {
+            if (Set(ref _port, value))
+                OnPropertyChanged(nameof(PortText));
+        }
+    }
+
+    /// <summary>The port as typed, blank for 0. An Entry bound straight to the int never writes back
+    /// when cleared (blank does not convert), so the parse is here: blank is 0, a number above 65535
+    /// (or a run of digits too long to parse) is held at it, and anything else leaves the port as it was. The change is always announced, so
+    /// the Entry is put back to the port in force. Invariant culture for the same reason as
+    /// <see cref="MaxColumnsText"/>.</summary>
+    public string PortText
+    {
+        get => _port == 0 ? string.Empty : _port.ToString(CultureInfo.InvariantCulture);
+        set
+        {
+            var text = value?.Trim() ?? string.Empty;
+            var port = _port;
+            if (text.Length == 0)
+                port = 0;
+            else if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
+                port = n > 0 ? Math.Min(n, 65535) : _port;
+            else if (text.All(char.IsAsciiDigit))
+                port = 65535;   // digits too many for an int
+            // A real edit forfeits the port UseSsh set aside. Every change the view model makes is
+            // echoed back through here unchanged, and must not.
+            if (port != _port)
+                _portBeforeSsh = 0;
+            Port = port;
+            OnPropertyChanged(nameof(PortText));
+        }
+    }
+
+    /// <summary>The SSH transport exists on the desktop builds only.</summary>
+    public static bool SshAvailable =>
+#if DESKTOP
+        true;
+#else
+        false;
+#endif
+
+    /// <summary>Connect over SSH. Switching it moves the port between the two standard ones, and
+    /// empties any other port, which belongs to neither transport; switching back with the port still
+    /// empty puts that port back. <see cref="ApplyProfile"/> sets the field directly so loading a
+    /// profile leaves its port alone.</summary>
+    public bool UseSsh
+    {
+        get => _useSsh;
+        set
+        {
+            if (!Set(ref _useSsh, value)) return;
+            var standard = Port is TelnetPort or SshPort;
+            if (value)
+            {
+                _portBeforeSsh = standard ? 0 : Port;
+                Port = standard ? SshPort : 0;
+            }
+            else
+            {
+                Port = standard ? TelnetPort : Port == 0 ? _portBeforeSsh : 0;
+            }
+            OnPropertyChanged(nameof(LoginNameEditable));
+        }
+    }
+
+    /// <summary>The MUD User is also the SSH user, so it stays editable with SSH on even when the
+    /// telnet login is off.</summary>
+    public bool LoginNameEditable => TelnetLoginEnabled || UseSsh;
+
     public string StatusText { get => _statusText; set => Set(ref _statusText, value); }
     public bool IsConnecting
     {
@@ -109,7 +186,15 @@ public sealed class ConnectViewModel : BaseViewModel
 
     public Color PasswordPlaceholderColor
         => RememberedPasswordUnfetched ? Color.FromArgb("#cccccc") : Color.FromArgb("#444444");
-    public bool TelnetLoginEnabled { get => _telnetLoginEnabled; set => Set(ref _telnetLoginEnabled, value); }
+    public bool TelnetLoginEnabled
+    {
+        get => _telnetLoginEnabled;
+        set
+        {
+            if (Set(ref _telnetLoginEnabled, value))
+                OnPropertyChanged(nameof(LoginNameEditable));
+        }
+    }
     public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
     public int MaxColumns
     {
@@ -178,7 +263,7 @@ public sealed class ConnectViewModel : BaseViewModel
             {
                 await page.DisplayAlertAsync(
                     "Telnet Login",
-                    "MUSE games (MUD2, MUD1) require a telnet login of \"mud\" followed by your Account ID and password.\n\nLeave checked for automatic login. Uncheck to log in by hand.\n\nFor anything else, please file an issue on GitHub.",
+                    "MUSE games (MUD2, MUD1) require a telnet login of \"mud\" followed by your Account ID and password.\n\nLeave checked for automatic login. Uncheck to log in by hand.\n\nWith Use SSH checked, the MUD User is the SSH user.\n\nFor anything else, please file an issue on GitHub.",
                     "OK");
             }
         });
@@ -196,6 +281,8 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             var accountId = AccountId.Trim();
             var loginName = TelnetLoginName.Trim();
+            var useSsh = UseSsh && SshAvailable;
+            var port = Port > 0 ? Port : useSsh ? SshPort : TelnetPort;
 
             if (!LoadPasswordOnSelect && RememberPassword && accountId.Length > 0 && string.IsNullOrEmpty(Password)
                 && SavedProfiles.FirstOrDefault(p => string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
@@ -216,7 +303,7 @@ public sealed class ConnectViewModel : BaseViewModel
                     return;
                 }
 
-                var result = await PasswordRequired(new PasswordPromptArgs(ProfileName, Host.Trim(), Port, accountId));
+                var result = await PasswordRequired(new PasswordPromptArgs(ProfileName, Host.Trim(), port, accountId));
                 if (result == null) return;
                 resolvedPassword = result.Password;
                 Password = resolvedPassword;
@@ -279,13 +366,14 @@ public sealed class ConnectViewModel : BaseViewModel
             var saved = SavedProfiles.FirstOrDefault(p =>
                 string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
 
-            await conn.ConnectAsync(Host.Trim(), Port);
+            await conn.ConnectAsync(Host.Trim(), port, useSsh);
 
             var profile = new Profile
             {
                 Name = ProfileName,
                 Host = Host.Trim(),
-                Port = Port,
+                Port = port,
+                UseSsh = useSsh,
                 AccountId = accountId,
                 RememberPassword = RememberPassword,
                 TelnetLoginEnabled = TelnetLoginEnabled,
@@ -409,6 +497,9 @@ public sealed class ConnectViewModel : BaseViewModel
         ProfileName = p.Name;
         Host = p.Host;
         Port = p.Port;
+        _useSsh = p.UseSsh && SshAvailable;
+        _portBeforeSsh = 0;
+        OnPropertiesChanged(nameof(UseSsh), nameof(LoginNameEditable));
         AccountId = p.AccountId;
         RememberPassword = p.RememberPassword;
         TelnetLoginEnabled = p.TelnetLoginEnabled;
@@ -709,6 +800,7 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.Name = incoming.Name;
             existing.Host = incoming.Host;
             existing.Port = incoming.Port;
+            existing.UseSsh = incoming.UseSsh;
             existing.AccountId = incoming.AccountId;
             existing.RememberPassword = incoming.RememberPassword;
             existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;

@@ -128,6 +128,11 @@
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
 	</ItemGroup>
 
+	<!-- The SSH transport (Core/Transports.cs, behind DESKTOP). Not referenced on Android. -->
+	<ItemGroup Condition="$(DefineConstants.Contains('DESKTOP'))">
+		<PackageReference Include="SSH.NET" Version="2026.0.0" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<Compile Remove="tools\**" />
 		<Compile Remove="scripts\**" />

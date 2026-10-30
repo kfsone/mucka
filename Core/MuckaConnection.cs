@@ -1,7 +1,6 @@
 using MudSharp.Combat;
 using MudSharp.Models;
 using MudSharp.Session;
-using System.Net.Sockets;
 using System.Text;
 using System.Threading.Channels;
 using Mucka.Combat;
@@ -12,8 +11,9 @@ using Mucka.WireLog;
 namespace Mucka.Core;
 
 /// <summary>
-/// Mucka's TCP connection layer. Owns the socket and read loop, wraps MudSession, and taps raw RX/TX
-/// bytes into the always-on wire log before they reach the parser. Also the single owner of
+/// Mucka's connection layer. Owns the transport (telnet socket or SSH channel) and read loop, wraps
+/// MudSession, and taps raw RX/TX bytes into the always-on wire log before they reach the parser.
+/// Also the single owner of
 /// <see cref="MuckaStore"/> and of every writer that feeds it - see docs/persistence-design.md.
 ///
 /// THREADING:
@@ -28,8 +28,8 @@ public sealed class MuckaConnection : IAsyncDisposable
 {
     private readonly MudSession _session;
     private MudLoginHandler? _loginHandler;
-    private TcpClient? _client;
-    private NetworkStream? _stream;
+    private IMudTransport? _transport;
+    private readonly string _loginName;
     private Task? _readLoop;
     private Task? _writerTask;
     private CancellationTokenSource? _cts;
@@ -155,7 +155,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     public event Action<byte[]>? RawBytesSent;
 #endif
 
-    public bool IsConnected => _client?.Connected ?? false;
+    public bool IsConnected => _transport?.IsConnected ?? false;
     public bool InGameMode => _session.InGameMode;
     public string? CurrentDreamword => _session.CurrentDreamword;
 
@@ -266,7 +266,10 @@ public sealed class MuckaConnection : IAsyncDisposable
     public Task LoadSwingDamageAsync(CancellationToken cancellationToken = default)
         => _swingLedger.WarmDamageIndexAsync(cancellationToken);
 
+    /// <summary>The rows the server is told.</summary>
+    public const int ShellRows = 21;
     private int _windowCols;
+    private int _windowRows = ShellRows;
     private readonly ResetNumberWatcher _resetNumberWatcher = new();
 
     /// <summary>The columns the server is told (NAWS and <c>/T</c>).</summary>
@@ -296,15 +299,17 @@ public sealed class MuckaConnection : IAsyncDisposable
         _swingLedger = new SwingLedger(_store, CrashLog.Write);
         _fightRecorder = new FightHistoryRecorder(_fightHistory);
         _session = new MudSession();
-        _session.SetWindowSize(_windowCols, 21);
+        _session.SetWindowSize(_windowCols, ShellRows);
         _session.SetLoginUser(loginName);
+        _loginName = loginName;
         WireSessionEvents();
         if (!string.IsNullOrEmpty(accountId))
             _loginHandler = new MudLoginHandler(this, loginName, accountId, password ?? string.Empty);
     }
 
-    /// <summary>Connect to the server and start the read loop.</summary>
-    public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
+    /// <summary>Connect to the server over telnet, or over SSH when <paramref name="useSsh"/> is set,
+    /// and start the read loop.</summary>
+    public async Task ConnectAsync(string host, int port, bool useSsh = false, CancellationToken cancellationToken = default)
     {
         await DisconnectAsync().ConfigureAwait(false);
         _deliberateDisconnect = false;   // fresh connection: a later drop is unexpected again
@@ -312,15 +317,11 @@ public sealed class MuckaConnection : IAsyncDisposable
         _host = host;
         _port = port;
         ResetNumber = null;
-        var client = new TcpClient();
+        var transport = await TransportFactory.OpenAsync(host, port, useSsh, _loginName,
+            _windowCols, _windowRows, cancellationToken).ConfigureAwait(false);
         try
         {
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-            await client.ConnectAsync(host, port, linkedCts.Token).ConfigureAwait(false);
-            client.NoDelay = true;
-
-            var stream = client.GetStream();
+            var stream = transport.Stream;
             var cts = new CancellationTokenSource();
             var sendChannel = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions
             {
@@ -328,10 +329,11 @@ public sealed class MuckaConnection : IAsyncDisposable
                 SingleWriter = false
             });
 
-            _client = client;
-            _stream = stream;
+            _transport = transport;
             _cts = cts;
             _sendChannel = sendChannel;
+            // A SetWindowSize that landed while the transport was still opening saw no transport.
+            transport.Resize(_windowCols, _windowRows);
 
             // Wire outgoing bytes -> queued network write (+ capture if active)
             _session.OutgoingBytes -= EnqueueBytes;
@@ -339,12 +341,12 @@ public sealed class MuckaConnection : IAsyncDisposable
 
             // CancellationToken.None, not the connect call's token: these two loops outlive the
             // connect and are cancelled by `cts`, which Disconnect owns.
-            _writerTask = Task.Run(() => WriteLoopAsync(stream, sendChannel.Reader, cts.Token), CancellationToken.None);
+            _writerTask = Task.Run(() => WriteLoopAsync(transport, sendChannel.Reader, cts.Token), CancellationToken.None);
             _readLoop = Task.Run(() => ReadLoopAsync(stream, cts.Token), CancellationToken.None);
         }
         catch
         {
-            client.Dispose();
+            transport.Dispose();
             throw;
         }
     }
@@ -362,26 +364,30 @@ public sealed class MuckaConnection : IAsyncDisposable
         var readLoop = _readLoop;
         var sendChannel = _sendChannel;
         var cts = _cts;
-        var stream = _stream;
-        var client = _client;
+        var transport = _transport;
 
         _writerTask = null;
         _readLoop = null;
         _sendChannel = null;
         _cts = null;
-        _stream = null;
-        _client = null;
+        _transport = null;
 
         sendChannel?.Writer.TryComplete();
         cts?.Cancel();
+        // Disposed before the loops are awaited: cancelling the token does not release a read pending
+        // on an SSH shell stream, closing it does. Off this thread, which is the UI thread when the
+        // game page quits: closing an SSH channel waits for the server to answer.
+        if (transport != null)
+        {
+            try { await Task.Run(transport.Dispose).ConfigureAwait(false); }
+            catch (Exception ex) { CrashLog.Write("DisconnectTransport", ex); }
+        }
 
         if (writerTask != null)
             await writerTask.ConfigureAwait(false);
         if (readLoop != null)
             await readLoop.ConfigureAwait(false);
 
-        stream?.Dispose();
-        client?.Dispose();
         cts?.Dispose();
         // Both loops have ended, so nothing more will be recorded for this connection. The wire log
         // holds nothing back, so this has nothing to do; it stays because every path that ends a
@@ -464,12 +470,15 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     /// <summary>
     /// Update the advertised terminal window size. May be called from any thread.
-    /// Sends an updated NAWS subnegotiation if NAWS has been negotiated with the server.
+    /// Sends an updated NAWS subnegotiation if NAWS has been negotiated with the server; over SSH,
+    /// a pty window-change.
     /// </summary>
     public void SetWindowSize(int cols, int rows)
     {
         _windowCols = cols;
+        _windowRows = rows;
         _session.SetWindowSize(cols, rows);
+        _transport?.Resize(cols, rows);
     }
 
     /// <summary>
@@ -480,7 +489,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// </summary>
     internal void SendClientModeEntry()
     {
-        _session.SetWindowSize(_windowCols, 21);  // TODO: Should reference naws cols rather than being random magic number
+        _session.SetWindowSize(_windowCols, ShellRows);
 
         byte[] prefix = {
             // "command" here means user input, a command interrupt allows us to
@@ -547,7 +556,7 @@ public sealed class MuckaConnection : IAsyncDisposable
 
     // -- Private ----------------------------------------------------------------
 
-    private async Task ReadLoopAsync(NetworkStream stream, CancellationToken ct)
+    private async Task ReadLoopAsync(Stream stream, CancellationToken ct)
     {
         var buf = new byte[4096];
         Exception? error = null;
@@ -584,8 +593,9 @@ public sealed class MuckaConnection : IAsyncDisposable
         }
     }
 
-    private async Task WriteLoopAsync(NetworkStream stream, ChannelReader<byte[]> reader, CancellationToken ct)
+    private async Task WriteLoopAsync(IMudTransport transport, ChannelReader<byte[]> reader, CancellationToken ct)
     {
+        var stream = transport.Stream;
         try
         {
             while (true)
@@ -596,6 +606,8 @@ public sealed class MuckaConnection : IAsyncDisposable
                 RawBytesSent?.Invoke(bytes);
 #endif
                 await stream.WriteAsync(bytes, ct).ConfigureAwait(false);
+                // An SSH shell stream sends only what fills its buffer until flushed.
+                stream.Flush();
             }
         }
         catch (OperationCanceledException) { }
@@ -604,7 +616,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         catch
         {
             try { _cts?.Cancel(); } catch { }
-            try { _client?.Close(); } catch { }
+            try { transport.Dispose(); } catch { }
         }
     }
 

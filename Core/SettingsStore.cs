@@ -40,6 +40,7 @@ namespace Mucka.Core;
 ///   [profile:MUD2 UK]     ; connection identity - passwords in SecureStorage (ProfileStore); on
 ///   host=mud2.co.uk       ; macOS in the keychain, or as password=... here when securepasswords=no
 ///   port=23
+///   usessh=no             ; yes = SSH to the port above instead of telnet
 ///
 /// Windows: ./mucka.ini beside the exe, then ~/mucka.ini; new files are created in the
 /// user profile. Android: the app-data directory (no shared home directory to put an ini
@@ -572,6 +573,7 @@ public static class SettingsStore
             var p = new Profile { Name = name };
             if (ini.Get(section, "host") is { Length: > 0 } host)        p.Host               = host;
             if (GetInt (ini, section, "port")            is int port)    p.Port               = port;
+            if (GetBool(ini, section, "usessh")          is bool ssh)    p.UseSsh             = ssh;
             p.AccountId = ini.Get(section, "account") ?? string.Empty;
             if (GetBool(ini, section, "rememberpassword") is bool rem)   p.RememberPassword   = rem;
             if (GetBool(ini, section, "telnetlogin")      is bool tel)   p.TelnetLoginEnabled = tel;
@@ -627,6 +629,7 @@ public static class SettingsStore
             var section = ProfileSectionPrefix + p.Name;
             ini.Set(section, "host",             p.Host);
             ini.Set(section, "port",             p.Port.ToString(CultureInfo.InvariantCulture));
+            ini.Set(section, "usessh",           p.UseSsh             ? "yes" : "no");
             ini.Set(section, "account",          p.AccountId);
             ini.Set(section, "rememberpassword", p.RememberPassword   ? "yes" : "no");
             ini.Set(section, "telnetlogin",      p.TelnetLoginEnabled ? "yes" : "no");

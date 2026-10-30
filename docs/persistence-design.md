@@ -68,7 +68,8 @@ What the framing bought, weighed honestly:
 
 - **Direction** - real, and now a column, which is strictly better than two bits inside a varint.
 - **Per-record arrival time** - real, and now a column. It was never the reason for the framing.
-- **Read boundaries** - where one socket read ended. That is TCP segmentation, not protocol structure;
+- **Read boundaries** - where one read of the transport ended: TCP segmentation over telnet, and over
+  SSH whatever the shell stream had buffered when the read was made. Neither is protocol structure;
   `MudStreamParser` handles arbitrary splits, so a replay never needed them. `seq` preserves the order
   the records were handed over, which is the part that is evidence.
 
@@ -417,7 +418,7 @@ A time used as a filter or an attribute (`ScoreHistory`'s since-date, `started_a
 ### Timestamps
 
 Everything is unix milliseconds UTC. The clog writer stamps `DateTimeOffset.UtcNow` on the Feed
-thread; the wire capture stamps `DateTimeOffset.UtcNow` on the socket read and write loops
+thread; the wire capture stamps `DateTimeOffset.UtcNow` on the read and write loops
 (`WireLogWriter`'s own emit path); the ledger stamps on the Feed
 thread. Same clock, different threads - so a
 wire record and the swing parsed out of it are comparable to within the parse, which is what any
