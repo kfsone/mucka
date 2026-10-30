@@ -326,8 +326,10 @@ jobs:
           key: nuget-ios-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
           restore-keys: nuget-ios-
 
-      - name: Install MAUI iOS workload
-        run: dotnet workload install maui-ios --skip-sign-check --version 10.0.400
+      # Both: with LocalIos=true the project lists net10.0-maccatalyst as well, and restore evaluates
+      # every listed target framework even when the build names one.
+      - name: Install MAUI iOS and Mac Catalyst workloads
+        run: dotnet workload install maui-ios maui-maccatalyst --skip-sign-check --version 10.0.400
 
       # actool compiles the app icon and needs a Simulator runtime matching Xcode's iOS SDK.
       - name: Simulator runtimes present
