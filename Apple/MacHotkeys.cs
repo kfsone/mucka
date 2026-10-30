@@ -1,3 +1,4 @@
+#if UIKIT
 using Foundation;
 using UIKit;
 
@@ -133,3 +134,4 @@ internal static class MacHotkeys
         return command;
     }
 }
+#endif

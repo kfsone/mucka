@@ -347,7 +347,7 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     [SuppressMessage("Performance", "CA1822:Mark members as static",
         Justification = "Bound from XAML ({Binding SidePanel.IsCombatRailSupported}); a binding cannot resolve a static member.")]
     public bool IsCombatRailSupported =>
-#if ANDROID
+#if MOBILE
         false;
 #else
         true;

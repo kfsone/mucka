@@ -1,10 +1,10 @@
-#if MACCATALYST
+#if UIKIT
 using UIKit;
 
 namespace Mucka.Pages;
 
 /// <summary>
-/// The platform adapter behind <see cref="Mucka.Input.IInputSurface"/> on a Mac: the one place that
+/// The platform adapter behind <see cref="Mucka.Input.IInputSurface"/> on UIKit: the one place that
 /// names the native text field. Same rules as the Windows adapter - each member is a direct property
 /// get/set and nothing else; no layout, no scheduling, no logging. Work belongs behind
 /// <see cref="Mucka.Input.InputGate"/>.

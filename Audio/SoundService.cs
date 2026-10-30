@@ -135,7 +135,7 @@ internal static class SoundService
             Mucka.Core.TickDiag.Log($"audio    PlayPrepared threw for '{assetName}': {ex}");
             System.Diagnostics.Debug.WriteLine($"[SoundService] PlayPrepared failed for '{assetName}': {ex.Message}");
         }
-#elif MACCATALYST
+#elif UIKIT
         // Never opens a file on the caller's thread: an asset that is not ready yet is opened on the
         // thread pool and this click is skipped.
         if (!TryGetReadyMacPlayer(assetName, out var player))
@@ -166,7 +166,26 @@ internal static class SoundService
 #endif
     }
 
-#if MACCATALYST
+#if UIKIT
+    /// <summary>Puts the app's audio in the Ambient category once, before the first player opens. An
+    /// iOS app starts in SoloAmbient, which stops whatever else the device is playing.</summary>
+    private static void EnsureAudioSession()
+    {
+#if IOS
+        _ = s_audioSession.Value;
+#endif
+    }
+
+#if IOS
+    private static readonly Lazy<bool> s_audioSession = new(() =>
+    {
+        var error = AVFoundation.AVAudioSession.SharedInstance().SetCategory(AVFoundation.AVAudioSessionCategory.Ambient);
+        if (error is not null)
+            CrashLog.Warn("SoundService", $"AVAudioSession category: {error.LocalizedDescription}");
+        return error is null;
+    });
+#endif
+
     // Null value: the file is missing or cannot be opened; cached so it is not retried on every click.
     private static readonly Dictionary<string, AVFoundation.AVAudioPlayer?> s_preparedMac = new();
 
@@ -187,6 +206,7 @@ internal static class SoundService
         AVFoundation.AVAudioPlayer? player = null;
         try
         {
+            EnsureAudioSession();
             var path = AssetPath(ResolveAssetName(assetName));
             if (File.Exists(path))
             {
@@ -230,10 +250,10 @@ internal static class SoundService
     public static Mucka.Sounds.ClipSpan? WavClipSpan(string assetName)
         => Mucka.Sounds.WavProbe.Read(AssetPath(ResolveAssetName(assetName)));
 
-    // Where MauiAssets land: beside the executable on Windows, in the bundle's Resources on a Mac.
+    // Where MauiAssets land: beside the executable on Windows, in the bundle's resources on a Mac or iOS.
     private static string AssetPath(string assetName)
     {
-#if MACCATALYST
+#if UIKIT
         var root = Foundation.NSBundle.MainBundle.ResourcePath ?? AppContext.BaseDirectory;
 #else
         var root = AppContext.BaseDirectory;
@@ -242,7 +262,7 @@ internal static class SoundService
     }
 
     /// <summary>Opens a sound for <see cref="PlayPrepared"/> ahead of time, so the first click of a
-    /// fight does not pay the open cost. Idempotent and a no-op except on Windows and Mac. <c>GetPreparedPlayer</c>
+    /// fight does not pay the open cost. Idempotent and a no-op except on Windows, Mac and iOS. <c>GetPreparedPlayer</c>
     /// (Windows-only, so not a resolvable cref from a cross-platform doc comment) does a synchronous
     /// <c>File.Exists</c> plus WinRT <c>MediaPlayer</c>/<c>MediaSource</c> construction, so it is
     /// dispatched to the thread pool here rather than run on whatever thread calls this; callers
@@ -251,7 +271,7 @@ internal static class SoundService
     {
 #if WINDOWS
         _ = Task.Run(() => GetPreparedPlayer(assetName));
-#elif MACCATALYST
+#elif UIKIT
         _ = Task.Run(() => GetPreparedMacPlayer(assetName)).ContinueWith(
             t => CrashLog.Warn("SoundService", $"Prepare failed for '{assetName}': {t.Exception!.GetBaseException()}"),
             TaskContinuationOptions.OnlyOnFaulted);
@@ -322,7 +342,7 @@ internal static class SoundService
 
     private static bool AssetExists(string assetName)
     {
-#if WINDOWS || MACCATALYST
+#if WINDOWS || UIKIT
         return File.Exists(AssetPath(assetName));
 #elif ANDROID
         try
@@ -493,7 +513,7 @@ internal static class SoundService
         return tcs.Task;
     }
 
-#elif MACCATALYST
+#elif UIKIT
     // AVAudioPlayer is a native object whose managed wrapper must outlive the call: held here until
     // playback finishes.
     private static readonly HashSet<AVFoundation.AVAudioPlayer> s_activePlayers = new();
@@ -507,6 +527,7 @@ internal static class SoundService
             return Task.CompletedTask;
         }
 
+        EnsureAudioSession();
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = AVFoundation.AVAudioPlayer.FromUrl(Foundation.NSUrl.FromFilename(path), out var error);
         if (player is null)
@@ -526,7 +547,10 @@ internal static class SoundService
         }
         lock (s_activePlayers) s_activePlayers.Add(player);
         player.Volume = volumePercent / 100f;
-        player.FinishedPlaying += (_, _) => Finish();
+        // Queued, not called: disposing the player inside its own FinishedPlaying callback aborts the
+        // app (ObjectDisposedException from InternalAVAudioPlayerDelegate.FinishedPlaying, seen on the
+        // iOS simulator when the theme ended).
+        player.FinishedPlaying += (_, _) => player.BeginInvokeOnMainThread(Finish);
         // Backstop: a player that never reports finishing would otherwise hold the caller - and, for a
         // tell alert, the flag that stops overlapping tells - for good.
         _ = Task.Delay(TimeSpan.FromSeconds(Math.Max(1.0, player.Duration) + 2.0)).ContinueWith(_ =>

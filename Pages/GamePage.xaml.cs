@@ -69,13 +69,15 @@ public partial class GamePage : ContentPage
     private bool _isFkeyEditorOpen;
     private bool _isGuidedLoginOverlayOpen;
 
-#if DESKTOP
+#if DESKTOP || IOS
     /// <summary>Something other than the command box legitimately owns the keyboard: the F-key
     /// editor, the guided-login overlay, or scrollback review (Invariant #0's exceptions). The one
     /// predicate FocusGuard suspends on and every deferred refocus checks - a new owner is added
     /// here, once.</summary>
     private bool KeyboardOwnedElsewhere => _isFkeyEditorOpen || _isGuidedLoginOverlayOpen || Terminal.IsHistoryMode;
+#endif
 
+#if DESKTOP
     /// <summary>Re-asserts focus once a window resize and its re-layout have settled: the resize can
     /// land keyboard focus elsewhere after the triggering command's own RequestFocus already fired,
     /// and a plain dispatch still races it; a short delay wins (Invariant #0).</summary>
@@ -259,10 +261,12 @@ public partial class GamePage : ContentPage
     public GamePage(GameViewModel vm, bool exitOnDisconnect = false)
     {
         InitializeComponent();
-#if MACCATALYST
-        // The Mac window has no back gesture; the navigation bar's back button and this row are the ways back.
+#if UIKIT
+        // Neither a Mac window nor an iPhone has a back button; this row is a way back on both.
         DisconnectSeparator.IsVisible = true;
         DisconnectRow.IsVisible = true;
+#endif
+#if MACCATALYST
         // The platform's own back button lives in the navigation bar, which this page hides elsewhere.
         NavigationPage.SetHasNavigationBar(this, true);
 #endif
@@ -283,7 +287,7 @@ public partial class GamePage : ContentPage
         base.OnAppearing();
         // The session this page showed is over and the page is on its way out; nothing to attach.
         if (_sessionEnded) return;
-#if MACCATALYST
+#if UIKIT
         // Every appearance, not only the first: leaving for a modal clears it in OnDisappearing.
         SetUpMacHotkeys();
         // And the keyboard goes to the command box on every appearance - the first one, and each
@@ -468,6 +472,8 @@ public partial class GamePage : ContentPage
             Window.Title = _vm.WindowTitle;   // profile-only until a character is identified
 #if MACCATALYST
         SetUpMacWindow();
+#elif IOS
+        SetUpIosPage();
 #endif
 
 #if WINDOWS
@@ -549,7 +555,7 @@ public partial class GamePage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
-#if MACCATALYST
+#if UIKIT
         TearDownMacHotkeys();
 #endif
 #if ANDROID
@@ -594,6 +600,8 @@ public partial class GamePage : ContentPage
     {
 #if MACCATALYST
         TearDownMacCombat();
+#elif IOS
+        TearDownIosPage();
 #endif
         DeviceDisplay.Current.KeepScreenOn = false;
         _antiIdleTimer?.Stop();
@@ -789,6 +797,8 @@ public partial class GamePage : ContentPage
         if (width <= 0) return;
 #if MACCATALYST
         if (MacResizeSettling) return;
+#endif
+#if UIKIT
         // Columns come from the terminal's own pane, which the side panel narrows; the page's width
         // overstates it. The pane has no width until it has been laid out.
         if (Terminal.Width > 0)
@@ -1081,7 +1091,7 @@ public partial class GamePage : ContentPage
         FocusDiag($"FocusInput dispatch: focused={hasFocus} (maui.IsFocused={InputEntry.IsFocused})");
         if (!hasFocus)
             tb.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-#elif MACCATALYST
+#elif UIKIT
         // Ask UIKit, not MAUI's cached IsFocused. BecomeFirstResponder on a field that already has it
         // is harmless, but there is nothing to gain by calling it.
         if (InputEntry.Handler?.PlatformView is UIKit.UITextField tf && !tf.IsFirstResponder)
@@ -1406,7 +1416,7 @@ public partial class GamePage : ContentPage
         SetInputText(insertText + (InputEntry.Text ?? string.Empty), insertText.Length);
     }
 
-#if DESKTOP
+#if DESKTOP || IOS
     // Ctrl+R: unconditionally replaces the input with "<sender> "" and puts the
     // caret after the quote, ready for the reply text. Unlike OnTerminalSpanInsertTextRequested's
     // prepend, this clears whatever was typed - ctrl-r is a deliberate "start a reply now" action.
@@ -1440,7 +1450,7 @@ public partial class GamePage : ContentPage
             return;
         }
 #endif
-#if MACCATALYST
+#if UIKIT
         if (_macCommandInput is not null)
         {
             _macCommandInput.RequestSetText(text, caretPos);

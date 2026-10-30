@@ -37,10 +37,10 @@ public sealed class SidePanelWidthConverter : IValueConverter
 {
     public static readonly SidePanelWidthConverter Instance = new();
 
-    // Android keeps the authored width: on a phone a panel widened with the step would take the
-    // screen. Its text still scales and may wrap.
+    // Android and iOS keep the authored width: on a phone a panel widened with the step would take
+    // the screen. Its text still scales and may wrap.
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-#if ANDROID
+#if MOBILE
         => Mucka.Combat.CombatRailResize.SidePanelWidthDp;
 #else
         => Mucka.Combat.CombatRailResize.SidePanelWidthAt(

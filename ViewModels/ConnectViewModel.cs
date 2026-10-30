@@ -94,9 +94,9 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    /// <summary>The SSH transport exists on the desktop builds only.</summary>
+    /// <summary>The SSH transport exists on every build but Android.</summary>
     public static bool SshAvailable =>
-#if DESKTOP
+#if SSH
         true;
 #else
         false;

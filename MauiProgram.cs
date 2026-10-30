@@ -25,7 +25,7 @@ public static class MauiProgram
                 fonts.AddFont("CascadiaMonoItalic.ttf", "Cascadia Mono Italic");
             });
 
-#if MACCATALYST
+#if UIKIT
         // Skia's native canvas view is opaque by default on a Mac, so a canvas that draws on a
         // transparent clear (the Combat Rail, the compass) shows a solid white box. Marked
         // non-opaque, and left clear unless the element asks for a background of its own.

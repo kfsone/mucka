@@ -11,6 +11,9 @@
 		       dotnet build -f net10.0-android -p:LocalAndroid=true -t:Run   (deploys to adb device) -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(LocalAndroid)' == 'true'">net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
+		<!-- Local iOS build from a Mac (opt-in so plain builds and CI don't require the ios workload):
+		       dotnet build -f net10.0-ios -p:LocalIos=true                      (simulator .app) -->
+		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx')) and '$(LocalIos)' == 'true'">net10.0-maccatalyst;net10.0-ios</TargetFrameworks>
 		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows')) and !$([MSBuild]::IsOSPlatform('osx'))">net10.0-android</TargetFrameworks>
 
 		<OutputType>Exe</OutputType>
@@ -43,9 +46,16 @@
 		<WindowsPackageType>None</WindowsPackageType>
 		<!-- Targets with a resizable desktop window, as opposed to the phone-shaped Android one. -->
 		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);DESKTOP</DefineConstants>
+		<!-- Targets with a phone-shaped screen and a soft keyboard. -->
+		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">$(DefineConstants);MOBILE</DefineConstants>
+		<!-- Targets built on UIKit. Mac Catalyst does not define IOS, so code both share says UIKIT. -->
+		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);UIKIT</DefineConstants>
+		<!-- Targets that carry the SSH transport. -->
+		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'">$(DefineConstants);SSH</DefineConstants>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
+		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">15.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
@@ -71,6 +81,14 @@
 	     is the universal app. CI (CI=true), or -p:UniversalMac=true, builds both. -->
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst' and '$(Configuration)' == 'Release' and '$(CI)' != 'true' and '$(UniversalMac)' != 'true'">
 		<RuntimeIdentifier>maccatalyst-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+	</PropertyGroup>
+
+	<!-- Platforms/iOS/Entitlements.plist (the keychain group SecureStorage needs) makes the iOS SDK
+	     look for a signing identity even for the simulator, and there is none until the Apple developer
+	     account exists. A simulator app is signed ad hoc instead. With no -r the SDK picks the
+	     simulator; a device build names ios-arm64 and keeps the SDK's own identity lookup. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' and '$(CodesignKey)' == '' and ('$(RuntimeIdentifier)' == '' or $(RuntimeIdentifier.StartsWith('iossimulator')))">
+		<CodesignKey>-</CodesignKey>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' and '$(Configuration)' == 'Release'">
@@ -128,8 +146,8 @@
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
 	</ItemGroup>
 
-	<!-- The SSH transport (Core/Transports.cs, behind DESKTOP). Not referenced on Android. -->
-	<ItemGroup Condition="$(DefineConstants.Contains('DESKTOP'))">
+	<!-- The SSH transport (Core/Transports.cs, behind SSH). Not referenced on Android. -->
+	<ItemGroup Condition="$(DefineConstants.Contains(';SSH'))">
 		<PackageReference Include="SSH.NET" Version="2026.0.0" />
 	</ItemGroup>
 

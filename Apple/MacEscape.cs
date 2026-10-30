@@ -1,3 +1,4 @@
+#if UIKIT
 using Foundation;
 using Microsoft.Maui.Platform;
 using UIKit;
@@ -60,3 +61,4 @@ internal static class MacEscape
         registration.OnEscape();
     }
 }
+#endif

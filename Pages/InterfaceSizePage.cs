@@ -37,7 +37,7 @@ internal sealed class InterfaceSizePage : ContentPage
     private int _highlighted;
     private bool _centred;
     private bool _closed;
-#if MACCATALYST
+#if UIKIT
     private MacEscape.Registration? _macEscape;
 #endif
 
@@ -118,7 +118,7 @@ internal sealed class InterfaceSizePage : ContentPage
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
         }
-#elif MACCATALYST
+#elif UIKIT
         MacEscape.Detach(_macEscape);
         _macEscape = MacEscape.Attach(this, () => _ = PickAsync(_highlighted));
 #endif
@@ -131,7 +131,7 @@ internal sealed class InterfaceSizePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
-#elif MACCATALYST
+#elif UIKIT
         MacEscape.Detach(_macEscape);
         _macEscape = null;
 #endif

@@ -1,10 +1,10 @@
-#if MACCATALYST
+#if UIKIT
 using Foundation;
 using UIKit;
 
 namespace Mucka.Pages;
 
-// The command box on a Mac. It is built the way the Windows one is (Mucka.Input between the native
+// The command box on a Mac and on iOS. It is built the way the Windows one is (Mucka.Input between the native
 // field and everything else), not left on the Entry's two-way binding: that binding writes the view
 // model on every keystroke, which is the round-trip the typing path is designed to avoid.
 public partial class GamePage
@@ -15,7 +15,9 @@ public partial class GamePage
 
     private UITextField? _macInputField;
     private Mucka.Input.CommandInput? _macCommandInput;
+#if MACCATALYST
     private UITapGestureRecognizer? _macFocusBackstop;
+#endif
 
     private void SetUpMacInput()
     {
@@ -27,7 +29,9 @@ public partial class GamePage
         SendButton.Clicked -= OnMacSendClicked;
         SendButton.Clicked += OnMacSendClicked;
 
+#if MACCATALYST
         InstallMacFocusBackstop();
+#endif
     }
 
     private void OnMacInputHandlerChanged(object? sender, EventArgs e)
@@ -52,7 +56,7 @@ public partial class GamePage
         tf.AutocorrectionType = UITextAutocorrectionType.No;
         tf.AutocapitalizationType = UITextAutocapitalizationType.None;
         tf.SpellCheckingType = UITextSpellCheckingType.No;
-        if (OperatingSystem.IsMacCatalystVersionAtLeast(17))
+        if (OperatingSystem.IsMacCatalystVersionAtLeast(17) || OperatingSystem.IsIOSVersionAtLeast(17))
             tf.InlinePredictionType = UITextInlinePredictionType.No;
         tf.ShouldChangeCharacters = KeepTypedCharacters;
         tf.Text = _vm.InputText;
@@ -102,6 +106,7 @@ public partial class GamePage
             _vm.SendCommand.Execute(null);
     }
 
+#if MACCATALYST
     // -- Invariant #0 on a Mac ------------------------------------------------------------------
     // UIKit does not move the keyboard to a control that is clicked unless it is a text input, so the
     // command box keeps it through clicks on buttons, the menu and the panels. What does lose it is
@@ -126,5 +131,6 @@ public partial class GamePage
         };
         root.AddGestureRecognizer(_macFocusBackstop);
     }
+#endif
 }
 #endif

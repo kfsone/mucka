@@ -1,3 +1,4 @@
+#if UIKIT
 #pragma warning disable CA1711 // AppDelegate is the name Info.plist and the platform entry point use
 #pragma warning disable CA1822 // the Objective-C selector for a key command must be an instance method
 
@@ -48,3 +49,4 @@ public class AppDelegate : MauiUIApplicationDelegate
 	[Export(MacEscape.Action)]
 	public void OnEscapePage(UIKeyCommand command) => MacEscape.Fire();
 }
+#endif

@@ -90,7 +90,7 @@
                 Grid.Row="2" Grid.Column="0"
                 Text="Aa  Text size"
                 Clicked="OnFontSetupClicked"
-                IsVisible="{OnPlatform Default=True, Android=False}"
+                IsVisible="{OnPlatform Default=True, Android=False, iOS=False}"
                 BackgroundColor="#1a1a1a"
                 TextColor="#58a6ff"
                 BorderColor="#333333"
@@ -392,11 +392,11 @@
                                ReturnType="Done"/>
                     </Grid>
 
-                    <!-- Keep Screen On (Android only) -->
+                    <!-- Keep Screen On (Android and iOS) -->
                     <Grid ColumnDefinitions="Auto,Auto"
                           HorizontalOptions="Start"
                           ColumnSpacing="8"
-                          IsVisible="{OnPlatform Default=False, Android=True}">
+                          IsVisible="{OnPlatform Default=False, Android=True, iOS=True}">
                         <CheckBox Grid.Column="0"
                                   IsChecked="{Binding KeepScreenOn}"
                                   Color="#1f6feb"

@@ -25,21 +25,21 @@
     <!-- One who-list row: persona name at full size, title/level prefix and suffix 2pt smaller.
          Used by the docked list, the floating list and the Text size page. -->
     <DataTemplate x:Key="WhoEntryTemplate" x:DataType="vm:WhoEntry">
-        <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+        <Label FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}">
             <Label.FormattedText>
                 <FormattedString>
                     <Span Text="{Binding DisplayPrefix}"
                           TextColor="{Binding DisplayColor}"
                           FontSize="{core:ScaledFont 9}"
-                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                     <Span Text="{Binding DisplayName}"
                           TextColor="{Binding DisplayColor}"
                           FontSize="{core:ScaledFont 11}"
-                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                     <Span Text="{Binding DisplaySuffix}"
                           TextColor="{Binding DisplayColor}"
                           FontSize="{core:ScaledFont 9}"
-                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                 </FormattedString>
             </Label.FormattedText>
             <!-- Compositor (off-UI-thread) fade in/out on join/leave. -->

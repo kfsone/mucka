@@ -140,10 +140,11 @@ saves what it shows and writes the key, so they open by themselves once. On the 
 come after any `-import` result and before the Mac password-storage question, one modal at a time,
 and before a direct-connect launch connects.
 
-FACT Android never opens them and shows neither button: the wizard's examples are laid out for a
-desktop window, and nobody has looked at them at phone width. Android runs at its stored step, and
-its side panel keeps `CombatRailResize.SidePanelWidthDp` at every step (`SidePanelWidthConverter`):
-on a phone a panel widened with the step would take the screen, so its text scales and may wrap.
+FACT Android and iOS never open them and show neither button: the wizard's examples are laid out
+for a desktop window, and nobody has looked at them at phone width. Both run at their stored step,
+and their side panel keeps `CombatRailResize.SidePanelWidthDp` at every step
+(`SidePanelWidthConverter`): on a phone a panel widened with the step would take the screen, so its
+text scales and may wrap.
 
 FACT The Text Wizard alone opens again from the "Text size" button at the bottom of the profile
 page's left column, and from the "Mucka Text Wizard" button at the top of the Display tab of Settings,

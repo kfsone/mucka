@@ -15,7 +15,7 @@ internal sealed class ScorePage : ContentPage
 {
     private readonly ScoreGraphViewModel _graph;
     private bool _closed;
-#if MACCATALYST
+#if UIKIT
     private MacEscape.Registration? _macEscape;
 #endif
 
@@ -52,7 +52,7 @@ internal sealed class ScorePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
-#elif MACCATALYST
+#elif UIKIT
         MacEscape.Detach(_macEscape);
         _macEscape = MacEscape.Attach(this, () => _graph.TryClose());
 #endif
@@ -66,7 +66,7 @@ internal sealed class ScorePage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
-#elif MACCATALYST
+#elif UIKIT
         MacEscape.Detach(_macEscape);
         _macEscape = null;
 #endif

@@ -63,7 +63,7 @@ internal sealed class FontSetupPage : ContentPage
     private readonly Dictionary<Border, Color> _idleStroke = new();
     private Picker? _themePicker;
     private bool _closed;
-#if MACCATALYST
+#if UIKIT
     private MacEscape.Registration? _macEscape;
 #endif
 
@@ -206,7 +206,7 @@ internal sealed class FontSetupPage : ContentPage
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
         }
-#elif MACCATALYST
+#elif UIKIT
         MacEscape.Detach(_macEscape);
         _macEscape = MacEscape.Attach(this, () => _ = CloseAsync(null));
 #endif
@@ -227,7 +227,7 @@ internal sealed class FontSetupPage : ContentPage
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown -= OnWindowPreviewKeyDown;
-#elif MACCATALYST
+#elif UIKIT
         MacEscape.Detach(_macEscape);
         _macEscape = null;
 #endif

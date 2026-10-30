@@ -1,9 +1,9 @@
-#if MACCATALYST
+#if UIKIT
 using Mucka.Input;
 
 namespace Mucka.Pages;
 
-// The game's hotkeys on a Mac. MacHotkeys (the app delegate's menu) delivers an id; this maps it to
+// The game's hotkeys on a Mac, and on an iPad with a keyboard. MacHotkeys (the app delegate's menu) delivers an id; this maps it to
 // the same view-model calls the Windows accelerators in RegisterHotkeyAccelerators make.
 public partial class GamePage
 {
@@ -17,13 +17,17 @@ public partial class GamePage
         MacHotkeys.Fkeys = _vm.GetAllFkeys;
         _vm.FkeysChanged -= RebuildMacMenu;
         _vm.FkeysChanged += RebuildMacMenu;
+#if MACCATALYST
         SetUpMacCopy();
+#endif
         RebuildMacMenu();
     }
 
     private void TearDownMacHotkeys()
     {
+#if MACCATALYST
         TearDownMacCopy();
+#endif
         _vm.FkeysChanged -= RebuildMacMenu;
         if (ReferenceEquals(MacHotkeys.Handler, _macHotkeyHandler))
         {

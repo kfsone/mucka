@@ -41,7 +41,7 @@
                             VerticalOptions="Center" HorizontalOptions="Start"
                             BackgroundColor="#2d333b"
                             Stroke="Transparent" StrokeThickness="0"
-                            Padding="{OnPlatform Android='10,6', Default='6,2'}"
+                            Padding="{OnPlatform Android='10,6', iOS='10,6', Default='6,2'}"
                             SemanticProperties.Description="Menu">
                         <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                         <Border.GestureRecognizers>
@@ -471,7 +471,7 @@
                 <Label x:Name="ToastLabel"
                        Text="* Copied to clipboard"
                        TextColor="#3B78FF" FontSize="{core:ScaledFont 12}"
-                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
             <!-- Floating dreamword chip: shown top-right when a dreamword is active.
@@ -533,9 +533,9 @@
                             <Label.FormattedText>
                                 <FormattedString>
                                     <Span Text="Online" TextColor="#58a6ff" FontSize="{core:ScaledFont 11}"
-                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                     <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="{core:ScaledFont 11}"
-                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                          FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                 </FormattedString>
                             </Label.FormattedText>
                         </Label>
@@ -763,6 +763,7 @@
                             <On Platform="Android"      Value="monospace"/>
                             <On Platform="WinUI"        Value="Cascadia Mono"/>
                             <On Platform="MacCatalyst"  Value="Cascadia Mono"/>
+                            <On Platform="iOS"          Value="Cascadia Mono"/>
                         </OnPlatform>
                     </Entry.FontFamily>
                 </Entry>
@@ -830,7 +831,7 @@
                 <Label Text="SCROLLBACK &#x2014; Esc or click to return to live"
                        TextColor="#F9F1A5" FontSize="{core:ScaledFont 12}"
                        HorizontalOptions="Center" VerticalOptions="Center"
-                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
         </Grid>
@@ -888,9 +889,9 @@
                                         <Label.FormattedText>
                                             <FormattedString>
                                                 <Span Text="Online" TextColor="#58a6ff" FontSize="{core:ScaledFont 11}"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                 <Span Text="{Binding SidePanel.OnlineCountText}" TextColor="White" FontSize="{core:ScaledFont 11}"
-                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                      FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                             </FormattedString>
                                         </Label.FormattedText>
                                     </Label>
@@ -940,7 +941,7 @@
                                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,3,0,1">
                                                         <BoxView Grid.Column="0" Color="#2d333b" HeightRequest="1" VerticalOptions="Center"/>
                                                         <Label Grid.Column="1" Text="{Binding Header}" TextColor="#6e7681" FontSize="{core:ScaledFont 8}"
-                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                               FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                     </Grid>
                                                     <VerticalStackLayout Spacing="1"
                                                                          BindableLayout.ItemsSource="{Binding Members}">
@@ -949,18 +950,18 @@
                                                                 <!-- Right-aligned, only lightly dimmed so it reads as "known, idle". -->
                                                                 <Label Opacity="0.8"
                                                                        HorizontalOptions="End" HorizontalTextAlignment="End"
-                                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+                                                                       FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}">
                                                                     <Label.FormattedText>
                                                                         <FormattedString>
                                                                             <Span Text="{Binding DisplayPrefix}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="{core:ScaledFont 9}"
-                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplayName}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="{core:ScaledFont 11}"
-                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                                             <Span Text="{Binding DisplaySuffix}"
                                                                                   TextColor="{Binding DisplayColor}" FontSize="{core:ScaledFont 9}"
-                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                                                  FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                                         </FormattedString>
                                                                     </Label.FormattedText>
                                                                     <Label.GestureRecognizers>
@@ -1023,12 +1024,12 @@
                                                         <Grid>
                                                             <Label Text="{Binding Name}" TextColor="#cccccc" FontSize="{core:ScaledFont 11}"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                             <Label Text="{Binding Name}" TextColor="#FFD700" FontAttributes="Bold"
                                                                    IsVisible="{Binding IsGlowing}" InputTransparent="True"
                                                                    FontSize="{core:ScaledFont 11}"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}">
                                                                 <Label.Behaviors>
                                                                     <beh:ArrivalGlowBehavior/>
                                                                 </Label.Behaviors>
@@ -1073,14 +1074,14 @@
                                                                    TextColor="{Binding TextColor}" FontSize="{core:ScaledFont 11}"
                                                                    VerticalOptions="Center"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                                             <!-- Arrival glow: see the Carrying template. -->
                                                             <Label Grid.Column="0" Text="{Binding Name}" TextColor="#FFD700" FontAttributes="Bold"
                                                                    IsVisible="{Binding IsGlowing}" InputTransparent="True"
                                                                    FontSize="{core:ScaledFont 11}"
                                                                    VerticalOptions="Center"
                                                                    HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}">
+                                                                   FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}">
                                                                 <Label.Behaviors>
                                                                     <beh:ArrivalGlowBehavior/>
                                                                 </Label.Behaviors>
@@ -1158,11 +1159,11 @@
                                     <Label Text="{Binding SidePanel.OldestRoom}"
                                            TextColor="#00a000" FontSize="{core:ScaledFont 11}" FontAttributes="Bold"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="{Binding SidePanel.PreviousRoom}"
                                            TextColor="#00c000" FontSize="{core:ScaledFont 12}"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
 
                                     <!-- Current room: always reserves 2-line height so the compass
                                          doesn't shift when a long description wraps. -->
@@ -1173,7 +1174,7 @@
                                            MaxLines="2" LineBreakMode="TailTruncation"
                                            MinimumHeightRequest="{OnPlatform WinUI=36, Default=40}"
                                            Margin="0,4,0,0"
-                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', Default='monospace'}"/>
+                                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
                                     <Label Text="&#x2014;" IsVisible="{Binding SidePanel.NoCurrentRoom}"
                                            TextColor="#555555" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"
                                            HorizontalOptions="Fill" HorizontalTextAlignment="End"

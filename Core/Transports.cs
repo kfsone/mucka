@@ -33,7 +33,7 @@ internal static class TransportFactory
     {
         if (!useSsh)
             return TelnetTransport.OpenAsync(host, port, ct);
-#if DESKTOP
+#if SSH
         return SshTransport.OpenAsync(host, port, loginName, cols, rows, ct);
 #else
         throw new NotSupportedException("SSH is not available on this platform.");
@@ -77,7 +77,7 @@ internal sealed class TelnetTransport : IMudTransport
     }
 }
 
-#if DESKTOP
+#if SSH
 internal sealed class SshTransport : IMudTransport
 {
     private readonly Renci.SshNet.SshClient _client;
