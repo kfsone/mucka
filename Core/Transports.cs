@@ -93,10 +93,13 @@ internal sealed class SshTransport : IMudTransport
     {
         _client = client;
         _shell = shell;
+        // The server's C1 codes end in 0xFF, which telnetd doubles and sshd does not; the parser
+        // is written against the doubled form.
+        Stream = new MudSharp.Protocol.IacEscapingStream(shell);
         _wantedSize = _sentSize = Pack(cols, rows);
     }
 
-    public Stream Stream => _shell;
+    public Stream Stream { get; }
 
     // CanWrite is false once the shell stream is disposed, which it does itself when the server
     // closes the channel; SshClient.IsConnected throws once the client is disposed.
