@@ -133,6 +133,9 @@
                                BackgroundColor="#161b22"
                                PlaceholderColor="#444444"
                                Placeholder="profile name"
+                               Keyboard="Plain"
+                               IsTextPredictionEnabled="False"
+                               IsSpellCheckEnabled="False"
                                SemanticProperties.Description="Profile name"
                                ReturnType="Next" />
                         <Button Grid.Column="1"

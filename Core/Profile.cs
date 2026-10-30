@@ -1,13 +1,29 @@
+using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 
 namespace Mucka.Core;
 
-public class Profile
+public class Profile : INotifyPropertyChanged
 {
     private string[] _fkeys = CreateEmptyFkeys();
+    private string _name = "MUD2";
+    private string _host = "mud2.co.uk";
 
-    public string Name { get; set; } = "MUD2";
-    public string Host { get; set; } = "mud2.co.uk";
+    // The two fields the profile list shows. Without change notification a list cell that iOS reuses
+    // for the same profile kept showing the name the profile had when the cell was built.
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Name
+    {
+        get => _name;
+        set { if (_name == value) return; _name = value; PropertyChanged?.Invoke(this, new(nameof(Name))); }
+    }
+
+    public string Host
+    {
+        get => _host;
+        set { if (_host == value) return; _host = value; PropertyChanged?.Invoke(this, new(nameof(Host))); }
+    }
     public int Port { get; set; } = 23;
     /// <summary>Connect over SSH instead of telnet. Desktop only; the login name is the SSH user.</summary>
     public bool UseSsh { get; set; }

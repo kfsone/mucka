@@ -629,7 +629,7 @@ public sealed class ConnectViewModel : BaseViewModel
             var port = Port > 0 ? Port : useSsh ? SshPort : TelnetPort;
             var profile = await BuildFormProfileAsync(port, useSsh, AccountId.Trim(), TelnetLoginName.Trim());
             await SaveCurrentProfileAsync(profile);
-            RedrawProfileRow(profile.Name);
+            HighlightProfileRow(profile.Name);
             // As on connect: an empty box over a stored password that was never fetched is not a
             // request to delete it.
             var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(Password)
@@ -662,6 +662,7 @@ public sealed class ConnectViewModel : BaseViewModel
             $"New name for \"{oldName}\":",
             accept: "Rename",
             cancel: "Cancel",
+            keyboard: Keyboard.Plain,
             initialValue: oldName);
         var newName = input?.Trim();
         if (IsConnecting || string.IsNullOrEmpty(newName) || newName == oldName) return;
@@ -699,20 +700,14 @@ public sealed class ConnectViewModel : BaseViewModel
             }
         }
         ProfileName = newName;
-        RedrawProfileRow(newName);
+        HighlightProfileRow(newName);
     }
 
-    // Profile raises no change notifications, so a row whose name or host has changed is put back
-    // into the list to redraw it, and the highlight follows it.
-    private void RedrawProfileRow(string name)
+    // The highlight follows the profile that was just saved or renamed.
+    private void HighlightProfileRow(string name)
     {
-        var idx = -1;
-        for (var i = 0; i < SavedProfiles.Count; i++)
-            if (string.Equals(SavedProfiles[i].Name, name, StringComparison.OrdinalIgnoreCase)) { idx = i; break; }
-        if (idx < 0) return;
-        var p = SavedProfiles[idx];
-        SavedProfiles.RemoveAt(idx);
-        SavedProfiles.Insert(idx, p);
+        var p = SavedProfiles.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (p is null) return;
         _selectedProfile = p;
         OnPropertyChanged(nameof(SelectedProfile));
     }
@@ -736,6 +731,7 @@ public sealed class ConnectViewModel : BaseViewModel
             accept: "Delete",
             cancel: "Cancel",
             placeholder: name,
+            keyboard: Keyboard.Plain,
             initialValue: string.Empty);
 
         if (IsConnecting || input == null || input != name) return;
