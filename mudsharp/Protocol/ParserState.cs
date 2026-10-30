@@ -24,6 +24,8 @@ internal enum ParserState
     EscapeDash,          // received ESC - (MUD2 shell command prefix, server-to-client)
     EscapeDashWidth,     // received ESC - <digit(s)>: accumulating width digits before 'W' terminator
     EscapeDashAnnotation, // after ESC-<n>W: swallowing server's "[New terminal width is N]\r\n" text
+    EscapeOsc,      // received ESC ] (OSC): swallowing the string up to BEL or ESC \
+    EscapeOscEsc,   // received ESC inside an OSC string: a following '\' is the string terminator
 
     // MUD2 C1 proprietary protocol (0x9B-0xFE)
     C1Seq,          // received C1 lead byte

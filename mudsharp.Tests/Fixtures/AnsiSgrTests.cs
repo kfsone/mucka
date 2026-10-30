@@ -124,6 +124,46 @@ public class AnsiSgrTests
         Assert.Equal("x", line.PlainText);
     }
 
+    [Theory]
+    [InlineData("\x1B]3008;start=874b6938;user=mudx;comm=login;type=session\x07")]
+    [InlineData("\x1B]3008;start=874b6938;user=mudx;comm=login;type=session\x1B\\")]
+    public void Osc3008_IsSwallowedBeforeAndAfterText(string osc)
+    {
+        var h = new ParserHarness();
+        h.Feed(osc + "Account ID: \n" + "\x1B]3008;end=874b6938\x07" + "bye\n");
+        Assert.Equal(new[] { "Account ID:", "bye" }, h.Lines.Select(l => l.PlainText.Trim()).ToArray());
+    }
+
+    [Fact]
+    public void Osc_SplitAcrossReads_IsSwallowed()
+    {
+        var h = new ParserHarness();
+        h.Feed("\x1B]30");
+        h.Feed("08;start=1;comm=lo");
+        h.Feed("gin\x1B");
+        h.Feed("\\hello\n");
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("hello", line.PlainText);
+    }
+
+    [Fact]
+    public void Osc_CutShortByLineEnd_DoesNotSwallowTheNextLine()
+    {
+        var h = new ParserHarness();
+        h.Feed("\x1B]3008;start=1\nnext\n");
+        Assert.Contains(h.Lines, l => l.PlainText == "next");
+        Assert.DoesNotContain(h.Lines, l => l.PlainText.Contains("3008"));
+    }
+
+    [Fact]
+    public void Osc_CutShortByC1Code_HandsTheCodeBack()
+    {
+        var h = new ParserHarness();
+        h.Feed(0x1B, (byte)']', (byte)'3', 0x9B, 0xFF, 0xFF, (byte)'x', (byte)'\n');
+        var line = Assert.Single(h.Lines);
+        Assert.Equal("x", line.PlainText);
+    }
+
     [Fact]
     public void TerminalWidth_TextLine_FiresConfirmedEvent()
     {

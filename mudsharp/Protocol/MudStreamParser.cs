@@ -1431,6 +1431,28 @@ public sealed class MudStreamParser
                 }
                 if (b == '\n') _state = ParserState.Normal;
                 break;
+            case ParserState.EscapeOsc:
+                // mud2.co.uk sends "3008;start=...;comm=login;type=session" before the first prompt
+                // and "3008;end=..." after the last line, as OSC strings. An OSC string ends at BEL
+                // or ESC \ and is never text for the player. A line end or a high-bit byte means
+                // the string was cut short: hand the byte back so a line or a C1 code is not
+                // swallowed with it.
+                if (b == 0x07) _state = ParserState.Normal;
+                else if (b == 0x1B) _state = ParserState.EscapeOscEsc;
+                else if (b == '\n' || b >= 0x80)
+                {
+                    _pendingReprocess = b;
+                    _state = ParserState.Normal;
+                }
+                break;
+            case ParserState.EscapeOscEsc:
+                if (b == '\\') _state = ParserState.Normal;
+                else
+                {
+                    _pendingReprocess = b;
+                    _state = ParserState.Normal;
+                }
+                break;
             case ParserState.C1Seq:
             case ParserState.C1Data:
             case ParserState.C1Ff1:

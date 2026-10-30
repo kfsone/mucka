@@ -41,6 +41,7 @@ internal sealed class AnsiSgrState
                     return ParserState.EscapeBracket;
                 }
                 if (b == 0x2D) return ParserState.EscapeDash; // ESC - (MUD2 shell command)
+                if (b == (byte)']') return ParserState.EscapeOsc; // ESC ] (operating system command)
                 // Any other byte after ESC is unrecognised - consume and return to Normal.
                 return ParserState.Normal;
 
