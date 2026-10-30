@@ -37,4 +37,21 @@ public class TerminalColumnsTests
         Assert.Equal(44, TerminalColumns.Displayable(392, 15));
         Assert.Equal(0, TerminalColumns.Displayable(0, 15));
     }
+
+    [Theory]
+    [InlineData(406, 80, 8)]     // 80 columns in 406dp: 8px cells (4.69dp) fit, 9px (5.27dp) do not
+    [InlineData(2000, 80, 15)]   // room to spare: never larger than the maximum
+    [InlineData(100, 80, 6)]     // too narrow for anything: never smaller than the minimum
+    [InlineData(0, 80, 15)]      // no width yet: the maximum
+    [InlineData(406, 0, 15)]     // no lines yet: the maximum
+    public void FittingFontPx_IsTheLargestThatFitsTheColumns(double width, int columns, int expected)
+        => Assert.Equal(expected, TerminalColumns.FittingFontPx(width, columns, 15, 6));
+
+    [Fact]
+    public void FittingFontPx_TheChosenSizeFits_AndTheNextDoesNot()
+    {
+        var px = TerminalColumns.FittingFontPx(406, 80, 15, 6);
+        Assert.True(TerminalColumns.Displayable(406, px) >= 80);
+        Assert.True(TerminalColumns.Displayable(406, px + 1) < 80);
+    }
 }

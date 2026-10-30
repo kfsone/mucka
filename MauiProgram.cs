@@ -38,6 +38,40 @@ public static class MauiProgram
                 native.BackgroundColor = UIKit.UIColor.Clear;
         });
 #endif
+#if IOS
+        // Every text field here holds a command, a host, an account or text sent to the game as typed:
+        // no predictions, corrections, capitals or smart punctuation, and a keyboard drawn dark like
+        // the pages. The assistant bar is emptied: with a hardware keyboard the iPad simulator showed a
+        // light strip of keyboard and dictation buttons across the bottom of the screen.
+        Microsoft.Maui.Handlers.EntryHandler.Mapper.AppendToMapping("MuckaTextInput", (handler, _) =>
+        {
+            var tf = handler.PlatformView;
+            tf.KeyboardAppearance = UIKit.UIKeyboardAppearance.Dark;
+            tf.AutocorrectionType = UIKit.UITextAutocorrectionType.No;
+            tf.AutocapitalizationType = UIKit.UITextAutocapitalizationType.None;
+            tf.SpellCheckingType = UIKit.UITextSpellCheckingType.No;
+            tf.SmartQuotesType = UIKit.UITextSmartQuotesType.No;
+            tf.SmartDashesType = UIKit.UITextSmartDashesType.No;
+            if (OperatingSystem.IsIOSVersionAtLeast(17))
+                tf.InlinePredictionType = UIKit.UITextInlinePredictionType.No;
+            tf.InputAssistantItem.LeadingBarButtonGroups = [];
+            tf.InputAssistantItem.TrailingBarButtonGroups = [];
+        });
+        Microsoft.Maui.Handlers.EditorHandler.Mapper.AppendToMapping("MuckaTextInput", (handler, _) =>
+        {
+            var tv = handler.PlatformView;
+            tv.KeyboardAppearance = UIKit.UIKeyboardAppearance.Dark;
+            tv.AutocorrectionType = UIKit.UITextAutocorrectionType.No;
+            tv.AutocapitalizationType = UIKit.UITextAutocapitalizationType.None;
+            tv.SpellCheckingType = UIKit.UITextSpellCheckingType.No;
+            tv.SmartQuotesType = UIKit.UITextSmartQuotesType.No;
+            tv.SmartDashesType = UIKit.UITextSmartDashesType.No;
+            if (OperatingSystem.IsIOSVersionAtLeast(17))
+                tv.InlinePredictionType = UIKit.UITextInlinePredictionType.No;
+            tv.InputAssistantItem.LeadingBarButtonGroups = [];
+            tv.InputAssistantItem.TrailingBarButtonGroups = [];
+        });
+#endif
 
         // Register ViewModels and Pages for dependency injection.
         // ConnectViewModel is transient so each navigation creates a fresh instance.

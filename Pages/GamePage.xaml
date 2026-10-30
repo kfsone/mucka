@@ -33,11 +33,30 @@
                 <!-- Top-left icons: a single "hamburger" overflow menu at every width, so the Orientation
                      switch stays reachable in every layout. The | separator is always present,
                      outside the toggle so layout is stable. -->
-                <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto" VerticalOptions="Center">
+                <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,Auto" VerticalOptions="Center">
+
+                    <!-- Back: leaves the game after asking, as the overflow menu's Disconnect row does.
+                         Shown on iOS only (GamePage constructor), which has no back button of its own. -->
+                    <Border x:Name="BackButton"
+                            Grid.Column="0"
+                            IsVisible="False"
+                            VerticalOptions="Center" HorizontalOptions="Start"
+                            BackgroundColor="#2d333b"
+                            Stroke="Transparent" StrokeThickness="0"
+                            Padding="10,6"
+                            Margin="0,0,4,0"
+                            SemanticProperties.Description="Disconnect">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                        <Border.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnOverflowDisconnect"/>
+                        </Border.GestureRecognizers>
+                        <Label Text="&#x2039;" TextColor="#aaaaaa" FontSize="{core:ScaledFont Size=13, Tight=True}"
+                               VerticalOptions="Center"/>
+                    </Border>
 
                     <!-- Overflow menu - shown at all widths -->
                     <Border x:Name="OverflowMenuButton"
-                            Grid.Column="0"
+                            Grid.Column="1"
                             VerticalOptions="Center" HorizontalOptions="Start"
                             BackgroundColor="#2d333b"
                             Stroke="Transparent" StrokeThickness="0"
@@ -52,7 +71,7 @@
                     </Border>
 
                     <!-- Separator always present between the icon area and the stats -->
-                    <Label Grid.Column="1" Text="|"
+                    <Label Grid.Column="2" Text="|"
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444"
                            Margin="4,0,0,0"/>
                 </Grid>
@@ -581,9 +600,9 @@
                     </Grid>
 
                     <!-- Who-list body - hidden when folded -->
-                    <ScrollView MaximumHeightRequest="180"
+                    <ScrollView x:Name="FloatingWhoScroll" MaximumHeightRequest="180"
                                 IsVisible="{Binding SidePanel.IsFloatingOnlineFolded, Converter={StaticResource InvertBoolConverter}}">
-                        <VerticalStackLayout Spacing="1"
+                        <VerticalStackLayout x:Name="FloatingWhoList" Spacing="1"
                                              BindableLayout.ItemsSource="{Binding SidePanel.WhosList}"
                                              BindableLayout.ItemTemplate="{StaticResource WhoEntryTemplate}"/>
                     </ScrollView>
@@ -915,9 +934,9 @@
                                         </Label.GestureRecognizers>
                                     </Label>
                                 </Grid>
-                                <ScrollView MaximumHeightRequest="180"
+                                <ScrollView x:Name="DockedWhoScroll" MaximumHeightRequest="180"
                                             IsVisible="{Binding SidePanel.IsOnlineExpanded}">
-                                    <VerticalStackLayout Spacing="1"
+                                    <VerticalStackLayout x:Name="DockedWhoList" Spacing="1"
                                                          BindableLayout.ItemsSource="{Binding SidePanel.WhosList}"
                                                          BindableLayout.ItemTemplate="{StaticResource WhoEntryTemplate}"/>
                                 </ScrollView>

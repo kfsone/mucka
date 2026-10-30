@@ -26,6 +26,17 @@ public static class TerminalColumns
     public static int Displayable(double widthDp, int fontPx)
         => widthDp > 0 && fontPx > 0 ? (int)Math.Floor(widthDp / (fontPx * CharWidthPerFontPx)) : 0;
 
+    /// <summary>The largest font, no bigger than <paramref name="maxFontPx"/> and no smaller than
+    /// <paramref name="minFontPx"/>, that fits <paramref name="columns"/> across <paramref name="widthDp"/>.
+    /// <paramref name="maxFontPx"/> when the width or the column count is not known.</summary>
+    public static int FittingFontPx(double widthDp, int columns, int maxFontPx, int minFontPx)
+    {
+        if (widthDp <= 0 || columns <= 0)
+            return maxFontPx;
+        var fits = (int)Math.Floor(widthDp / (columns * CharWidthPerFontPx));
+        return Math.Clamp(fits, minFontPx, maxFontPx);
+    }
+
     /// <summary>
     /// The columns to use: the profile's maximum, or all that fit when it is 0 (auto), and never more
     /// than fit. <paramref name="displayableCols"/> of 0 means the width is not known yet, and the

@@ -135,7 +135,7 @@ public partial class FkeyEditorPage : ContentPage
             _fontSetup = new FontSetupPage(
                 new Mucka.Ui.FontSetupChoice(_vm.UiFontStep, _vm.FontSizeDisplay), live, firstRun: false,
                 _vm.ChatPalette, _vm.SelectedChatTheme, tcs);
-            await Navigation.PushModalAsync(_fontSetup, Mucka.Core.NavAnimation.Animated);
+            await Navigation.PushModalAsync(_fontSetup, Mucka.Core.NavAnimation.ModalAnimated);
             var result = await tcs.Task;
             _fontSetup = null;
             Mucka.Core.UiFontScaleState.Current.Step = live;
@@ -171,7 +171,7 @@ public partial class FkeyEditorPage : ContentPage
 
         var stack = Navigation.ModalStack;
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
-            await Navigation.PopModalAsync(Mucka.Core.NavAnimation.Animated);
+            await Navigation.PopModalAsync(Mucka.Core.NavAnimation.ModalAnimated);
     }
 
     private void OnCloseRequested() =>

@@ -18,6 +18,9 @@ public partial class GamePage
 #if MACCATALYST
     private UITapGestureRecognizer? _macFocusBackstop;
 #endif
+#if IOS
+    private UITapGestureRecognizer? _iosFocusedTap;
+#endif
 
     private void SetUpMacInput()
     {
@@ -40,6 +43,10 @@ public partial class GamePage
         {
             _macInputField.ShouldReturn = null!;
             _macInputField.ShouldChangeCharacters = null!;
+#if IOS
+            if (_iosFocusedTap is not null)
+                _macInputField.RemoveGestureRecognizer(_iosFocusedTap);
+#endif
         }
         _macInputField = InputEntry.Handler?.PlatformView as UITextField;
         if (_macInputField is not { } tf)
@@ -59,6 +66,16 @@ public partial class GamePage
         if (OperatingSystem.IsMacCatalystVersionAtLeast(17) || OperatingSystem.IsIOSVersionAtLeast(17))
             tf.InlinePredictionType = UITextInlinePredictionType.No;
         tf.ShouldChangeCharacters = KeepTypedCharacters;
+#if IOS
+        // MAUI puts a Done bar above the keyboard on every iOS field; on the command box it only
+        // offers to put the keyboard away.
+        tf.InputAccessoryView = null;
+        // A tap on the box while it has the keyboard opened UIKit's Copy/Paste/AutoFill menu over the
+        // game text. That tap is taken here and only (re)focuses the box; a long press still opens
+        // the menu.
+        _iosFocusedTap ??= new UITapGestureRecognizer(FocusInput) { CancelsTouchesInView = true };
+        tf.AddGestureRecognizer(_iosFocusedTap);
+#endif
         tf.Text = _vm.InputText;
         // Synchronous, on the key itself: the field must be read and emptied before the next
         // keystroke is processed. False so UIKit does not also resign or insert a newline.

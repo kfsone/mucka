@@ -9,4 +9,13 @@ internal static class NavAnimation
 #else
     public const bool Animated = true;
 #endif
+
+    /// <summary>Whether modal pages (settings, the text wizard, score) animate in and out. Off on a Mac
+    /// for the same reason as <see cref="Animated"/>, and on iOS, where a modal slides up from the
+    /// bottom of the screen: the settings page arriving that way was slow and clunky.</summary>
+#if UIKIT
+    public const bool ModalAnimated = false;
+#else
+    public const bool ModalAnimated = true;
+#endif
 }

@@ -266,6 +266,9 @@ public partial class GamePage : ContentPage
         DisconnectSeparator.IsVisible = true;
         DisconnectRow.IsVisible = true;
 #endif
+#if IOS
+        BackButton.IsVisible = true;
+#endif
 #if MACCATALYST
         // The platform's own back button lives in the navigation bar, which this page hides elsewhere.
         NavigationPage.SetHasNavigationBar(this, true);
@@ -838,7 +841,7 @@ public partial class GamePage : ContentPage
         };
         _isFkeyEditorOpen = true;
         _fkeyEditorPage = new FkeyEditorPage(editorVm);
-        return Navigation.PushModalAsync(_fkeyEditorPage, Mucka.Core.NavAnimation.Animated);
+        return Navigation.PushModalAsync(_fkeyEditorPage, Mucka.Core.NavAnimation.ModalAnimated);
     }
 
     private async void OnConfigRequested() => await OpenConfigAsync(initialTab: 0);
@@ -903,8 +906,8 @@ public partial class GamePage : ContentPage
         try
         {
             _isGuidedLoginOverlayOpen = true;
-            page = new GuidedLoginPage(loginVm);
-            await Navigation.PushModalAsync(page, Mucka.Core.NavAnimation.Animated);
+            page = new GuidedLoginPage(loginVm, _vm.FontSize);
+            await Navigation.PushModalAsync(page, Mucka.Core.NavAnimation.ModalAnimated);
 
             var result = await controller.RunAsync(page.CancellationToken);
             mailItems = result.MailItems;
@@ -945,7 +948,7 @@ public partial class GamePage : ContentPage
             controller.Dispose();
             _vm.EndLoginFlow(mailItems);
             if (page != null)
-                await Navigation.PopModalAsync(Mucka.Core.NavAnimation.Animated);
+                await Navigation.PopModalAsync(Mucka.Core.NavAnimation.ModalAnimated);
             _isGuidedLoginOverlayOpen = false;
             _guidedLoginOverlayRunning = false;
             if (!Terminal.IsHistoryMode)

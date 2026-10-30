@@ -141,6 +141,9 @@ public sealed class TerminalView : SKCanvasView
     }
     private ChatColorizer.Palette _chatPalette = ChatColorizer.DefaultPalette;
 
+    /// <summary>The font size the pane draws at, in dip.</summary>
+    public int FontSizeDip => _fontSizeDip;
+
     public void SetFontSize(int dip)
     {
         if (dip <= 0 || dip == _fontSizeDip) return;

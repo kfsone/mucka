@@ -230,6 +230,6 @@ internal sealed class InterfaceSizePage : ContentPage
         _tcs.TrySetResult(UiFontScale.Clamp(step));
         var stack = Navigation.ModalStack;
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
-            await Navigation.PopModalAsync(NavAnimation.Animated);
+            await Navigation.PopModalAsync(NavAnimation.ModalAnimated);
     }
 }

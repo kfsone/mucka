@@ -23,11 +23,19 @@ public partial class GuidedLoginPage : ContentPage
 
     private bool _handedOff;
 
+    // The splash and the drop tail (the death text) arrive laid out by the server for a terminal
+    // wider than these panes, so each is drawn at the game's font size or smaller rather than
+    // wrapped a second time.
+    private const int PaneMinFontDip = 6;
+    private readonly FittedPane _splash;
+    private readonly FittedPane _tail;
+
     /// <summary>The login has finished and the game page is about to cover this one; leaving the
     /// page after this is not the player backing out.</summary>
     public void HandOff() => _handedOff = true;
 
-    public GuidedLoginPage(GuidedLoginViewModel vm)
+    /// <param name="terminalFontPx">The game terminal's font size; 0 for the panes' own default.</param>
+    public GuidedLoginPage(GuidedLoginViewModel vm, int terminalFontPx = 0)
     {
         InitializeComponent();
         _vm = vm;
@@ -36,16 +44,50 @@ public partial class GuidedLoginPage : ContentPage
         _vm.PersonaChoiceRequested = ShowPersonaChoiceAsync;
         _vm.CreateConfirmationRequested = ShowCreateConfirmationAsync;
         _vm.SplashLinesReady += OnSplashLinesReady;
+        var maxFontDip = terminalFontPx > 0 ? terminalFontPx : Terminal.FontSizeDip;
+        _splash = new FittedPane(Terminal, maxFontDip);
+        _tail = new FittedPane(DropTail, maxFontDip);
 
         // Fixed content, known before the page is ever shown -- paint it once here rather than
         // waiting on an event, so the player never sees the overlay without its explanation.
         if (_vm.DropTailLines.Count > 0)
-            DropTail.AppendLines(_vm.DropTailLines);
+            _tail.Append(_vm.DropTailLines);
     }
 
     private void OnCancelRequested() => _cts.Cancel();
 
-    private void OnSplashLinesReady(IReadOnlyList<StyledLine> lines) => Terminal.AppendLines(lines);
+    private void OnSplashLinesReady(IReadOnlyList<StyledLine> lines) => _splash.Append(lines);
+
+    /// <summary>A terminal pane drawn at the largest font, up to a maximum, that fits its widest line.</summary>
+    private sealed class FittedPane
+    {
+        private readonly Rendering.TerminalView _view;
+        private readonly int _maxFontDip;
+        private int _columns;
+
+        public FittedPane(Rendering.TerminalView view, int maxFontDip)
+        {
+            _view = view;
+            _maxFontDip = maxFontDip;
+            view.SizeChanged += (_, _) => Fit();
+            Fit();
+        }
+
+        public void Append(IReadOnlyList<StyledLine> lines)
+        {
+            foreach (var line in lines)
+                _columns = Math.Max(_columns,
+                    Mucka.Terminal.TerminalText.ExpandTabs(Mucka.Terminal.TerminalText.Sanitize(line)).PlainText.Length);
+            Fit();
+            _view.AppendLines(lines);
+        }
+
+        private void Fit()
+        {
+            var width = _view.Width - Mucka.Combat.CombatRailResize.TerminalGutterDp * 2;
+            _view.SetFontSize(Mucka.Terminal.TerminalColumns.FittingFontPx(width, _columns, _maxFontDip, PaneMinFontDip));
+        }
+    }
 
     private async Task ShowPersonaChoiceAsync(PersonaChoice choice)
     {

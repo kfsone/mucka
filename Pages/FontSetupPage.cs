@@ -261,7 +261,7 @@ internal sealed class FontSetupPage : ContentPage
         _tcs.TrySetResult(result);
         var stack = Navigation.ModalStack;
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
-            await Navigation.PopModalAsync(NavAnimation.Animated);
+            await Navigation.PopModalAsync(NavAnimation.ModalAnimated);
     }
 
     private void OnStepChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => ShowValues();
