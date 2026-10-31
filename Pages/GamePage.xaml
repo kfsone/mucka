@@ -19,6 +19,7 @@
          shared with the Text size page. -->
     <ContentPage.Resources>
         <converters:InvertBoolConverter x:Key="InvertBoolConverter"/>
+        <converters:ShownOpacityConverter x:Key="ShownOpacity"/>
     </ContentPage.Resources>
 
     <Grid RowDefinitions="Auto,Auto,*">
@@ -76,8 +77,8 @@
                            Margin="4,0,0,0"/>
                 </Grid>
 
-                <!-- Normal stats bar: visible when effcols >= 76 -->
-                <Grid Grid.Column="1"
+                <!-- Normal stats bar: visible when effcols >= 76 and it fits (StatsBarCrowded) -->
+                <Grid x:Name="FullStatsBar" Grid.Column="1"
                       ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsNotCompactStats}">
 
@@ -124,7 +125,7 @@
                            Style="{StaticResource StatLabelStyle}" TextColor="#444444" Margin="0,0,8,0"/>
 
                     <!-- The score opens the $SCORE graph, and closes it when it is open; the
-                         trailing magnifying glass says it does. -->
+                         trailing chart (Glyph.ScoreChart) says it does. -->
                     <Label Grid.Column="5" Style="{StaticResource StatLabelStyle}">
                         <Label.FormattedText>
                             <FormattedString>
@@ -132,7 +133,7 @@
                                 <Span Text="{Binding ScoreValue}" TextColor="{Binding ScoreColor}" FontAttributes="Bold"/>
                                 <Span Text="{Binding ScoreDeltaValue}" TextColor="{Binding ScoreColor}"
                                       FontSize="{core:ScaledFont Size={StaticResource StatMinorFontSize}, Tight=True}"/>
-                                <Span Text=" &#x1F50D;" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"/>
+                                <Span Text=" &#x1F4C8;" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"/>
                             </FormattedString>
                         </Label.FormattedText>
                         <Label.GestureRecognizers>
@@ -159,33 +160,35 @@
                          reserved slot: the whole cluster is constant-width and nothing - dividers,
                          ailments, or the stats/weather to either side - moves as effects toggle. The
                          icons behave like indicator lights lit in place, not an icon queue that packs.
+                         Unlit icons are transparent, not collapsed: on an iPad, icons collapsed while this
+                         bar was hidden did not reappear when it was shown.
                          Tooltips = the detected line (hardcoded fallback). -->
                     <Grid Grid.Column="7" VerticalOptions="Center" HeightRequest="28"
                           ColumnDefinitions="36,36,36,Auto,30,30,Auto,30,30,30,30">
                         <!-- Stamina: buff behind (offset), debuff in front -->
-                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   IsVisible="{Binding SidePanel.StaminaBuff}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" IsVisible="{Binding SidePanel.StaminaDebuff}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina.png"      Margin="5,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"   Opacity="{Binding SidePanel.StaminaBuff, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.StaminaBuff, Converter={StaticResource InvertBoolConverter}}"   ToolTipProperties.Text="{Binding SidePanel.StaminaBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="0" Source="stamina_neg.png"                   TranslationY="{Binding SidePanel.StaminaDebuffDy}" Opacity="{Binding SidePanel.StaminaDebuff, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.StaminaDebuff, Converter={StaticResource InvertBoolConverter}}" ToolTipProperties.Text="{Binding SidePanel.StaminaDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <!-- Strength -->
-                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   IsVisible="{Binding SidePanel.StrengthBuff}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" IsVisible="{Binding SidePanel.StrengthDebuff}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength.png"     Margin="5,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   Opacity="{Binding SidePanel.StrengthBuff, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.StrengthBuff, Converter={StaticResource InvertBoolConverter}}"   ToolTipProperties.Text="{Binding SidePanel.StrengthBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="1" Source="strength_neg.png"                  TranslationY="{Binding SidePanel.StrengthDebuffDy}" Opacity="{Binding SidePanel.StrengthDebuff, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.StrengthDebuff, Converter={StaticResource InvertBoolConverter}}" ToolTipProperties.Text="{Binding SidePanel.StrengthDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
                         <!-- Dexterity -->
-                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   IsVisible="{Binding SidePanel.DexterityBuff}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
-                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" IsVisible="{Binding SidePanel.DexterityDebuff}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity.png"    Margin="5,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"   Opacity="{Binding SidePanel.DexterityBuff, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.DexterityBuff, Converter={StaticResource InvertBoolConverter}}"   ToolTipProperties.Text="{Binding SidePanel.DexterityBuffTip}"   WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
+                        <Image Grid.Column="2" Source="dexterity_neg.png"                 TranslationY="{Binding SidePanel.DexterityDebuffDy}" Opacity="{Binding SidePanel.DexterityDebuff, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.DexterityDebuff, Converter={StaticResource InvertBoolConverter}}" ToolTipProperties.Text="{Binding SidePanel.DexterityDebuffTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Start"/>
 
                         <!-- | separator before glow -->
                         <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Glow -->
-                        <Image Grid.Column="4" Source="glow.png" IsVisible="{Binding SidePanel.Glow}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="4" Source="glow.png" Opacity="{Binding SidePanel.Glow, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding SidePanel.Glow, Converter={StaticResource InvertBoolConverter}}" ToolTipProperties.Text="{Binding SidePanel.GlowTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- Combat / clogging indicator (crossed swords) - lit while CombatTracker
                              believes we're in a fight; tooltip distinguishes "recording" vs not. -->
-                        <Image Grid.Column="5" Source="combat.png" IsVisible="{Binding SidePanel.InCombat}" Opacity="{Binding SidePanel.CombatIconOpacity}" ToolTipProperties.Text="{Binding SidePanel.CombatTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="5" Source="combat.png" Opacity="{Binding SidePanel.CombatIconOpacity}" InputTransparent="{Binding SidePanel.InCombat, Converter={StaticResource InvertBoolConverter}}" ToolTipProperties.Text="{Binding SidePanel.CombatTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                         <!-- | separator before ailments -->
                         <BoxView Grid.Column="6" WidthRequest="1" HeightRequest="12" Color="#3a3f45" VerticalOptions="Center" Margin="4,0"/>
                         <!-- Ailments - full-colour emoji-style icons (26px) centred in fixed 30px slots. -->
-                        <Image Grid.Column="7" Source="deaf.png"     IsVisible="{Binding Deaf}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <Image Grid.Column="8" Source="blind.png"    IsVisible="{Binding Blind}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <Image Grid.Column="9" Source="dumb.png"     IsVisible="{Binding Dumb}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
-                        <Image Grid.Column="10" Source="crippled.png" IsVisible="{Binding Crippled}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="7" Source="deaf.png"     Opacity="{Binding Deaf, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding Deaf, Converter={StaticResource InvertBoolConverter}}"     ToolTipProperties.Text="{Binding SidePanel.DeafTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="8" Source="blind.png"    Opacity="{Binding Blind, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding Blind, Converter={StaticResource InvertBoolConverter}}"    ToolTipProperties.Text="{Binding SidePanel.BlindTip}"    WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="9" Source="dumb.png"     Opacity="{Binding Dumb, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding Dumb, Converter={StaticResource InvertBoolConverter}}"     ToolTipProperties.Text="{Binding SidePanel.DumbTip}"     WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
+                        <Image Grid.Column="10" Source="crippled.png" Opacity="{Binding Crippled, Converter={StaticResource ShownOpacity}}" InputTransparent="{Binding Crippled, Converter={StaticResource InvertBoolConverter}}" ToolTipProperties.Text="{Binding SidePanel.CrippledTip}" WidthRequest="26" HeightRequest="26" VerticalOptions="Center" HorizontalOptions="Center"/>
                     </Grid>
 
 
@@ -265,10 +268,10 @@
 
                 </Grid>
 
-                <!-- Compact stats bar: two rows when effcols < 76
+                <!-- Compact stats bar: two rows when effcols < 76 or the one row does not fit
                      cols 0-7: stats | score | effects  col 8: * spacer
                      cols 9-10: weather  cols 11-12: TTR (rightmost, same order as wide bar) -->
-                <Grid Grid.Column="1" RowDefinitions="Auto,Auto"
+                <Grid x:Name="CompactStatsBar" Grid.Column="1" RowDefinitions="Auto,Auto"
                       ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto"
                       IsVisible="{Binding IsCompactStats}">
 
@@ -288,9 +291,18 @@
                            VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
                     <!-- col 4: | separator - label row spacer -->
                     <Label Grid.Row="0" Grid.Column="5"
-                           Text="Score" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
-                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0"/>
-                    <!-- col 6: | separator, col 7: status effects, col 8: * spacer -->
+                           Text="Score &#x1F4C8;" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
+                           VerticalOptions="End" HorizontalOptions="Center" Margin="0,0,4,0">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Command="{Binding ToggleScoreGraphCommand}"/>
+                        </Label.GestureRecognizers>
+                    </Label>
+                    <!-- col 6: unused, col 7: the effect icons across both rows when they fit (EffectsInBar;
+                         otherwise they float below the bar), col 8: * spacer -->
+                    <pages:EffectSlotsView x:Name="BarEffects"
+                                           Grid.Row="0" Grid.RowSpan="2" Grid.Column="7"
+                                           IsVisible="{Binding EffectsInBar}"
+                                           Margin="6,0,4,0"/>
                     <Label Grid.Row="0" Grid.Column="10"
                            Text="Wth" TextColor="#58a6ff" FontSize="{core:ScaledFont Size=11, Tight=True}"
                            IsVisible="{Binding WeatherVisible}"
@@ -365,17 +377,6 @@
                         </Label.GestureRecognizers>
                     </Label>
 
-                    <!-- Separator + status effects (glyph-only), shown only while afflicted -->
-                    <Label Grid.Row="1" Grid.Column="6" Text="|"
-                           Style="{StaticResource StatLabelStyle}" TextColor="#444444"
-                           IsVisible="{Binding AnyEffectVisible}"
-                           Margin="0,0,4,0"/>
-                    <Label Grid.Row="1" Grid.Column="7"
-                           Text="{Binding EffectsGlyphs}"
-                           Style="{StaticResource StatLabelStyle}"
-                           FontSize="{Binding StatsValueFontSize}"
-                           IsVisible="{Binding AnyEffectVisible}"
-                           HorizontalOptions="Center" Margin="0,0,4,0"/>
 
                     <!-- col 8: * spacer, and the recording control rides in it. The compact bar has
                          no room for the wide bar's labelled "rec" chip, so this is the same toggle
@@ -493,29 +494,51 @@
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
             </Border>
 
-            <!-- Floating dreamword chip: shown top-right when a dreamword is active.
-                 Tapping speaks the dreamword (same as Ctrl+D). -->
-            <Border Grid.Column="0"
-                    IsVisible="{Binding DreamwordActive}"
-                    BackgroundColor="#182a3e" Opacity="0.9"
-                    Stroke="#FFD700" StrokeThickness="2"
-                    Padding="10,4"
-                    HorizontalOptions="End" VerticalOptions="Start"
-                    Margin="0,6,8,0">
-                <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
-                <Border.GestureRecognizers>
-                    <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
-                </Border.GestureRecognizers>
-                <Label HorizontalOptions="Center">
-                    <Label.FormattedText>
-                        <FormattedString>
-                            <Span Text="&quot;" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}"/>
-                            <Span Text="{Binding Dreamword}" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}" FontAttributes="Bold"/>
-                            <Span Text="&quot;" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}"/>
-                        </FormattedString>
-                    </Label.FormattedText>
-                </Label>
-            </Border>
+            <!-- Top right of the terminal: the effect icons, then the dreamword chip below them.
+                 The stack passes touches through; the chip takes its own. -->
+            <VerticalStackLayout Grid.Column="0"
+                                 HorizontalOptions="End" VerticalOptions="Start"
+                                 Margin="0,6,8,0" Spacing="4"
+                                 InputTransparent="True" CascadeInputTransparent="False">
+                <!-- The effect icons, when the two-row bar has no room for them (EffectsInBar) -->
+                <!-- With an icon lit, the strip sits on the status bar's colour at 0.6 alpha, so the
+                     icons read against the text behind them. -->
+                <Border IsVisible="{Binding EffectsFloat}"
+                        BackgroundColor="Transparent"
+                        StrokeThickness="0"
+                        Padding="4,2"
+                        HorizontalOptions="End"
+                        InputTransparent="True">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="6"/></Border.StrokeShape>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding AnyEffectLit}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#99101618"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <pages:EffectSlotsView Opacity="0.8"/>
+                </Border>
+                <!-- Floating dreamword chip: shown top-right when a dreamword is active.
+                     Tapping speaks the dreamword (same as Ctrl+D). -->
+                <Border IsVisible="{Binding DreamwordActive}"
+                        BackgroundColor="#182a3e" Opacity="0.9"
+                        Stroke="#FFD700" StrokeThickness="2"
+                        Padding="10,4"
+                        HorizontalOptions="End">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SpeakDreamwordCommand}"/>
+                    </Border.GestureRecognizers>
+                    <Label HorizontalOptions="Center">
+                        <Label.FormattedText>
+                            <FormattedString>
+                                <Span Text="&quot;" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}"/>
+                                <Span Text="{Binding Dreamword}" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}" FontAttributes="Bold"/>
+                                <Span Text="&quot;" TextColor="#00E5FF" FontSize="{Binding DreamwordFontSize}"/>
+                            </FormattedString>
+                        </Label.FormattedText>
+                    </Label>
+                </Border>
+            </VerticalStackLayout>
 
             <!-- - Floating online panel - -->
             <!-- Visible when online is unpinned. Draggable. No title bar - looks
@@ -744,7 +767,7 @@
 
         <!-- - Input row - indented by the side panel on its left - -->
         <Grid Grid.Row="2"
-              ColumnDefinitions="*,Auto,Auto,Auto"
+              ColumnDefinitions="*,Auto,Auto,Auto,Auto"
               BackgroundColor="#161b22"
               Padding="4,2">
 
@@ -792,6 +815,7 @@
                  active; flashes amber when non-chat output arrives while filtered. -->
             <Button Grid.Column="1"
                     x:Name="ChatButton"
+                    IsVisible="{Binding InputExtrasVisible}"
                     Text="Chat"
                     Command="{Binding ToggleChatModeCommand}"
                     ToolTipProperties.Text="Show chat messages only"
@@ -811,6 +835,7 @@
                  Right-click (hooked natively on Windows) opens the settings page. -->
             <Button Grid.Column="2"
                     x:Name="FnButton"
+                    IsVisible="{Binding InputExtrasVisible}"
                     Text="Fn"
                     Command="{Binding ToggleFkeysCommand}"
                     ToolTipProperties.Text="Toggle toolbar (right-click: settings)"
@@ -825,7 +850,26 @@
                 </Button.Triggers>
             </Button>
 
+            <!-- A phone's narrow row folds Chat and Fn behind this; yellow while chat is filtered,
+                 so the folded state still shows it. A fixed glyph: observed on the iPhone simulator,
+                 a bound Button text showed the previous value after each tap. -->
             <Button Grid.Column="3"
+                    Text="&#x22EF;"
+                    IsVisible="{Binding ShowInputFold}"
+                    Command="{Binding ToggleInputExtrasCommand}"
+                    BackgroundColor="#2d333b" TextColor="#888888"
+                    FontSize="{core:ScaledFont 14}" CornerRadius="3"
+                    WidthRequest="30" HeightRequest="26" Padding="0"
+                    VerticalOptions="Center" Margin="4,0,0,0"
+                    SemanticProperties.Description="Chat and Fn">
+                <Button.Triggers>
+                    <DataTrigger TargetType="Button" Binding="{Binding ChatMode}" Value="True">
+                        <Setter Property="TextColor" Value="#F9F1A5"/>
+                    </DataTrigger>
+                </Button.Triggers>
+            </Button>
+
+            <Button Grid.Column="4"
                     x:Name="SendButton"
                     Text="&#x25B6;"
                     Command="{Binding SendCommand}"
@@ -836,7 +880,7 @@
 
             <!-- Scrollback-mode indicator: opaque overlay ON TOP of the input controls (which stay
                  in place) so toggling it causes no layout shift in the text view above. -->
-            <Border Grid.Column="0" Grid.ColumnSpan="4"
+            <Border Grid.Column="0" Grid.ColumnSpan="5"
                     x:Name="ScrollbackBar"
                     IsVisible="False"
                     BackgroundColor="#161b22"
@@ -1752,8 +1796,7 @@
                         </Grid>
                     </Border>
 
-                    <!-- The $SCORE graph. The only way to it on a narrow strip, whose score carries
-                         no magnifying glass; one-shot like Combat, so it closes the menu. -->
+                    <!-- The $SCORE graph; one-shot like Combat, so it closes the menu. -->
                     <BoxView Color="#2d333b" HeightRequest="1"/>
                     <Border Padding="16,14" BackgroundColor="Transparent">
                         <Border.GestureRecognizers>
@@ -1763,7 +1806,7 @@
                             <Label Grid.Column="0" Text="&#x2713;" TextColor="#3fb950" FontSize="{core:ScaledFont 14}"
                                    VerticalOptions="Center"
                                    IsVisible="{Binding ScoreGraph.IsVisible}"/>
-                            <Label Grid.Column="1" Text="Score" TextColor="White" FontSize="{core:ScaledFont 14}"/>
+                            <Label Grid.Column="1" Text="Score &#x1F4C8;" TextColor="White" FontSize="{core:ScaledFont 14}"/>
                         </Grid>
                     </Border>
 

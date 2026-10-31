@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:converters="clr-namespace:Mucka.Converters"
+             x:Class="Mucka.Pages.EffectSlotsView"
+             x:DataType="vm:GameViewModel"
+             InputTransparent="True">
+
+    <ContentView.Resources>
+        <converters:ShownOpacityConverter x:Key="ShownOpacity"/>
+    </ContentView.Resources>
+
+    <!-- The two-row stats bar's effect icons, in the one-row bar's order and in fixed slots: a slot
+         keeps its place whether or not its icon is lit, and an unlit icon is
+         transparent rather than collapsed. Observed on an iPad: icons collapsed while their bar was
+         hidden did not reappear when the bar was shown, so slot N always means the same effect.
+         | sta str dex | glow combat | deaf blind dumb crippled. Per stat the buff sits behind the
+         debuff, offset so a little of it shows, as on the one-row bar. Width is SlotsWidthDp. -->
+    <Grid ColumnDefinitions="28,28,28,7,24,24,7,24,24,24,24" HeightRequest="24" VerticalOptions="Center">
+        <Image Grid.Column="0" Source="stamina.png"       Margin="4,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"    Opacity="{Binding SidePanel.StaminaBuff, Converter={StaticResource ShownOpacity}}"    WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
+        <Image Grid.Column="0" Source="stamina_neg.png"                    TranslationY="{Binding SidePanel.StaminaDebuffDy}"  Opacity="{Binding SidePanel.StaminaDebuff, Converter={StaticResource ShownOpacity}}"  WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
+        <Image Grid.Column="1" Source="strength.png"      Margin="4,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   Opacity="{Binding SidePanel.StrengthBuff, Converter={StaticResource ShownOpacity}}"   WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
+        <Image Grid.Column="1" Source="strength_neg.png"                   TranslationY="{Binding SidePanel.StrengthDebuffDy}" Opacity="{Binding SidePanel.StrengthDebuff, Converter={StaticResource ShownOpacity}}" WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
+        <Image Grid.Column="2" Source="dexterity.png"     Margin="4,0,0,0" TranslationY="{Binding SidePanel.DexterityBuffDy}"  Opacity="{Binding SidePanel.DexterityBuff, Converter={StaticResource ShownOpacity}}"  WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
+        <Image Grid.Column="2" Source="dexterity_neg.png"                  TranslationY="{Binding SidePanel.DexterityDebuffDy}" Opacity="{Binding SidePanel.DexterityDebuff, Converter={StaticResource ShownOpacity}}" WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
+        <BoxView Grid.Column="3" WidthRequest="1" HeightRequest="12" Color="#3a3f45" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <Image Grid.Column="4" Source="glow.png"   Opacity="{Binding SidePanel.Glow, Converter={StaticResource ShownOpacity}}"     WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <Image Grid.Column="5" Source="combat.png" Opacity="{Binding SidePanel.CombatIconOpacity}" WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <BoxView Grid.Column="6" WidthRequest="1" HeightRequest="12" Color="#3a3f45" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <Image Grid.Column="7"  Source="deaf.png"     Opacity="{Binding Deaf, Converter={StaticResource ShownOpacity}}"     WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <Image Grid.Column="8"  Source="blind.png"    Opacity="{Binding Blind, Converter={StaticResource ShownOpacity}}"    WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <Image Grid.Column="9"  Source="dumb.png"     Opacity="{Binding Dumb, Converter={StaticResource ShownOpacity}}"     WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+        <Image Grid.Column="10" Source="crippled.png" Opacity="{Binding Crippled, Converter={StaticResource ShownOpacity}}" WidthRequest="22" HeightRequest="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+    </Grid>
+</ContentView>

@@ -16,6 +16,9 @@ public partial class GamePage
         DockedWhoList.SizeChanged += OnIosWhoListSizeChanged;
         FloatingWhoList.SizeChanged += OnIosWhoListSizeChanged;
         SetUpMacInput();
+        _vm.PropertyChanged += OnIosSendMenuStateChanged;
+        SendButton.HandlerChanged += OnIosSendButtonHandlerChanged;
+        SetIosSendMenu();
     }
 
     private void TearDownIosPage()
@@ -24,6 +27,38 @@ public partial class GamePage
         Terminal.SizeChanged -= OnIosTerminalSizeChanged;
         DockedWhoList.SizeChanged -= OnIosWhoListSizeChanged;
         FloatingWhoList.SizeChanged -= OnIosWhoListSizeChanged;
+        _vm.PropertyChanged -= OnIosSendMenuStateChanged;
+        SendButton.HandlerChanged -= OnIosSendButtonHandlerChanged;
+    }
+
+    // Send: a tap sends, and holding it offers Chat and Fn keys - the platform button's own menu,
+    // which iOS opens on a long press when it is not the button's primary action. A phone's input
+    // row has no room for Chat and Fn as buttons; this is the same pair, ticked while on.
+    private void SetIosSendMenu()
+    {
+        if (SendButton.Handler?.PlatformView is not UIKit.UIButton button) return;
+        var chat = UIKit.UIAction.Create("Chat", null, null, _ =>
+        {
+            _vm.ToggleChatModeCommand.Execute(null);
+            FocusInput();
+        });
+        chat.State = _vm.ChatMode ? UIKit.UIMenuElementState.On : UIKit.UIMenuElementState.Off;
+        var fkeys = UIKit.UIAction.Create("Fn keys", null, null, _ =>
+        {
+            _vm.ToggleFkeysCommand.Execute(null);
+            FocusInput();
+        });
+        fkeys.State = _vm.FkeysVisible ? UIKit.UIMenuElementState.On : UIKit.UIMenuElementState.Off;
+        button.Menu = UIKit.UIMenu.Create([chat, fkeys]);
+        button.ShowsMenuAsPrimaryAction = false;
+    }
+
+    private void OnIosSendButtonHandlerChanged(object? sender, EventArgs e) => SetIosSendMenu();
+
+    private void OnIosSendMenuStateChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(Mucka.ViewModels.GameViewModel.ChatMode) or nameof(Mucka.ViewModels.GameViewModel.FkeysVisible))
+            SetIosSendMenu();
     }
 
     private void OnIosTerminalSizeChanged(object? sender, EventArgs e) => RecalculateColumns(Width);

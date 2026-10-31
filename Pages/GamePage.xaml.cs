@@ -276,6 +276,7 @@ public partial class GamePage : ContentPage
         _vm = vm;
         _exitOnDisconnect = exitOnDisconnect;
         BindingContext = vm;
+        SetUpStatsFit();
     }
 
     protected override void OnAppearing()

@@ -211,10 +211,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public int Magic => _magic;
     public int MaxMagic => _maxMagic;
     public int Score => _score;
-    public bool Blind    { get => _blind;    set => SetAndNotify(ref _blind,    value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
-    public bool Deaf     { get => _deaf;     set => SetAndNotify(ref _deaf,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
-    public bool Crippled { get => _crippled; set => SetAndNotify(ref _crippled, value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
-    public bool Dumb     { get => _dumb;     set => SetAndNotify(ref _dumb,     value, [nameof(AnyEffectVisible), nameof(EffectsGlyphs)]); }
+    public bool Blind    { get => _blind;    set => SetAndNotify(ref _blind, value, [nameof(AnyEffectLit)]); }
+    public bool Deaf     { get => _deaf;     set => SetAndNotify(ref _deaf, value, [nameof(AnyEffectLit)]); }
+    public bool Crippled { get => _crippled; set => SetAndNotify(ref _crippled, value, [nameof(AnyEffectLit)]); }
+    public bool Dumb     { get => _dumb;     set => SetAndNotify(ref _dumb, value, [nameof(AnyEffectLit)]); }
     public char Weather { get => _weather; set => SetAndNotify(ref _weather, value, [nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip), nameof(WeatherDisplayText), nameof(WeatherColor), nameof(WeatherVisible), nameof(AnyRightStatVisible)]); }
     public string Dreamword { get => _dreamword; set => SetAndNotify(ref _dreamword, value, [nameof(DreamwordDisplay), nameof(DreamwordIsPlaceholder), nameof(DreamwordActive)]); }
     public bool IsConnected  { get => _isConnected;  set => Set(ref _isConnected,  value); }
@@ -307,15 +307,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     // Value-only strings (no label prefix) for FormattedString spans in the status bar.
     // Current and "/max" are separate spans so the max half renders one font point smaller.
-    // Below 50 cols, hide the /max for any stat with a 3-digit max (saves 4 chars per stat).
+    // Below 50 cols, or when the bar is short of room (StatsBarTight), hide the /max for any stat
+    // with a 3-digit max (saves 4 chars per stat).
     public string StaCurValue => PadToMax(Stamina, MaxStamina);
-    public string StaMaxValue => (_effCols < 50 && _maxStamina >= 100) ? string.Empty : $"/{MaxStamina}";
+    public string StaMaxValue => ((_effCols < 50 || _statsBarTight) && _maxStamina >= 100) ? string.Empty : $"/{MaxStamina}";
     public string MagCurValue => PadToMax(Magic, MaxMagic);
-    public string MagMaxValue => (_effCols < 50 && _maxMagic    >= 100) ? string.Empty : $"/{MaxMagic}";
+    public string MagMaxValue => ((_effCols < 50 || _statsBarTight) && _maxMagic    >= 100) ? string.Empty : $"/{MaxMagic}";
     public string StrCurValue => PadToMax(Strength, MaxStrength);
-    public string StrMaxValue => (_effCols < 50 && _maxStrength  >= 100) ? string.Empty : $"/{MaxStrength}";
+    public string StrMaxValue => ((_effCols < 50 || _statsBarTight) && _maxStrength  >= 100) ? string.Empty : $"/{MaxStrength}";
     public string DexCurValue => PadToMax(Dexterity, MaxDexterity);
-    public string DexMaxValue => (_effCols < 50 && _maxDexterity >= 100) ? string.Empty : $"/{MaxDexterity}";
+    public string DexMaxValue => ((_effCols < 50 || _statsBarTight) && _maxDexterity >= 100) ? string.Empty : $"/{MaxDexterity}";
     // The current value is left-padded with spaces (as wide as a digit in the monospaced stat font) to the digit count of its max, so the
     // stat labels keep one width as the value passes 100 or 10 and the items to their right stay put.
     private static string PadToMax(int value, int max)
@@ -379,9 +380,93 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
 
     /// <summary>Effective columns: min(160, MaxColumns, displayable chars). Updated by GamePage on resize.</summary>
-    public bool IsCompactStats    => _effCols < 76;
-    public bool IsNotCompactStats => _effCols >= 76;
-    public bool IsCompactWeather  => _effCols < 80;
+    public bool IsCompactStats    => _effCols < 76 || _statsBarCrowded;
+    public bool IsNotCompactStats => !IsCompactStats;
+
+    /// <summary>Set by the page when the one-row bar is wider than the room it has. Observed on an
+    /// iPhone in landscape: 97 columns, and the effect icons drawn over the rec chip and the weather.</summary>
+    public bool StatsBarCrowded
+    {
+        get => _statsBarCrowded;
+        set
+        {
+            if (_statsBarCrowded == value) return;
+            _statsBarCrowded = value;
+            OnPropertyChanged(nameof(IsCompactStats));
+            OnPropertyChanged(nameof(IsNotCompactStats));
+            OnPropertyChanged(nameof(EffectsFloat));
+        }
+    }
+    private bool _statsBarCrowded;
+
+    /// <summary>Set by the page when the one-row bar is short of room: before giving way to the two-row
+    /// bar it drops the maximums of 100 and over and the weather's word, as it does below 50 and 80
+    /// columns.</summary>
+    public bool StatsBarTight
+    {
+        get => _statsBarTight;
+        set
+        {
+            if (_statsBarTight == value) return;
+            _statsBarTight = value;
+            OnPropertiesChanged(nameof(StaMaxValue), nameof(MagMaxValue), nameof(StrMaxValue), nameof(DexMaxValue),
+                nameof(IsCompactWeather), nameof(WeatherDisplayText));
+        }
+    }
+    private bool _statsBarTight;
+
+    /// <summary>Set by the page when the two-row bar has room for the effect icons beside the score.</summary>
+    public bool EffectsInBar
+    {
+        get => _effectsInBar;
+        set
+        {
+            if (_effectsInBar == value) return;
+            _effectsInBar = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(EffectsFloat));
+        }
+    }
+    private bool _effectsInBar;
+
+    /// <summary>Any effect icon is lit; the floating strip has a background only then.</summary>
+    public bool AnyEffectLit => _deaf || _blind || _dumb || _crippled
+        || SidePanel.StaminaBuff || SidePanel.StaminaDebuff || SidePanel.StrengthBuff || SidePanel.StrengthDebuff
+        || SidePanel.DexterityBuff || SidePanel.DexterityDebuff || SidePanel.Glow || SidePanel.InCombat;
+
+    /// <summary>The two-row bar is up and has no room for the effect icons: they float below it.</summary>
+    public bool EffectsFloat => IsCompactStats && !_effectsInBar;
+
+    /// <summary>A phone's narrow input row: Chat and Fn fold behind a toggle beside Send.</summary>
+    public bool IsCompactInput => FoldsInputExtras && _effCols < 76;
+#if MOBILE
+    private const bool FoldsInputExtras = true;
+#else
+    private const bool FoldsInputExtras = false;
+#endif
+
+    /// <summary>The toggle that unfolds Chat and Fn. Not on iOS, where holding Send offers them
+    /// (GamePage.IosPage).</summary>
+    public bool ShowInputFold => IsCompactInput && !SendHoldsInputExtras;
+#if IOS
+    private const bool SendHoldsInputExtras = true;
+#else
+    private const bool SendHoldsInputExtras = false;
+#endif
+
+    /// <summary>Chat and Fn are on the input row: always when it is wide, and while unfolded when it is not.</summary>
+    public bool InputExtrasVisible => !IsCompactInput || _inputExtrasOpen;
+
+    private bool _inputExtrasOpen;
+    private void SetInputExtrasOpen(bool open)
+    {
+        if (_inputExtrasOpen == open) return;
+        _inputExtrasOpen = open;
+        OnPropertyChanged(nameof(InputExtrasVisible));
+    }
+
+    public ICommand ToggleInputExtrasCommand { get; }
+    public bool IsCompactWeather  => _effCols < 80 || _statsBarTight;
     /// <summary>Authored (unscaled) stat value size: shrinks when effcols &lt; 50.</summary>
     private double StatsValueBaseSize => _effCols < 50 ? 12.0 : 13.0;
     /// <summary>The status bar's sizes follow the UI font step at no more than
@@ -580,17 +665,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public string DumbDisplay     => IsCompactEffects ? DumbGlyph     : $"{DumbGlyph} Dumb";
     public string CrippledDisplay => IsCompactEffects ? CrippledGlyph : $"{CrippledGlyph} Crippled";
 
-    public bool AnyEffectVisible => _deaf || _blind || _dumb || _crippled;
-
-    /// <summary>Active effect glyphs joined for the compact (two-row) layout.</summary>
-    public string EffectsGlyphs => string.Join(' ', new[]
-    {
-        _deaf     ? DeafGlyph     : null,
-        _blind    ? BlindGlyph    : null,
-        _dumb     ? DumbGlyph     : null,
-        _crippled ? CrippledGlyph : null,
-    }.Where(g => g != null));
-
     public string DreamwordDisplay => string.IsNullOrEmpty(_dreamword) ? "..zzZZZzz.." : _dreamword;
     /// <summary>Compact-stats variant: the full placeholder crowds the two-row bar.</summary>
     public bool DreamwordIsPlaceholder => string.IsNullOrEmpty(_dreamword);
@@ -736,6 +810,14 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SoundService.WarmUp();
 
         SidePanel = new SidePanelViewModel();
+        SidePanel.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(SidePanelViewModel.StaminaBuff) or nameof(SidePanelViewModel.StaminaDebuff)
+                or nameof(SidePanelViewModel.StrengthBuff) or nameof(SidePanelViewModel.StrengthDebuff)
+                or nameof(SidePanelViewModel.DexterityBuff) or nameof(SidePanelViewModel.DexterityDebuff)
+                or nameof(SidePanelViewModel.Glow) or nameof(SidePanelViewModel.InCombat))
+                OnPropertyChanged(nameof(AnyEffectLit));
+        };
         SidePanel.AttachFightHistory(_conn.FightHistory);
         SidePanel.AttachSwingDamage(_conn.SwingDamage);
         SidePanel.AttachStaminaPool(_conn.StaminaPool);
@@ -794,7 +876,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         SpeakDreamwordCommand = new Command(SpeakDreamword);
         HistoryUpCommand      = new Command(HistoryUp);
         HistoryDownCommand    = new Command(HistoryDown);
-        ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; RequestFocus?.Invoke(); });
+        ToggleFkeysCommand    = new Command(() => { FkeysVisible = !FkeysVisible; SetInputExtrasOpen(false); RequestFocus?.Invoke(); });
+        ToggleInputExtrasCommand = new Command(() => { SetInputExtrasOpen(!_inputExtrasOpen); RequestFocus?.Invoke(); });
         ToggleScoreGraphCommand = new Command(() =>
         {
             if (!ScoreGraph.TryClose())
@@ -802,7 +885,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             RequestFocus?.Invoke();
         });
         ConfigCommand         = new Command(() => ConfigRequested?.Invoke());
-        ToggleChatModeCommand = new Command(() => SetChatMode(!ChatMode));
+        ToggleChatModeCommand = new Command(() => { SetChatMode(!ChatMode); SetInputExtrasOpen(false); });
         ToggleRecordingCommand = new Command(ToggleRecording);
         ClearMailCommand = new Command(() => SetMailWaiting(false));
     }
@@ -1318,7 +1401,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
                 nameof(Score),
                 nameof(ScoreValue), nameof(ScoreDeltaValue), nameof(ScoreCompactDeltaValue), nameof(ScoreCompactDeltaAttributes), nameof(ScoreColor),
                 nameof(Blind),      nameof(Deaf),        nameof(Crippled),    nameof(Dumb),
-                nameof(AnyEffectVisible), nameof(EffectsGlyphs),
                 nameof(TtrText),    nameof(TtrVisible),   nameof(TtrTooltip),
                 nameof(Weather),
                 nameof(WeatherText), nameof(WeatherGlyph), nameof(WeatherTooltip),
@@ -2453,6 +2535,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             OnPropertyChanged(nameof(IsCompactStats));
             OnPropertyChanged(nameof(MailGlyphVisible));
             OnPropertyChanged(nameof(IsNotCompactStats));
+            OnPropertyChanged(nameof(IsCompactInput));
+            OnPropertyChanged(nameof(ShowInputFold));
+            OnPropertyChanged(nameof(InputExtrasVisible));
+            OnPropertyChanged(nameof(EffectsFloat));
             OnPropertyChanged(nameof(IsCompactWeather));
             OnPropertyChanged(nameof(StatsValueFontSize));
             OnPropertyChanged(nameof(StatsMaxValueFontSize));

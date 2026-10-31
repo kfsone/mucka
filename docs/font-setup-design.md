@@ -39,8 +39,12 @@ shrink a player's text.
 FACT `Tight=True` caps the scale at `UiFontScale.TightMaxScale`, which is the +4 scale. It is used
 by the status bar and the F-key toolbar, whose widths are tiered by terminal columns. Above +4 those
 two stop growing; above about +4 the wide status bar can run out of room before the `effcols < 76`
-compact switch takes over. That is accepted: the alternative is a status bar that never grows on
-the Mac.
+compact switch takes over. That is accepted on the desktop: the alternative is a status bar that
+never grows on the Mac. On Android and iOS the page also measures the wide bar against its room
+(`GamePage.FitStatsBar`, `GameViewModel.StatsBarCrowded`) and takes the compact bar when it does not
+fit, because a phone in landscape has the columns without the width. On every platform the compact
+bar carries the effect icons (`EffectSlotsView`, in fixed slots) beside the score when they fit, and
+they float below the bar when they do not (`GameViewModel.EffectsInBar`).
 
 FACT The side panel is not tight. Its width is `CombatRailResize.SidePanelWidthAt` of
 `UiFontScale.PanelScale`: `CombatRailResize.SidePanelWidthDp` times the step's scale for steps above

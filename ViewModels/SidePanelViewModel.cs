@@ -334,7 +334,8 @@ public sealed class SidePanelViewModel : BaseViewModel, IDisposable
     /// yet live - bind the combat indicator's opacity to this so it dims instead of looking
     /// identical to an actively-ongoing fight.</summary>
     public bool IsCombatGracePeriod => _isCombatGrace;
-    public double CombatIconOpacity => _isCombatGrace ? 0.4 : 1.0;
+    /// <summary>The combat icon's opacity: 0 out of combat, as the icon keeps its slot.</summary>
+    public double CombatIconOpacity => !_inCombat ? 0.0 : _isCombatGrace ? 0.4 : 1.0;
     public string CombatTip => _isCombatGrace ? "Combat winding down..." : "In combat";
     public bool HasCombatData => _hasCombatData;
     public bool NoCombatData => !_hasCombatData;
