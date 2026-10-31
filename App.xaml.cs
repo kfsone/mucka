@@ -40,6 +40,8 @@ public partial class App : Application
         window.Width = Pages.GamePage.PreferredWindowWidthDp(
             ViewModels.GameViewModel.DefaultFontSizePx * ViewModels.GameViewModel.CharWidthPerFontPx,
             panelExpanded: true);
+        window.MinimumWidth = MinWindowWidthDp;
+        window.MinimumHeight = MinWindowHeightDp;
 #endif
 #if WINDOWS
         // The height WinUI picks was too short for the profile page's large logo and its list.
@@ -64,6 +66,12 @@ public partial class App : Application
 
         return window;
     }
+
+#if DESKTOP
+    /// <summary>The desktop window's floor, set by the operator.</summary>
+    public const double MinWindowWidthDp = 480;
+    public const double MinWindowHeightDp = 400;
+#endif
 
 #if WINDOWS
     private const double DefaultWindowHeightDp = 720;

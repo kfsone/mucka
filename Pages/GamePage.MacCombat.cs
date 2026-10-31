@@ -80,7 +80,7 @@ public partial class GamePage
         TearDownMacFloats();
         // The profile page is not held to the game's width.
         if (Window is { } window)
-            window.MinimumWidth = 0;
+            window.MinimumWidth = App.MinWindowWidthDp;
     }
 
     /// <summary>Puts every running animation back: they can be dropped while the window is hidden.</summary>
