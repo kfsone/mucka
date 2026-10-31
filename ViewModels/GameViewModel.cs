@@ -15,6 +15,7 @@ using Mucka.Combat;
 using Mucka.Commands;
 using Mucka.Terminal;
 using Mucka.Ui;
+using Mucka.WireLog;
 
 namespace Mucka.ViewModels;
 
@@ -227,6 +228,25 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>Command-box placeholder - swaps to a "chat" cue while the chat filter is on.</summary>
     public string InputPlaceholder => _chatMode ? "chat..." : "enter command...";
+
+    /// <summary>True on a replay (docs/replay.md): the replay bar covers the input row.</summary>
+    public bool IsReplay => _conn.IsReplay;
+
+    /// <summary>The replay's speed step, bound two-way to the slider and snapped to a whole step.</summary>
+    public double ReplayStep
+    {
+        get => _conn.Replay?.Step ?? ReplayPlayer.OriginalStep;
+        set
+        {
+            if (_conn.Replay is { } player)
+                player.Step = (int)Math.Round(value);
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(ReplaySpeedLabel));
+        }
+    }
+
+    /// <summary>The replay bar's speed text: <c>paused</c>, <c>1.0x</c>, <c>max</c>.</summary>
+    public string ReplaySpeedLabel => ReplayPlayer.Label((int)ReplayStep);
     public int MaxColumns => _maxColumns;
     public int EffCols => _effCols;
     public bool KeepScreenOn => _keepScreenOn;
@@ -1739,6 +1759,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "EXPORT", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("EXPORT ", StringComparison.OrdinalIgnoreCase))
                 ExportDatabase(name.Length > 6 ? name[7..] : string.Empty);
+#if DESKTOP
+            else if (string.Equals(name, "MAKEREPLAY", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("MAKEREPLAY ", StringComparison.OrdinalIgnoreCase))
+                MakeReplay(name.Length > 10 ? name[11..] : string.Empty);
+#endif
             else if (name == "fkeys" || name.StartsWith("fkeys ", StringComparison.OrdinalIgnoreCase))
                 PrintFkeys(name.Length > 5 ? name[6..].Trim() : string.Empty);
             // $f<n>: annotate with Fkey n's text (absolute 1-36). Checked after "fkeys" so it
@@ -1898,6 +1923,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("                        merge it elsewhere by starting Mucka with: mucka -import <file>", 14);
 #if MACCATALYST
         AddSystemLine("                        on a Mac: Mucka.app/Contents/MacOS/Mucka -import <file>", 14);
+#endif
+#if DESKTOP
+        AddSystemLine("  $MAKEREPLAY [name]    save this session as ~/.mucka/replays/<name>.muckrep", 14);
+        AddSystemLine("                        (login replaced); watch it with replay:<name> as the host", 14);
 #endif
         AddSystemLine("  $VER                  expands to the current Mucka version", 14);
         AddSystemLine("  $name=command         define a command until you exit the gameworld", 14);
@@ -2089,6 +2118,61 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         });
     }
 
+#if DESKTOP
+    /// <summary>$MAKEREPLAY [name] - this connection's session so far, as a replay in the player's
+    /// replays folder: Tx dropped, the login replaced (<see cref="Muckrep.FromSession"/>). The name
+    /// defaults to the time; an existing file is never overwritten. Desktop only - docs/replay.md.
+    /// </summary>
+    private void MakeReplay(string argument)
+    {
+        if (_conn.IsReplay)
+        {
+            AddSystemLine("[replay] this is already a replay", 9);
+            return;
+        }
+        var name = argument.Trim();
+        if (name.EndsWith(Muckrep.Extension, StringComparison.OrdinalIgnoreCase))
+            name = name[..^Muckrep.Extension.Length];
+        if (name.Length == 0)
+            name = $"mucka-{DateTime.Now:yyyyMMdd-HHmmss}";
+        if (!char.IsAsciiLetterOrDigit(name[0])
+            || !name.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.'))
+        {
+            AddSystemLine("[replay] a name is letters, digits, '-', '_' and '.'; usage: $MAKEREPLAY [name]", 9);
+            return;
+        }
+        var directory = MuckaPaths.GetReplayDirectory();
+        var path = Path.Combine(directory, name + Muckrep.Extension);
+        if (File.Exists(path))
+        {
+            AddSystemLine($"[replay] {path} already exists", 9);
+            return;
+        }
+        var database = _conn.DatabasePath;
+        var run = _conn.MuckaRunId;
+        var login = _conn.Login;
+
+        RunDatabaseJob("replay", $"writing {path} ...", () =>
+        {
+            var replay = Muckrep.FromSession(WireLogExport.ReadSession(database, run).ToList(),
+                accountId: login.AccountId, password: login.Password);
+            Directory.CreateDirectory(directory);
+            try
+            {
+                using var file = new FileStream(path, FileMode.CreateNew);
+                Muckrep.Write(file, ["muckrep", "account ID and password replaced with placeholders"], replay);
+            }
+            catch
+            {
+                // A half-written file would only be refused as "already exists" next time.
+                try { File.Delete(path); } catch (IOException) { }
+                throw;
+            }
+            return ($"wrote {path}: {replay.Count} records; watch it with replay:{name} as the host", true);
+        });
+    }
+#endif
+
     /// <summary>Runs <paramref name="work"/> off the UI thread, one database job at a time, and reports
     /// its message (or its exception) as a system line tagged <c>[label]</c>.</summary>
     private void RunDatabaseJob(string label, string startMessage, Func<(string Message, bool Ok)> work)
@@ -2214,7 +2298,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     private void ToggleRecording()
     {
-        if (_recorder is null) StartRecording(); else StopRecording();
+        if (_conn.IsReplay)
+            AddSystemLine("Not recorded: this is a replay.", 9, transcribe: false);
+        else if (_recorder is null) StartRecording(); else StopRecording();
         RequestFocus?.Invoke();
     }
 
@@ -2227,7 +2313,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// marshals.</para></summary>
     private void StartRecording()
     {
-        if (_recorder is not null) return;
+        // A replay records nothing (docs/replay.md), so -record does not arm on one either.
+        if (_recorder is not null || _conn.IsReplay) return;
         var path = Path.Combine(MuckaPaths.GetDataDirectory(),
             SessionRecorder.BuildFileName(_conn.Host, DateTime.Now));
         try

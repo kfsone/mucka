@@ -71,10 +71,11 @@ public partial class GamePage : ContentPage
 
 #if DESKTOP || IOS
     /// <summary>Something other than the command box legitimately owns the keyboard: the F-key
-    /// editor, the guided-login overlay, or scrollback review (Invariant #0's exceptions). The one
-    /// predicate FocusGuard suspends on and every deferred refocus checks - a new owner is added
-    /// here, once.</summary>
-    private bool KeyboardOwnedElsewhere => _isFkeyEditorOpen || _isGuidedLoginOverlayOpen || Terminal.IsHistoryMode;
+    /// editor, the guided-login overlay, scrollback review, or a replay, whose bar covers the input
+    /// row as scrollback's does (Invariant #0's exceptions). The one predicate FocusGuard suspends on
+    /// and every deferred refocus checks - a new owner is added here, once.</summary>
+    private bool KeyboardOwnedElsewhere => _isFkeyEditorOpen || _isGuidedLoginOverlayOpen || Terminal.IsHistoryMode
+        || _vm.IsReplay;
 #endif
 
 #if DESKTOP
@@ -1077,6 +1078,9 @@ public partial class GamePage : ContentPage
     // Focus() call. Posting the focus wins that race.
     private void FocusInput() => Dispatcher.Dispatch(() =>
     {
+        // A replay's bar covers the command box for the whole session; focusing it would only raise
+        // a phone's keyboard over the replay.
+        if (_vm.IsReplay) return;
 #if WINDOWS
         var tb = _inputTextBox;
         if (tb is null) return;

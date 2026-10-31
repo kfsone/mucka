@@ -131,6 +131,12 @@
 		<MauiAsset Remove="Resources\Raw\sounds\README.md" />
 	</ItemGroup>
 
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">
+		<!-- Replays ship with the desktop builds only; a phone or tablet plays one copied into its data
+		     directory (docs/replay.md). -->
+		<MauiAsset Include="Resources\Replays\*.muckrep" LogicalName="replays\%(Filename)%(Extension)" />
+	</ItemGroup>
+
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
 		<!-- The App Store rejects an upload without a privacy manifest at the bundle's root. -->
 		<BundleResource Include="Platforms\iOS\PrivacyInfo.xcprivacy" LogicalName="PrivacyInfo.xcprivacy" />

@@ -8,6 +8,7 @@
              xmlns:beh="clr-namespace:Mucka.Behaviors"
              xmlns:converters="clr-namespace:Mucka.Converters"
              xmlns:combat="clr-namespace:Mucka.Combat;assembly=Mucka.Combat"
+             xmlns:wirelog="clr-namespace:Mucka.WireLog;assembly=Mucka.WireLog"
              x:Class="Mucka.Pages.GamePage"
              x:DataType="vm:GameViewModel"
              Title="mucka"
@@ -895,6 +896,39 @@
                        TextColor="#F9F1A5" FontSize="{core:ScaledFont 12}"
                        HorizontalOptions="Center" VerticalOptions="Center"
                        FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
+            </Border>
+
+            <!-- Replay bar (docs/replay.md): covers the input row for the whole of a replay, the way
+                 the SCROLLBACK bar does while reviewing. The slider is the playback speed: the far
+                 left pauses, the far right sends a record every ReplayPlayer.MaxIntervalMs, and it
+                 starts at the original timing. Maximum is static so it is set before the Value
+                 binding, which a lower maximum would clamp. -->
+            <Border Grid.Column="0" Grid.ColumnSpan="5"
+                    x:Name="ReplayBar"
+                    IsVisible="{Binding IsReplay}"
+                    BackgroundColor="#161b22"
+                    Stroke="#3FB950" StrokeThickness="2"
+                    Padding="8,0"
+                    HorizontalOptions="Fill" VerticalOptions="Fill">
+                <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                    <Label Grid.Column="0" Text="REPLAY"
+                           TextColor="#3FB950" FontSize="{core:ScaledFont 12}"
+                           VerticalOptions="Center"
+                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
+                    <Slider Grid.Column="1"
+                            x:Name="ReplaySpeed"
+                            Minimum="{x:Static wirelog:ReplayPlayer.PauseStep}"
+                            Maximum="{x:Static wirelog:ReplayPlayer.MaxStep}"
+                            Value="{Binding ReplayStep, Mode=TwoWay}"
+                            MinimumTrackColor="#3FB950" MaximumTrackColor="#444444" ThumbColor="#CCCCCC"
+                            VerticalOptions="Center"/>
+                    <Label Grid.Column="2" Text="{Binding ReplaySpeedLabel}"
+                           TextColor="#CCCCCC" FontSize="{core:ScaledFont 12}"
+                           WidthRequest="56" HorizontalTextAlignment="End"
+                           VerticalOptions="Center"
+                           FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
+                </Grid>
             </Border>
 
         </Grid>

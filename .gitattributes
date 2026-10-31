@@ -9,3 +9,8 @@
 # only the frames under test, who-list and other frames carrying player names dropped, nothing
 # identifying. It never skips when the file is absent.
 *.c1 binary
+
+# Replays (docs/replay.md). The same raw server bytes as a .c1, for the same reasons. A replay is a
+# whole stretch of play with the account ID and password replaced by the stand-ins in
+# docs/replay.md: persona names, other players' among them, and what was said stay in it.
+*.muckrep binary

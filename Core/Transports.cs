@@ -1,4 +1,6 @@
 using System.Net.Sockets;
+using System.Threading.Channels;
+using Mucka.WireLog;
 
 namespace Mucka.Core;
 
@@ -31,6 +33,8 @@ internal static class TransportFactory
     public static Task<IMudTransport> OpenAsync(string host, int port, bool useSsh, string loginName,
         int cols, int rows, CancellationToken ct)
     {
+        if (Muckrep.IsReplayHost(host))
+            return ReplayTransport.OpenAsync(Muckrep.ReplayName(host), ct);
         if (!useSsh)
             return TelnetTransport.OpenAsync(host, port, ct);
 #if SSH
@@ -38,6 +42,154 @@ internal static class TransportFactory
 #else
         throw new NotSupportedException("SSH is not available on this platform.");
 #endif
+    }
+}
+
+/// <summary>
+/// A replay file played as if it were a server (<c>replay:name</c> as the host; docs/replay.md): no
+/// socket, so it works wherever the file can be found. The server's records arrive on the
+/// <see cref="ReplayPlayer"/>'s schedule; whatever the client sends is accepted and dropped. When the
+/// last record has played the link stays open, so the screen holds the end state until the player
+/// quits.
+/// </summary>
+internal sealed class ReplayTransport : IMudTransport
+{
+    private readonly ReplayStream _stream = new();
+    private readonly CancellationTokenSource _cts = new();
+    private int _disposed;
+
+    private ReplayTransport(ReplayPlayer player)
+    {
+        Player = player;
+        var token = _cts.Token;
+        _ = Task.Run(async () =>
+        {
+            try { await player.PlayAsync(_stream.EnqueueAsync, token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { CrashLog.Write("ReplayPlay", ex); }
+        }, CancellationToken.None);
+    }
+
+    /// <summary>The playback, whose <see cref="ReplayPlayer.Step"/> the replay bar's slider sets.</summary>
+    public ReplayPlayer Player { get; }
+
+    public Stream Stream => _stream;
+    public bool IsConnected => Volatile.Read(ref _disposed) == 0;
+    public void Resize(int cols, int rows) { }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        _cts.Cancel();
+        _stream.Complete();
+        _cts.Dispose();
+    }
+
+    public static async Task<IMudTransport> OpenAsync(string name, CancellationToken ct)
+    {
+        var records = await ReplayFiles.LoadAsync(name, ct).ConfigureAwait(false);
+        return new ReplayTransport(new ReplayPlayer(records));
+    }
+
+    // The server's half of the link: chunks queued by the player, read by the connection's read
+    // loop. Writes are the client's half, and go nowhere.
+    private sealed class ReplayStream : Stream
+    {
+        private readonly Channel<byte[]> _chunks = Channel.CreateUnbounded<byte[]>(
+            new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
+        private byte[] _current = [];
+        private int _offset;
+
+        public ValueTask EnqueueAsync(byte[] chunk, CancellationToken ct) => _chunks.Writer.WriteAsync(chunk, ct);
+        public void Complete() => _chunks.Writer.TryComplete();
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default)
+        {
+            while (_offset >= _current.Length)
+            {
+                if (!await _chunks.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
+                    return 0;
+                if (_chunks.Reader.TryRead(out var next))
+                {
+                    _current = next;
+                    _offset = 0;
+                }
+            }
+            var n = Math.Min(buffer.Length, _current.Length - _offset);
+            _current.AsMemory(_offset, n).CopyTo(buffer);
+            _offset += n;
+            return n;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct)
+            => ReadAsync(buffer.AsMemory(offset, count), ct).AsTask();
+        public override int Read(byte[] buffer, int offset, int count)
+            => ReadAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
+        public override void Write(byte[] buffer, int offset, int count) { }
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken ct = default) => default;
+        public override void Flush() { }
+        public override bool CanRead => true;
+        public override bool CanWrite => true;
+        public override bool CanSeek => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+    }
+}
+
+/// <summary>
+/// Where a replay named in a <c>replay:</c> host is found: an absolute path as given; else
+/// <see cref="MuckaPaths.GetReplayDirectory"/>, the player's own; on Android, else the app's external
+/// files folder; else the replays shipped in the app package, which only the desktop builds carry.
+/// The name may leave off <c>.muckrep</c>.
+/// </summary>
+internal static class ReplayFiles
+{
+    public static async Task<List<WireRecord>> LoadAsync(string name, CancellationToken ct)
+    {
+        if (name.Length == 0)
+            throw new FileNotFoundException("A replay host needs a file name: replay:<name>.");
+        var fileName = name.EndsWith(Muckrep.Extension, StringComparison.OrdinalIgnoreCase) ? name : name + Muckrep.Extension;
+
+        if (Path.IsPathRooted(fileName))
+            return await Task.Run(() => ReadFile(fileName), ct).ConfigureAwait(false);
+
+        var searched = new List<string> { MuckaPaths.GetReplayDirectory() };
+        var own = Path.Combine(MuckaPaths.GetReplayDirectory(), fileName);
+        if (File.Exists(own))
+            return await Task.Run(() => ReadFile(own), ct).ConfigureAwait(false);
+#if ANDROID
+        // The app's external files folder itself, not a folder under it: adb push reaches it on any
+        // build, where the data directory needs a debuggable one. Observed on an API 36 emulator: a
+        // folder made under it by `adb shell mkdir` is owned by the shell and the app is refused it.
+        if (Android.App.Application.Context.GetExternalFilesDir(null)?.AbsolutePath is { } external)
+        {
+            searched.Add(external);
+            var pushed = Path.Combine(external, fileName);
+            if (File.Exists(pushed))
+                return await Task.Run(() => ReadFile(pushed), ct).ConfigureAwait(false);
+        }
+#endif
+
+        try
+        {
+            await using var packaged = await FileSystem.OpenAppPackageFileAsync("replays/" + fileName).ConfigureAwait(false);
+            using var copy = new MemoryStream();
+            await packaged.CopyToAsync(copy, ct).ConfigureAwait(false);
+            copy.Position = 0;
+            return Muckrep.Read(copy);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            throw new FileNotFoundException($"No replay \"{name}\" in {string.Join(", ", searched)} or among the app's own.");
+        }
+    }
+
+    private static List<WireRecord> ReadFile(string path)
+    {
+        using var file = File.OpenRead(path);
+        return Muckrep.Read(file);
     }
 }
 

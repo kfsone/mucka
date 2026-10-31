@@ -86,6 +86,23 @@ public static class MuckaDb
         return connection;
     }
 
+    /// <summary>Deletes a database file and its WAL companions, closing the pooled connections that
+    /// would otherwise hold it open. For a throwaway store - a replay's - never for the real one.
+    /// Best effort: a file that cannot go yet is left for the system's temp cleanup.</summary>
+    public static void Delete(string path)
+    {
+        using (var writable = new SqliteConnection(ConnectionString(path)))
+            SqliteConnection.ClearPool(writable);
+        using (var readOnly = new SqliteConnection(ReadConnectionString(path)))
+            SqliteConnection.ClearPool(readOnly);
+        foreach (var file in new[] { path, path + "-wal", path + "-shm" })
+        {
+            try { File.Delete(file); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
     private static void Execute(SqliteConnection connection, string sql)
     {
         using var command = connection.CreateCommand();

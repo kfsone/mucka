@@ -23,6 +23,10 @@ Everything Mucka keeps, it keeps on the device it runs on:
   server sent, what Mucka sent, and when. What Mucka sent includes what you type, and that includes
   a password typed or sent at a login prompt. The database also keeps your score history and your
   fight records, built from those sessions.
+- **Replays** - on Windows and macOS, a session you save with `$MAKEREPLAY`, in `~/.mucka/replays`:
+  what the server sent, with your account ID and password replaced by stand-ins. Nothing you typed is in it,
+  but what the server sent back is - your character's name, and other players' names and words.
+  Watching a replay records nothing in the session database.
 
 None of it leaves the device unless you copy or share it yourself.
 

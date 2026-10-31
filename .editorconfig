@@ -86,5 +86,12 @@ end_of_line              = unset
 trim_trailing_whitespace = false
 insert_final_newline     = false
 
+# Replays: the same raw server bytes as a .c1.
+[*.muckrep]
+charset                  = unset
+end_of_line              = unset
+trim_trailing_whitespace = false
+insert_final_newline     = false
+
 [*.md]
 trim_trailing_whitespace = false

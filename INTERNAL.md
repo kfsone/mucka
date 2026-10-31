@@ -36,6 +36,9 @@ that is allowed not to be ASCII, and the one nothing may reformat.
 1787778044300 rx <a3><9b><ff><ff>The wyvern is staring at you ferociously.<ff><ff>\r<00>\r\n...
 ```
 
+A replay (`.muckrep`) has the same line shape and is played by the client itself, from a
+`replay:<name>` host, with no server: see `docs/replay.md`.
+
 # Mapping
 
 Removed. Live map use pulls the player off the scroll, which is the opposite of what this client

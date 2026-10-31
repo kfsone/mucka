@@ -211,6 +211,45 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// <summary>Write a free-text annotation into the wire log.</summary>
     public void Annotate(string message) => _wireLog.Annotate(message);
 
+    /// <summary>True when the host is a <c>replay:</c> file rather than a server. Set at
+    /// construction, before anything is recorded.</summary>
+    public bool IsReplay { get; }
+
+    /// <summary>The playback, once a replay has connected; null for a server.</summary>
+    public ReplayPlayer? Replay { get; private set; }
+
+    // A replay's throwaway store, deleted on dispose; null for a server.
+    private readonly string? _replayDatabase;
+
+    private const string ReplayStorePrefix = "mucka-replay-";
+
+    /// <summary>How old a replay store must be before another replay deletes it. One outlives its
+    /// connection when the process is killed, or when the connect fails and nothing disposes it -
+    /// observed on the Android emulator after a replay name that was not found. Old enough that no
+    /// replay still playing in another instance is using it.</summary>
+    private static readonly TimeSpan StaleReplayStoreAge = TimeSpan.FromDays(1);
+
+    private static void SweepStaleReplayStores()
+    {
+        try
+        {
+            // The newest of the three files: in WAL mode the .db itself is not rewritten until a
+            // checkpoint, so a replay still holding its screen can have an old one.
+            foreach (var file in Directory.EnumerateFiles(Path.GetTempPath(), ReplayStorePrefix + "*.db"))
+            {
+                var touched = new[] { file, file + "-wal", file + "-shm" }
+                    .Where(File.Exists).Max(File.GetLastWriteTimeUtc);
+                if (DateTime.UtcNow - touched > StaleReplayStoreAge)
+                    MuckaDb.Delete(file);
+            }
+        }
+        catch (Exception ex) { CrashLog.Write("SweepStaleReplayStores", ex); }
+    }
+
+    /// <summary>The account ID and password this connection logs in with, either of which may be
+    /// null: what <see cref="Muckrep.FromSession"/> replaces besides those it finds itself.</summary>
+    public (string? AccountId, string? Password) Login { get; }
+
     public bool InCombat => _session.InCombat;
     /// <summary>See <see cref="ClogWriter.IsTailOnly"/> - an encounter is still draining its tail
     /// (trailing prose captured up to the next prompt) even though none is actively live any
@@ -287,13 +326,24 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _dreamwordCarry = dreamwordCarry ?? new DreamwordCarry();
         _windowCols = Math.Clamp(windowCols, Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max);
+        Login = (accountId, password);
+        // A replay is watched, not played: what it shows goes to a store of its own that is deleted
+        // with the connection, so none of it reaches the player's history (docs/replay.md).
+        IsReplay = Muckrep.IsReplayHost(host);
+        if (IsReplay)
+        {
+            SweepStaleReplayStores();
+            _replayDatabase = Path.Combine(Path.GetTempPath(), $"{ReplayStorePrefix}{Guid.NewGuid():N}.db");
+        }
         _store = new MuckaStore(
-            MuckaPaths.GetDatabasePath(),
+            _replayDatabase ?? MuckaPaths.GetDatabasePath(),
             string.IsNullOrWhiteSpace(host) ? "unknown" : host.Trim(),
             typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
             ReportStoreFailure,
             accountId);
-        _wireLog = new WireLogWriter(_store) { AnnotationMirror = message => CrashLog.Info("an", message) };
+        _wireLog = IsReplay
+            ? new WireLogWriter(_store)
+            : new WireLogWriter(_store) { AnnotationMirror = message => CrashLog.Info("an", message) };
         _clog = new ClogWriter(_store);
         _fightHistory = new FightHistoryStore(_store, CrashLog.Write);
         _swingLedger = new SwingLedger(_store, CrashLog.Write);
@@ -319,6 +369,7 @@ public sealed class MuckaConnection : IAsyncDisposable
         ResetNumber = null;
         var transport = await TransportFactory.OpenAsync(host, port, useSsh, _loginName,
             _windowCols, _windowRows, cancellationToken).ConfigureAwait(false);
+        Replay = (transport as ReplayTransport)?.Player;
         try
         {
             var stream = transport.Stream;
@@ -552,6 +603,8 @@ public sealed class MuckaConnection : IAsyncDisposable
         _clog.Dispose();
         _wireLog.Dispose();
         _store.Dispose();
+        if (_replayDatabase is not null)
+            MuckaDb.Delete(_replayDatabase);
     }
 
     // -- Private ----------------------------------------------------------------

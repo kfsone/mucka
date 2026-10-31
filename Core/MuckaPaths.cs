@@ -29,6 +29,11 @@ internal static class MuckaPaths
         return FileSystem.AppDataDirectory;
     }
 
+    /// <summary>The player's own replays: <c>~/.mucka/replays</c>, and the same folder under the
+    /// app's data directory on mobile. See docs/replay.md.</summary>
+    internal static string GetReplayDirectory()
+        => Path.Combine(GetDataDirectory(), "replays");
+
     /// <summary>The one database: <c>~/.mucka/mucka.db</c>.</summary>
     internal static string GetDatabasePath()
         => Path.Combine(GetDataDirectory(), MuckaDb.DefaultFileName);
