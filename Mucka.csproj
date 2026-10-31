@@ -110,6 +110,9 @@
 
 		<!-- Images -->
 		<MauiImage Include="Resources\Images\*" />
+		<!-- The pages show the app icon as their logo. Observed: under its own name it fails the build,
+		     an image output named mucka_icon duplicating the icon's. -->
+		<MauiImage Include="Resources\AppIcon\mucka_icon.png" Link="mucka_logo.png" />
 		<!-- Status-effect icons (rasterized from Resources\Raw\status\*.svg) -->
 		<MauiImage Include="Resources\Images\Status\*" />
 		
