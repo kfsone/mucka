@@ -666,6 +666,11 @@ public sealed class ConnectViewModel : BaseViewModel
                                   - Mucka.Combat.CombatRailResize.SidePanelWidthAt(
                                       Mucka.Ui.UiFontScale.PanelScale(UiFontScaleState.Current.Step))
                                   - Mucka.Combat.CombatRailResize.TerminalGutterDp;
+#elif IOS
+            // The game page counts the terminal's width less its gutter (GamePage.RecalculateColumns).
+            // Observed on an iPad mini in portrait without the gutter here: told 87, then 86 once the
+            // game page measured.
+            var terminalWidthDp = PageWidthDp - Mucka.Combat.CombatRailResize.TerminalGutterDp;
 #else
             var terminalWidthDp = PageWidthDp;
 #endif

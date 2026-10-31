@@ -804,9 +804,11 @@ public partial class GamePage : ContentPage
 #endif
 #if UIKIT
         // Columns come from the terminal's own pane, which the side panel narrows; the page's width
-        // overstates it. The pane has no width until it has been laid out.
-        if (Terminal.Width > 0)
-            width = Terminal.Width - CombatRailResize.TerminalGutterDp;
+        // overstates it. The pane has no width until it has been laid out, and its SizeChanged counts
+        // again when it has. Observed on an iPad mini in portrait counting the page meanwhile: the
+        // server was told /T87, then /T86 a moment later.
+        if (Terminal.Width <= 0) return;
+        width = Terminal.Width - CombatRailResize.TerminalGutterDp;
 #endif
         var displayableCols = (int)Math.Floor(width / CharWidthDp);
 #if MACCATALYST
