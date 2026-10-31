@@ -7,7 +7,7 @@ using Microsoft.Maui.Controls.PlatformConfiguration.iOSSpecific;
 namespace Mucka.Pages;
 
 /// <summary>The Add chooser: a handful of presets, each of which becomes an unsaved profile in the
-/// editor. Completes the task it is given with the chosen preset's key once it has closed, or
+/// editor, or for a guest server a connection that is never saved. Completes the task it is given with the chosen preset's key once it has closed, or
 /// null when it was cancelled or swiped away.</summary>
 public partial class QuickStartPage : ContentPage
 {

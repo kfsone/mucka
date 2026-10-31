@@ -51,6 +51,8 @@
 
             <!-- Title, Settings and Add; narrow puts a small logo and the version here too -->
             <Grid Grid.Row="1"
+                  IsEnabled="{Binding IsNotConnecting}"
+                  Opacity="{Binding IdleOpacity}"
                   ColumnDefinitions="Auto,*,Auto,Auto"
                   ColumnSpacing="8"
                   Padding="12,8">
@@ -90,6 +92,8 @@
             <!-- Narrow: guest access mentioned once, the first run that has it -->
             <Border Grid.Row="2"
                         IsVisible="{Binding ShowNarrowGuestIntro}"
+                        IsEnabled="{Binding IsNotConnecting}"
+                        Opacity="{Binding IdleOpacity}"
                         BackgroundColor="#0d1b2e"
                         Stroke="#1f6feb"
                         StrokeThickness="1"
@@ -123,7 +127,7 @@
                     </Grid>
                 </Border>
 
-            <Grid Grid.Row="3">
+            <Grid Grid.Row="3" IsEnabled="{Binding IsNotConnecting}" Opacity="{Binding IdleOpacity}">
                 <CollectionView x:Name="ProfileList"
                                 ItemsSource="{Binding SavedProfiles}"
                                 SelectionMode="Single"
@@ -136,7 +140,7 @@
                     </CollectionView.ItemsLayout>
                     <CollectionView.ItemTemplate>
                         <DataTemplate x:DataType="core:Profile">
-                            <!-- A card: what it is on the left, Connect and Edit on the right. The selected
+                            <!-- A card: what it is on the left, Connect and the more-actions menu on the right. The selected
                                  card gets a blue outline; the platform's grey selection is turned off
                                  because it left the card's white text on grey. -->
                             <Grid Padding="12,0" BackgroundColor="Transparent">
@@ -182,14 +186,20 @@
                                                     CornerRadius="8"
                                                     HeightRequest="44"
                                                     WidthRequest="104" />
-                                            <Button Text="Edit"
-                                                    Clicked="OnEditClicked"
+                                            <!-- Edit, Rename, Duplicate and Delete (OnMoreClicked) -->
+                                            <Button Text="&#x22EF;"
+                                                    Clicked="OnMoreClicked"
                                                     CommandParameter="{Binding .}"
-                                                    BackgroundColor="Transparent"
-                                                    TextColor="#58a6ff"
+                                                    BackgroundColor="#21262d"
+                                                    BorderColor="#3d444d"
+                                                    BorderWidth="1"
+                                                    TextColor="White"
+                                                    FontSize="{core:ScaledFont 18}"
+                                                    CornerRadius="8"
                                                     HeightRequest="34"
                                                     WidthRequest="104"
-                                                    Padding="0" />
+                                                    Padding="0"
+                                                    SemanticProperties.Description="More: edit, rename, duplicate, delete" />
                                         </VerticalStackLayout>
                                     </Grid>
                                 </Border>
@@ -216,6 +226,8 @@
                 <!-- The highlighted profile's server: its score history, without connecting -->
                 <Button Text="{Binding ScoreHistoryText}"
                         IsVisible="{Binding HasProfiles}"
+                        IsEnabled="{Binding IsNotConnecting}"
+                        Opacity="{Binding IdleOpacity}"
                         Clicked="OnScoreHistoryClicked"
                         BackgroundColor="Transparent"
                         TextColor="#58a6ff"
@@ -245,6 +257,8 @@
                     Grid.Row="5"
                     Text="Aa  Text size"
                     Clicked="OnFontSetupClicked"
+                    IsEnabled="{Binding IsNotConnecting}"
+                    Opacity="{Binding IdleOpacity}"
                     IsVisible="{OnPlatform Default=True, Android=False, iOS=False}"
                     BackgroundColor="#1a1a1a"
                     TextColor="#58a6ff"
@@ -264,7 +278,8 @@
                  WidthRequest="1" />
 
         <!-- Wide only: the guest note, then the editor (or the welcome when there are no profiles) -->
-        <Grid x:Name="RightPane" Grid.Column="2" RowDefinitions="Auto,*">
+        <Grid x:Name="RightPane" Grid.Column="2" RowDefinitions="Auto,*"
+              IsEnabled="{Binding IsNotConnecting}" Opacity="{Binding IdleOpacity}">
             <Border Grid.Row="0"
                     IsVisible="{Binding ShowGuestIntro}"
                     BackgroundColor="#0d1b2e"

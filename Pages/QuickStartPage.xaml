@@ -80,7 +80,7 @@
                         Style="{StaticResource Preset}"
                         CommandParameter="guest-ca"
                         Clicked="OnPresetClicked" />
-                <Label Text="No account needed: look around and see what MUD2 is like." Style="{StaticResource Note}" />
+                <Label Text="No account needed: connects straight away, and nothing is saved." Style="{StaticResource Note}" />
             </VerticalStackLayout>
         </VerticalStackLayout>
     </ScrollView>

@@ -95,4 +95,10 @@ public static class Glyph
     /// <summary>Clockwise right and left semicircle arrows: the swap mark on the Combat Rail's
     /// alternate-weapon line.</summary>
     public const string Swap = "\U0001F5D8";
+
+    /// <summary>Midline horizontal ellipsis: a menu of more actions.</summary>
+    public const string More = "\u22ef";
+
+    /// <summary>Chart with upwards trend (emoji): marks a link to the score history.</summary>
+    public const string ScoreChart = "\U0001F4C8";
 }

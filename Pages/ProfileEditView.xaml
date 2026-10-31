@@ -254,18 +254,6 @@
                    TextColor="#f85149"
                    IsVisible="{Binding HasError}"
                    HorizontalOptions="Center" />
-
-            <Button Text="Delete profile"
-                    Command="{Binding DeleteProfileCommand}"
-                    IsVisible="{Binding IsExistingProfile}"
-                    IsEnabled="{Binding CanConnect}"
-                    BackgroundColor="#3d1a1a"
-                    TextColor="#f85149"
-                    BorderColor="#5a2020"
-                    BorderWidth="1"
-                    CornerRadius="6"
-                    HeightRequest="44"
-                    HorizontalOptions="Fill" />
         </VerticalStackLayout>
     </ScrollView>
 </ContentView>

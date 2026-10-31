@@ -82,8 +82,6 @@ public partial class ConnectPage : ContentPage
         NarrowLogo.IsVisible = !largeLogo;
         NarrowVersionLabel.IsVisible = !largeLogo;
         _vm.IsWideLayout = wide;
-        // The list highlights its row beside the editor; on its own it is only buttons.
-        ProfileList.SelectionMode = wide ? SelectionMode.Single : SelectionMode.None;
         // The editor beside the list shows the error itself.
         ListStatus.MaximumHeightRequest = wide ? 0 : -1;
     }
@@ -139,12 +137,16 @@ public partial class ConnectPage : ContentPage
         if (Navigation.ModalStack.Count > 0) return;
         var chosen = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         await Navigation.PushModalAsync(new QuickStartPage(_vm, chosen, showGuest));
-        if (await chosen.Task is { } key)
+        if (await chosen.Task is not { } key) return;
+        // A guest server connects at once, with nothing to fill in and nothing saved.
+        if (ConnectViewModel.QuickStarts.Any(q => q.Key == key && q.Guest))
         {
-            // The chooser is still on its way out: a sheet pushed now is lost.
-            await Task.Delay(400);
-            _vm.BeginNewProfile(key);
+            await _vm.ConnectAsGuestAsync(key);
+            return;
         }
+        // The chooser is still on its way out: a sheet pushed now is lost.
+        await Task.Delay(400);
+        _vm.BeginNewProfile(key);
     }
 
     private async void OnConnectClicked(object? sender, EventArgs e)
@@ -153,10 +155,34 @@ public partial class ConnectPage : ContentPage
             await _vm.LaunchProfileAsync(profile);
     }
 
-    private void OnEditClicked(object? sender, EventArgs e)
+    private const string MenuEdit = "Edit";
+    private const string MenuRename = "Rename";
+    private const string MenuDuplicate = "Duplicate";
+    private const string MenuDelete = "Delete";
+
+    // A row's more-actions menu.
+    private async void OnMoreClicked(object? sender, EventArgs e)
     {
-        if (sender is Button { CommandParameter: Profile profile })
-            _vm.BeginEdit(profile);
+        if (sender is not Button { CommandParameter: Profile profile } button || !_vm.IsNotConnecting) return;
+        var pick = await ActionMenu.ShowAsync(this, button, profile.Name, "Cancel", MenuDelete,
+            MenuEdit, MenuRename, MenuDuplicate);
+        switch (pick)
+        {
+            case MenuEdit:
+                _vm.BeginEdit(profile);
+                break;
+            case MenuRename:
+                _vm.Highlight(profile);
+                _vm.RenameProfileCommand.Execute(null);
+                break;
+            case MenuDuplicate:
+                _vm.BeginDuplicate(profile);
+                break;
+            case MenuDelete:
+                _vm.Highlight(profile);
+                _vm.DeleteProfileCommand.Execute(null);
+                break;
+        }
     }
 
     // Beside the list the editor is already showing the form; on its own it is a sheet.

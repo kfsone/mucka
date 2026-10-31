@@ -148,11 +148,15 @@ public sealed class ConnectViewModel : BaseViewModel
         set
         {
             if (Set(ref _isConnecting, value))
-                OnPropertiesChanged(nameof(IsNotConnecting), nameof(ConnectButtonText), nameof(CanConnect));
+                OnPropertiesChanged(nameof(IsNotConnecting), nameof(ConnectButtonText), nameof(CanConnect), nameof(IdleOpacity));
         }
     }
 
     public bool IsNotConnecting => !_isConnecting;
+
+    /// <summary>The page's controls fade while a connection is being made: disabled alone, the
+    /// buttons keep their own colours and look as live as before.</summary>
+    public double IdleOpacity => _isConnecting ? 0.4 : 1.0;
     public string ConnectButtonText => _isConnecting ? "Connecting..." : "Connect  " + Glyph.TriangleRight;
 
     /// <summary>What the connection attempt is doing right now; shown while <see cref="IsConnecting"/>.</summary>
@@ -382,13 +386,40 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         if (IsConnecting) return;
         var q = QuickStarts.FirstOrDefault(x => x.Key == key) ?? QuickStarts[^1];
-        var name = q.Name;
-        for (var n = 2; SavedProfiles.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)); n++)
-            name = $"{q.Name} {n}";
+        var name = UnusedProfileName(q.Name);
 
         _selectedProfile = null;
         OnPropertyChanged(nameof(SelectedProfile));
         IsNewProfile = true;
+        FillFromQuickStart(q, name);
+        EditRequested?.Invoke();
+    }
+
+    /// <summary>A guest preset connects at once, as a profile that is never saved: it is not in the
+    /// list, not in mucka.ini, and the form goes back to what it showed before.</summary>
+    public async Task ConnectAsGuestAsync(string key)
+    {
+        if (IsConnecting || QuickStarts.FirstOrDefault(x => x.Key == key && x.Guest) is not { } q) return;
+        var before = _selectedProfile;
+        FillFromQuickStart(q, q.Name);
+        _guestSession = true;
+        try
+        {
+            await ConnectAsync();
+        }
+        finally
+        {
+            _guestSession = false;
+            if (before is not null && SavedProfiles.Contains(before)) ApplyProfile(before);
+            else if (SavedProfiles.Count > 0) ApplyProfile(SavedProfiles[0]);
+        }
+    }
+
+    // Set while ConnectAsGuestAsync's connection is made: nothing about it is saved.
+    private bool _guestSession;
+
+    private void FillFromQuickStart(QuickStart q, string name)
+    {
         _passwordFetchAttempted = false;
         _passwordFetchFailed = false;
         Password = string.Empty;
@@ -400,6 +431,8 @@ public sealed class ConnectViewModel : BaseViewModel
         // Without SSH (Android) an SSH preset connects with telnet, on telnet's port.
         Port = q.Ssh && !SshAvailable ? TelnetPort : q.Port;
         AccountId = string.Empty;
+        // The setter only acts on a change, and the form may already hold the same id.
+        TelnetLoginEnabled = !string.IsNullOrWhiteSpace(AccountId);
         RememberPassword = false;
         TelnetLoginName = q.Guest ? Profile.GuestLoginName : "mud";
         MaxColumns = 0;
@@ -407,7 +440,38 @@ public sealed class ConnectViewModel : BaseViewModel
         GuidedLoginPersona = string.Empty;
         HasError = false;
         StatusText = string.Empty;
+    }
+
+    private string UnusedProfileName(string wanted)
+    {
+        var name = wanted;
+        for (var n = 2; SavedProfiles.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)); n++)
+            name = $"{wanted} {n}";
+        return name;
+    }
+
+    /// <summary>Row Duplicate: a copy of the profile as a new, unsaved one in the editor. The password
+    /// is not copied; the copy asks for it, or keeps one typed in before Save.</summary>
+    public void BeginDuplicate(Profile profile)
+    {
+        if (IsConnecting) return;
+        ApplyProfile(profile);
+        _selectedProfile = null;
+        OnPropertyChanged(nameof(SelectedProfile));
+        IsNewProfile = true;
+        ProfileName = UnusedProfileName($"{profile.Name} copy");
+        RememberPassword = false;
+        HasError = false;
+        StatusText = string.Empty;
         EditRequested?.Invoke();
+    }
+
+    /// <summary>Row Rename and Delete act on the highlighted profile, so the row is highlighted first.</summary>
+    public void Highlight(Profile profile)
+    {
+        if (IsConnecting) return;
+        SelectedProfile = profile;
+        SelectProfile(profile);
     }
 
     /// <summary>Row Edit: the profile into the form, then ask for the editor.</summary>
@@ -473,7 +537,8 @@ public sealed class ConnectViewModel : BaseViewModel
         => OnPropertiesChanged(nameof(ShowNarrowGuestIntro), nameof(ShowNarrowWelcome), nameof(ShowWideEmptyNote));
 
     /// <summary>The profile page's score history button: for the highlighted profile's server.</summary>
-    public string ScoreHistoryText => _selectedProfile is { } p ? $"Score history for {p.Name}" : "Score history";
+    public string ScoreHistoryText
+        => Glyph.ScoreChart + "  " + (_selectedProfile is { } p ? $"Score history for {p.Name}" : "Score history");
 
     /// <summary>The server whose score history that button opens; empty with no profile highlighted.</summary>
     public string ScoreHistoryHost => _selectedProfile?.Host.Trim() ?? string.Empty;
@@ -544,11 +609,11 @@ public sealed class ConnectViewModel : BaseViewModel
                 RaiseLayoutFlags();
         };
         ShowTelnetHelpCommand = new Command(() => _ = ShowHelpAsync("Logging in",
-            "MUD account ID: with it, Mucka answers the game's login prompts for you.\n\n"
+            "MUD account ID: with it, Mucka answers the game's login prompts for you. Leave it blank "
+            + "to type your login yourself when you connect.\n\n"
             + "Password: kept on this device so you are not asked again. Leave it blank to be asked each time you connect.\n\n"
             + "Persona: the persona Mucka logs into for you. Leave it blank to pick from your personas when you connect, "
-            + "or tick Manual to choose it yourself in the game's own menu.\n\n"
-            + "Leave the account ID blank to log in yourself. To look around without an account, use + Add."));
+            + "or tick Manual to choose it yourself in the game's own menu."));
         ShowConnectionHelpCommand = new Command(() => _ = ShowHelpAsync("Connection",
             "Secure (SSH): the connection is encrypted. The UK server offers it, on port 22.\n\n"
             + "Oldschool (Telnet): the classic connection, unencrypted, on port 23.\n\n"
@@ -657,7 +722,7 @@ public sealed class ConnectViewModel : BaseViewModel
             await conn.ConnectAsync(Host.Trim(), port, useSsh);
 
             var profile = await BuildFormProfileAsync(port, useSsh, accountId, loginName);
-            if (!IsDirectConnectMode)
+            if (!IsDirectConnectMode && !_guestSession)
             {
                 await SaveCurrentProfileAsync(profile);
             }
@@ -671,7 +736,7 @@ public sealed class ConnectViewModel : BaseViewModel
             // the fetch having succeeded, does clear it.
             var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(resolvedPassword)
                 && (_passwordFetchFailed || RememberedPasswordUnfetched);
-            if (!IsDirectConnectMode && !storedPasswordUnread)
+            if (!IsDirectConnectMode && !_guestSession && !storedPasswordUnread)
                 _ = SavePasswordAsync(profile.Name, RememberPassword ? resolvedPassword : null);
         }
         catch (Exception ex)
@@ -804,6 +869,8 @@ public sealed class ConnectViewModel : BaseViewModel
         _portBeforeSsh = 0;
         OnPropertyChanged(nameof(UseSsh));
         AccountId = p.AccountId;
+        // The setter only acts on a change, and the form may already hold the same id.
+        TelnetLoginEnabled = !string.IsNullOrWhiteSpace(AccountId);
         RememberPassword = p.RememberPassword;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
         // Connecting always sizes the terminal to the window: the page no longer offers a width.
