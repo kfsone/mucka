@@ -95,6 +95,10 @@ public static class ShellText
         return m.Groups["n"].Success ? int.Parse(m.Groups["n"].Value, CultureInfo.InvariantCulture) : 1;
     }
 
+    /// <summary>The server refusing the account and password. Captured from mudii.co.uk after a wrong
+    /// password: "Incorrect account ID or password.\r\nType QUIT to quit.\r\nAccount ID: ".</summary>
+    public static bool IsLoginRejectedLine(string normalized) => ContainsPhrase(normalized, "incorrect account id or password");
+
     /// <summary>The MUD Shell's top-level "Option (H for help):" prompt.</summary>
     public static bool IsShellOptionPrompt(string normalized) => ContainsPhrase(normalized, "option (h for help)");
 

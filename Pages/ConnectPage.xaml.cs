@@ -366,7 +366,14 @@ public partial class ConnectPage : ContentPage
                 _guidedPageForHandoff = page;
                 _prebuiltGamePage = await MainThread.InvokeOnMainThreadAsync(buildGamePage);
             }
-            if (result.Outcome == GuidedLoginOutcome.Failed && result.FailureReason != null)
+            if (result.CredentialsRejected)
+            {
+                await DisplayAlertAsync(
+                    "Login Failed",
+                    $"{result.FailureReason}\n\nCheck them with Edit on the profile's menu.",
+                    "OK");
+            }
+            else if (result.Outcome == GuidedLoginOutcome.Failed && result.FailureReason != null)
             {
                 await DisplayAlertAsync(
                     "Persona Login Failed",

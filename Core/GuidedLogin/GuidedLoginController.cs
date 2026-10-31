@@ -41,8 +41,9 @@ public enum GuidedLoginOutcome { Succeeded, Failed, Cancelled, ManualAtOptionMen
 /// <param name="MailItems">Items the login banner and new-mail notices reported waiting; set on
 /// success and on <see cref="GuidedLoginOutcome.ManualAtOptionMenu"/>, so the caller can keep the
 /// player reminded and point at the mail option.</param>
+/// <param name="CredentialsRejected">The server refused the account ID or password.</param>
 public sealed record GuidedLoginResult(
-    GuidedLoginOutcome Outcome, string? FailureReason = null, int MailItems = 0);
+    GuidedLoginOutcome Outcome, string? FailureReason = null, int MailItems = 0, bool CredentialsRejected = false);
 
 /// <summary>
 /// Drives the MUD Shell (Option menu -&gt; persona select/create -&gt; tearoom) on behalf
@@ -157,6 +158,13 @@ public sealed class GuidedLoginController : IDisposable
                 // server has echoed back the confirmed terminal width -- that second occurrence is when
                 // the shell is actually idle and ready for our own commands.
                 var sawFirstOption = await NegotiateBannerAsync(ct).ConfigureAwait(false);
+                if (_loginRejected)
+                {
+                    SetPhase(GuidedLoginPhase.Failed);
+                    const string reason = "The server did not accept the account ID or password.";
+                    Failed?.Invoke(reason);
+                    return new GuidedLoginResult(GuidedLoginOutcome.Failed, reason, CredentialsRejected: true);
+                }
                 if (!sawFirstOption)
                     return Fail("Timed out waiting for the MUD Shell's Option menu.");
                 ResetBuffer();
@@ -293,6 +301,9 @@ public sealed class GuidedLoginController : IDisposable
     /// extracted by <see cref="ShellText.ExtractSplashRange"/> from the whole buffer accumulated
     /// since connecting -- see that method for exactly what's included/excluded.
     /// </summary>
+    // Set by NegotiateBannerAsync when the server refuses the login.
+    private bool _loginRejected;
+
     private async Task<bool> NegotiateBannerAsync(CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + LandmarkTimeout;
@@ -318,6 +329,13 @@ public sealed class GuidedLoginController : IDisposable
             lock (_bufferLock)
                 snapshot = new List<StyledLine>(_buffer);
             var normalized = ShellText.NormalizeWhitespace(string.Join(" ", snapshot.Select(l => l.PlainText)));
+
+            // Answered with the account prompt again, so no Option menu is coming.
+            if (ShellText.IsLoginRejectedLine(normalized))
+            {
+                _loginRejected = true;
+                return false;
+            }
 
             if (!promptAnswered && ShellText.IsYesNoPrompt(normalized))
             {

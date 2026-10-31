@@ -560,12 +560,17 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         var buf = new byte[4096];
         Exception? error = null;
+        var ending = "read loop ended";
         try
         {
             while (!ct.IsCancellationRequested)
             {
                 int read = await stream.ReadAsync(buf, ct).ConfigureAwait(false);
-                if (read == 0) break; // server closed connection
+                if (read == 0)
+                {
+                    ending = "connection closed by the far end";
+                    break;
+                }
                 _wireLog.RecordRx(buf.AsSpan(0, read));
 #if WINDOWS
                 RawBytesReceived?.Invoke(buf[..read]);
@@ -579,10 +584,17 @@ public sealed class MuckaConnection : IAsyncDisposable
                     _session.EmitPartial();
             }
         }
-        catch (OperationCanceledException) { /* clean disconnect */ }
-        catch (Exception ex) { error = ex; }
+        catch (OperationCanceledException) { ending = "disconnected by the client"; }
+        catch (Exception ex)
+        {
+            error = ex;
+            ending = $"connection failed: {ex.GetType().Name}: {ex.Message}";
+        }
         finally
         {
+            // How the session ended, in the log itself: a session that went quiet otherwise reads the
+            // same whether the server closed it or simply said nothing more.
+            _wireLog.Annotate(_deliberateDisconnect ? "disconnected by the client" : ending);
             // The read loop ending IS the end of the session's incoming traffic, however it ended:
             // cancelled by DisconnectAsync, the server closing the socket, or the socket throwing. A
             // server drop is exactly the session you would want to read back afterwards, and nothing

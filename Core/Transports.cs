@@ -194,6 +194,13 @@ internal sealed class SshTransport : IMudTransport
             {
                 try { shell.Dispose(); } catch { }
             };
+            // The same when the server ends the shell and closes the channel without dropping the
+            // socket. Observed on an iPad over SSH: the server sent "Hangup" at the persona name
+            // prompt, nothing followed, and the session was not reported as ended.
+            shell.Closed += (_, _) =>
+            {
+                try { shell.Dispose(); } catch { }
+            };
             return new SshTransport(client, shell, cols, rows);
         }
         catch

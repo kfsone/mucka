@@ -25,6 +25,14 @@ public class ShellTextTests
         Assert.False(ShellText.IsCreatingPersonaLine(n));
         Assert.False(ShellText.IsSexPrompt(n));
         Assert.False(ShellText.IsNotUpdatingPersonaLine(n));
+        Assert.False(ShellText.IsLoginRejectedLine(n));
+    }
+
+    [Fact]
+    public void DetectsLoginRejected_CapturedFromMudiiCoUk()
+    {
+        var raw = "Incorrect account ID or password.\r\nType QUIT to quit.\r\nAccount ID: ";
+        Assert.True(ShellText.IsLoginRejectedLine(ShellText.NormalizeWhitespace(raw)));
     }
 
     [Fact]

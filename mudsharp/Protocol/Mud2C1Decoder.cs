@@ -525,6 +525,16 @@ internal sealed class Mud2C1Decoder
             buf.Add(b);
             return ParserState.StatusPhraseData;
         }
+        // The server wraps the phrase at the terminal width inside the bracket. Captured at 44
+        // columns: A6 9D FF FF "You have suddenly and magically become" 0D 0D 0A "stronger!" FF FF.
+        // The wrap is displayed as the normal state would display it, and read as one space.
+        if (b is (byte)'\r' or (byte)'\n' or 0 && buf.Count is > 0 and < StatusPhraseMaxBytes)
+        {
+            _parser.EmitChar((char)b);
+            if (buf[^1] != (byte)' ')
+                buf.Add((byte)' ');
+            return ParserState.StatusPhraseData;
+        }
         if (buf.Count > 0)
         {
             var phrase = Encoding.ASCII.GetString(buf.ToArray());
@@ -536,6 +546,9 @@ internal sealed class Mud2C1Decoder
         _parser.QueueReprocessByte(b);
         return ParserState.Normal;
     }
+
+    // A bracket that is never closed stops collecting here rather than reading on across lines.
+    private const int StatusPhraseMaxBytes = 160;
 
     // -- Phrase tables (matched only inside a C11 bracket - bounded, never a stream scan) --
 

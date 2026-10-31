@@ -64,6 +64,23 @@ public class StatusEffectTests
     }
 
     [Fact]
+    public void Start_PhraseWrappedByTheServer_StillResolves()
+    {
+        // Captured on an iPhone at 44 columns: the server wraps inside the bracket.
+        var h = InGameMode();
+        h.Feed([0xA6, 0x9D, 0xFF, 0xFF,
+            .. Encoding.Latin1.GetBytes("You have suddenly and magically become\r\r\nmore adroit!"),
+            0xFF, 0xFF, 0x0D, 0x0D, 0x0A]);
+        var e = Assert.Single(h.StatusEffects);
+        Assert.Equal(StatusEffectKind.Dexterity, e.Kind);
+        Assert.Equal(EffectSign.Buff, e.Sign);
+        Assert.Equal("You have suddenly and magically become more adroit!", e.Message);
+        // The wrap is still a line break on screen.
+        Assert.Contains(h.Lines, l => l.PlainText == "You have suddenly and magically become");
+        Assert.Contains(h.Lines, l => l.PlainText == "more adroit!");
+    }
+
+    [Fact]
     public void Start_PhraseSplitAcrossTwoFeeds_StillResolves()
     {
         // The bracketed phrase can straddle a network packet boundary. The decoder accumulates
