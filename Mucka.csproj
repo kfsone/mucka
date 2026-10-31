@@ -216,4 +216,27 @@
 		<Message Importance="high" Text="[mucka] Stripped %(_PublishedPdbs.Filename).pdb from publish output" />
 	</Target>
 
+	<!-- Apple AOT (Mac Catalyst, iOS). Each AOT module records the MVID of every assembly it was
+	     compiled against, and mono aborts at startup when one differs:
+	       error: Failed to load AOT module 'dbup-core' while running in aot-only mode because a
+	       dependency cannot be found or it is out of date.
+	     The trimmer gives System.Private.CoreLib a new MVID whenever what it keeps changes. The SDK's
+	     AOTCompile up-to-date check (Microsoft.MacCatalyst.Sdk 26.5.10301) passes staleness on to a
+	     referencing assembly only the first time it walks to a reference - dotnet/macios#26608 - so
+	     an assembly whose own .dll did not change keeps its old module: a NuGet one the trimmer
+	     copies with its package timestamp (dbup-core, dbup-sqlite), or one of ours that did not
+	     rebuild (mudsharp, Mucka.Input, ...). Every assembly's references reach CoreLib, so once
+	     CoreLib is relinked every module is stale; delete every object and AOTCompile redoes them
+	     all, which is what the SDK with that fix does on its own. -->
+	<Target Name="_MuckaFindCoreLibAot">
+		<ItemGroup>
+			<_MuckaCoreLibAot Include="@(_AssembliesToAOT)" Condition="'%(Filename)' == 'System.Private.CoreLib'" />
+		</ItemGroup>
+	</Target>
+	<Target Name="RecompileAotAfterCoreLibRelink" BeforeTargets="_AOTCompile" DependsOnTargets="_MuckaFindCoreLibAot"
+	        Inputs="@(_MuckaCoreLibAot)" Outputs="@(_MuckaCoreLibAot->'%(ObjectFile)')">
+		<Delete Files="@(_AssembliesToAOT->'%(ObjectFile)')" />
+		<Message Importance="high" Text="[mucka] System.Private.CoreLib was relinked: recompiling every AOT module" />
+	</Target>
+
 </Project>
