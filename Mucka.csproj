@@ -50,8 +50,9 @@
 		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">$(DefineConstants);MOBILE</DefineConstants>
 		<!-- Targets built on UIKit. Mac Catalyst does not define IOS, so code both share says UIKIT. -->
 		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' or $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">$(DefineConstants);UIKIT</DefineConstants>
-		<!-- Targets that carry the SSH transport. -->
-		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android'">$(DefineConstants);SSH</DefineConstants>
+		<!-- Targets that carry the SSH transport. Not Android, and by the operator's rule not iOS, so the
+		     iOS app carries no encryption of its own (Platforms/iOS/Info.plist). -->
+		<DefineConstants Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'android' and $([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) != 'ios'">$(DefineConstants);SSH</DefineConstants>
 
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'android'">21.0</SupportedOSPlatformVersion>
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'maccatalyst'">15.0</SupportedOSPlatformVersion>
@@ -151,7 +152,7 @@
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
 	</ItemGroup>
 
-	<!-- The SSH transport (Core/Transports.cs, behind SSH). Not referenced on Android. -->
+	<!-- The SSH transport (Core/Transports.cs, behind SSH). Not referenced on Android or iOS. -->
 	<ItemGroup Condition="$(DefineConstants.Contains(';SSH'))">
 		<PackageReference Include="SSH.NET" Version="2026.0.0" />
 	</ItemGroup>

@@ -31,7 +31,7 @@ public class Profile : INotifyPropertyChanged
         set { if (_port == value) return; _port = value; Raise(nameof(Port)); }
     }
 
-    /// <summary>Connect over SSH instead of telnet. Not on Android; the login name is the SSH user.</summary>
+    /// <summary>Connect over SSH instead of telnet. Not on Android or iOS; the login name is the SSH user.</summary>
     public bool UseSsh
     {
         get => _useSsh;

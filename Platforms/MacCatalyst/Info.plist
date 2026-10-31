@@ -27,7 +27,10 @@
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
-	<!-- The same export declaration as Platforms/iOS/Info.plist, for the same reason. -->
+	<!-- SSH sessions are encrypted by SSH.NET, which ships BouncyCastle: industry-standard algorithms
+	     in the app itself. Apple's export compliance table asks such an app only for the French
+	     encryption declaration, and only when it is distributed in France. The operator's rule is that
+	     Mucka is not distributed in France, so it is exempt from documentation, which false declares. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>
