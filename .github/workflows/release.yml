@@ -302,7 +302,7 @@ jobs:
 
   # -- iOS ------------------------------------------------------------------
   # A build check only: a simulator app, signed ad hoc. Nothing is uploaded and the release does not
-  # wait on it - there is no signed device build until an Apple developer account exists.
+  # wait on it. The signed device build is ios-testflight, below.
   ios:
     name: iOS (simulator build check)
     runs-on: macos-26
@@ -350,6 +350,96 @@ jobs:
           if [ ! -d "$app" ]; then echo "Mucka.app not found at $app"; find bin -name Mucka.app; exit 1; fi
           if [ ! -f "$app/mucka_theme.wav" ]; then echo "$app has no sounds"; exit 1; fi
           codesign --verify --deep --strict "$app"
+
+  # -- iOS TestFlight ----------------------------------------------------------
+  # A signed device build uploaded to App Store Connect, where it appears in TestFlight. Every step
+  # after the first is skipped when the signing secrets are absent, and the GitHub release does not
+  # wait on it. Secrets: IOS_DIST_CERT_P12 (base64 of the Apple Distribution certificate exported as
+  # .p12), IOS_DIST_CERT_PASSWORD, IOS_APPSTORE_PROFILE (base64 of the App Store .mobileprovision for
+  # org.kfs.mucka), ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (base64 of the App Store Connect API key).
+  ios-testflight:
+    name: iOS (TestFlight upload)
+    runs-on: macos-26
+    env:
+      HAVE_SIGNING: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.IOS_APPSTORE_PROFILE != '' && secrets.ASC_KEY_P8 != '' }}
+    steps:
+      - name: Signing secrets present
+        run: echo "HAVE_SIGNING=$HAVE_SIGNING"
+
+      - uses: actions/checkout@v6
+        if: env.HAVE_SIGNING == 'true'
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        if: env.HAVE_SIGNING == 'true'
+        with:
+          global-json-file: global.json
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        if: env.HAVE_SIGNING == 'true'
+        with:
+          xcode-version: '26.6'
+
+      - name: Install MAUI iOS and Mac Catalyst workloads
+        if: env.HAVE_SIGNING == 'true'
+        run: dotnet workload install maui-ios maui-maccatalyst --skip-sign-check --version 10.0.400
+
+      # A keychain of its own, so codesign finds the certificate without a password prompt.
+      - name: Install the certificate and profile
+        if: env.HAVE_SIGNING == 'true'
+        env:
+          CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
+        run: |
+          kc="$RUNNER_TEMP/signing.keychain-db"
+          kc_pw="$(openssl rand -hex 16)"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security create-keychain -p "$kc_pw" "$kc"
+          security set-keychain-settings -lut 21600 "$kc"
+          security unlock-keychain -p "$kc_pw" "$kc"
+          security import "$RUNNER_TEMP/dist.p12" -k "$kc" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_pw" "$kc"
+          security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+          identity="$(security find-identity -v -p codesigning "$kc" | sed -n 's/.*"\(Apple Distribution[^"]*\)".*/\1/p' | head -1)"
+          if [ -z "$identity" ]; then echo "No Apple Distribution identity in the certificate"; exit 1; fi
+          echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/appstore.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/appstore.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          uuid="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")"
+          name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/appstore.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
+          echo "CODESIGN_KEY=$identity" >> "$GITHUB_ENV"
+          echo "CODESIGN_PROVISION=$name" >> "$GITHUB_ENV"
+
+      # The run number is the build number, which App Store Connect needs to rise with every upload.
+      - name: Publish the .ipa
+        if: env.HAVE_SIGNING == 'true'
+        run: |
+          version="${{ github.ref_name }}"
+          version="${version#v}"
+          dotnet publish Mucka.csproj -f net10.0-ios -c Release -r ios-arm64 \
+            -p:LocalIos=true \
+            -p:ArchiveOnBuild=true \
+            -p:CodesignKey="$CODESIGN_KEY" \
+            -p:CodesignProvision="$CODESIGN_PROVISION" \
+            -p:MUCKA_RELEASE_VERSION="${version}" \
+            -p:ApplicationVersion=${{ github.run_number }}
+          ipa="$(find bin/Release/net10.0-ios/ios-arm64 -name '*.ipa' | head -1)"
+          if [ -z "$ipa" ]; then echo "No .ipa produced"; find bin -name '*.ipa'; exit 1; fi
+          echo "IPA=$ipa" >> "$GITHUB_ENV"
+
+      - name: Upload to App Store Connect
+        if: env.HAVE_SIGNING == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$ASC_KEY_P8" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+          xcrun altool --upload-app -t ios -f "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 
   # -- GitHub Release --------------------------------------------------------
   create-release:

@@ -8,6 +8,11 @@
 	<string>Dark</string>
 	<key>XSAppIconAssets</key>
 	<string>Assets.xcassets/mucka_icon.appiconset</string>
+	<!-- SSH sessions are encrypted by SSH.NET, which ships BouncyCastle: standard algorithms in the
+	     app itself, not only the operating system's. True makes App Store Connect ask its export
+	     questions for each build, where false would claim an exemption. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 	<key>UIDeviceFamily</key>
 	<array>
 		<integer>1</integer>

@@ -131,6 +131,11 @@
 		<MauiAsset Remove="Resources\Raw\sounds\README.md" />
 	</ItemGroup>
 
+	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios'">
+		<!-- The App Store rejects an upload without a privacy manifest at the bundle's root. -->
+		<BundleResource Include="Platforms\iOS\PrivacyInfo.xcprivacy" LogicalName="PrivacyInfo.xcprivacy" />
+	</ItemGroup>
+
 	<ItemGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
 		<Content Include="Platforms\Windows\muckabase.ico" CopyToOutputDirectory="PreserveNewest" />
 	</ItemGroup>
