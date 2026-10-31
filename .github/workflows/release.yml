@@ -5,6 +5,12 @@ on:
     tags:
       - 'v[0-9]*'
   workflow_dispatch:
+    inputs:
+      # gh workflow run release.yml --ref <branch> -f ios_store_check=true
+      ios_store_check:
+        description: 'Only build the signed App Store .ipa and have App Store Connect validate it (no upload, no release)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -13,6 +19,7 @@ jobs:
   # -- Windows --------------------------------------------------------------
   windows:
     name: Windows (zip + installer)
+    if: ${{ !inputs.ios_store_check }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -160,6 +167,7 @@ jobs:
   # -- Android --------------------------------------------------------------
   android-apk:
     name: Android (APK)
+    if: ${{ !inputs.ios_store_check }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -239,6 +247,7 @@ jobs:
   # -- macOS ----------------------------------------------------------------
   macos:
     name: macOS (app, universal)
+    if: ${{ !inputs.ios_store_check }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
@@ -305,6 +314,7 @@ jobs:
   # wait on it. The signed device build is ios-testflight, below.
   ios:
     name: iOS (simulator build check)
+    if: ${{ !inputs.ios_store_check }}
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
@@ -414,17 +424,21 @@ jobs:
           echo "CODESIGN_PROVISION=$name" >> "$GITHUB_ENV"
 
       # The run number is the build number, which App Store Connect needs to rise with every upload.
+      # A tag names the version; a branch run (ios_store_check) lets scripts/Get-Version.ps1 compute it.
       - name: Publish the .ipa
         if: env.HAVE_SIGNING == 'true'
         run: |
-          version="${{ github.ref_name }}"
-          version="${version#v}"
+          version_arg=()
+          if [ "${{ github.ref_type }}" = tag ]; then
+            version="${{ github.ref_name }}"
+            version_arg=("-p:MUCKA_RELEASE_VERSION=${version#v}")
+          fi
           dotnet publish Mucka.csproj -f net10.0-ios -c Release -r ios-arm64 \
             -p:LocalIos=true \
             -p:ArchiveOnBuild=true \
             -p:CodesignKey="$CODESIGN_KEY" \
             -p:CodesignProvision="$CODESIGN_PROVISION" \
-            -p:MUCKA_RELEASE_VERSION="${version}" \
+            "${version_arg[@]}" \
             -p:ApplicationVersion=${{ github.run_number }}
           ipa="$(find bin/Release/net10.0-ios/ios-arm64 -name '*.ipa' | head -1)"
           if [ -z "$ipa" ]; then echo "No .ipa produced"; find bin -name '*.ipa'; exit 1; fi
@@ -436,10 +450,11 @@ jobs:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ALTOOL_ACTION: ${{ inputs.ios_store_check && '--validate-app' || '--upload-app' }}
         run: |
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           echo "$ASC_KEY_P8" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
-          xcrun altool --upload-app -t ios -f "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          xcrun altool "$ALTOOL_ACTION" -t ios -f "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
 
   # -- GitHub Release --------------------------------------------------------
   create-release:

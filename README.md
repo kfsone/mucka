@@ -3,7 +3,7 @@ Mucka -- A dedicated MUD2 client for Windows, Android and MacOS
 
 <table>
 <tr>
-<td><img src="Resources/Images/mucka_logo.png" alt="mucka logo" width="256"></td>
+<td><img src="Resources/AppIcon/mucka_icon.png" alt="mucka logo" width="256"></td>
 <td>
 
 - [Screenshots](#screenshots)

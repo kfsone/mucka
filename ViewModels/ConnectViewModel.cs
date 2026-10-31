@@ -75,7 +75,7 @@ public sealed class ConnectViewModel : BaseViewModel
     /// <summary>0 means the port field is empty; connecting then uses the transport's own port.</summary>
     public int Port { get => _port; set => Set(ref _port, value); }
 
-    /// <summary>The SSH transport exists on every build but Android.</summary>
+    /// <summary>The SSH transport exists on every build but Android and iOS.</summary>
     public static bool SshAvailable =>
 #if SSH
         true;
@@ -392,7 +392,7 @@ public sealed class ConnectViewModel : BaseViewModel
         _useSsh = q.Ssh && SshAvailable;
         _portBeforeSsh = 0;
         OnPropertyChanged(nameof(UseSsh));
-        // Without SSH (Android) an SSH preset connects with telnet, on telnet's port.
+        // Without SSH (Android, iOS) an SSH preset connects with telnet, on telnet's port.
         Port = q.Ssh && !SshAvailable ? TelnetPort : q.Port;
         AccountId = string.Empty;
         // The setter only acts on a change, and the form may already hold the same id.
@@ -581,7 +581,7 @@ public sealed class ConnectViewModel : BaseViewModel
             + "Persona: the persona Mucka logs into for you. Leave it blank to pick from your personas when you connect, "
             + "or tick Manual to choose it yourself in the game's own menu."));
         ShowConnectionHelpCommand = new Command(() => _ = ShowHelpAsync("Connection",
-            "Secure (SSH): the connection is encrypted. The UK server offers it, on port 22.\n\n"
+            (SshAvailable ? "Secure (SSH): the connection is encrypted. The UK server offers it, on port 22.\n\n" : "")
             + "Oldschool (Telnet): the classic connection, unencrypted, on port 23.\n\n"
             + "Manual: a port number of your own. Mucka connects to it with telnet. The CA server uses 27723."));
         ShowLoginNameHelpCommand = new Command(() => _ = ShowHelpAsync("Server login name",
