@@ -149,8 +149,8 @@ internal sealed class FontSetupPage : ContentPage
         }, 0, 0);
         content.Add(new Label
         {
-            Text = "Choose basic display settings to start! You can change them later with the Text size "
-                 + "button on the first screen, or in " + Glyph.Settings + " Settings.",
+            Text = "Choose basic display settings to start! You can change them later in "
+                 + Glyph.Settings + " Settings.",
             TextColor = Body, FontSize = Chrome(14),
         }, 0, 1);
         content.Add(menus, 0, 2);

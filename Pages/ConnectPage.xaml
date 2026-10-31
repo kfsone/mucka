@@ -11,6 +11,7 @@
              NavigationPage.HasNavigationBar="False"
              SafeAreaEdges="All">
 
+    <!-- WinUI values: the Mac draws this page at 77% (docs/font-setup-design.md, "The profile page on Windows"). -->
     <ContentPage.Resources>
         <Style x:Key="HeaderButton" TargetType="Button">
             <Setter Property="BackgroundColor" Value="#1a1a1a" />
@@ -18,8 +19,11 @@
             <Setter Property="BorderColor" Value="#333333" />
             <Setter Property="BorderWidth" Value="1" />
             <Setter Property="CornerRadius" Value="8" />
-            <Setter Property="HeightRequest" Value="44" />
-            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="FontFamily" Value="OpenSansRegular" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 14}" />
+            <Setter Property="HeightRequest" Value="{OnPlatform Default=44, WinUI=-1}" />
+            <Setter Property="MinimumHeightRequest" Value="{OnPlatform Default=0, WinUI=32}" />
+            <Setter Property="Padding" Value="{OnPlatform Default='14,0', WinUI='10,0'}" />
             <Setter Property="VerticalOptions" Value="Center" />
         </Style>
     </ContentPage.Resources>
@@ -32,7 +36,7 @@
 
         <Grid x:Name="ListPane"
               Grid.Column="0"
-              RowDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+              RowDefinitions="Auto,Auto,Auto,*,Auto"
               BackgroundColor="#0C0C0C">
 
             <!-- Wide: the large logo and the version above the list -->
@@ -54,8 +58,8 @@
                   IsEnabled="{Binding IsNotConnecting}"
                   Opacity="{Binding IdleOpacity}"
                   ColumnDefinitions="Auto,*,Auto,Auto"
-                  ColumnSpacing="8"
-                  Padding="12,8">
+                  ColumnSpacing="{OnPlatform Default=8, WinUI=6}"
+                  Padding="{OnPlatform Default='12,8', WinUI='8,6'}">
                 <Image x:Name="NarrowLogo"
                        Grid.Column="0"
                        Source="mucka_logo.png"
@@ -65,9 +69,11 @@
                     <Label Text="Profiles"
                            TextColor="White"
                            FontAttributes="Bold"
+                           LineBreakMode="TailTruncation"
                            FontSize="{core:ScaledFont 20}" />
                     <Label x:Name="NarrowVersionLabel"
                            TextColor="#555555"
+                           LineBreakMode="TailTruncation"
                            FontSize="{core:ScaledFont 11}" />
                 </VerticalStackLayout>
                 <Button Grid.Column="2"
@@ -83,8 +89,9 @@
                         BackgroundColor="#1f6feb"
                         TextColor="White"
                         CornerRadius="8"
-                        HeightRequest="44"
-                        Padding="16,0"
+                        HeightRequest="{OnPlatform Default=44, WinUI=-1}"
+                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
+                        Padding="{OnPlatform Default='16,0', WinUI='10,0'}"
                         VerticalOptions="Center"
                         SemanticProperties.Description="Add a profile" />
             </Grid>
@@ -161,7 +168,7 @@
                                         Stroke="#30363d"
                                         StrokeThickness="1"
                                         StrokeShape="RoundRectangle 10"
-                                        Padding="14,10">
+                                        Padding="{OnPlatform Default='14,10', WinUI='12,8'}">
                                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
                                         <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
                                             <Label Text="{Binding Name}"
@@ -177,15 +184,18 @@
                                                    TextColor="#58a6ff"
                                                    FontSize="{core:ScaledFont 12}" />
                                         </VerticalStackLayout>
-                                        <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                        <VerticalStackLayout Grid.Column="1" Spacing="{OnPlatform Default=6, WinUI=4}" VerticalOptions="Center">
                                             <Button Text="Connect"
                                                     Clicked="OnConnectClicked"
                                                     CommandParameter="{Binding .}"
                                                     BackgroundColor="#1f6feb"
                                                     TextColor="White"
                                                     CornerRadius="8"
-                                                    HeightRequest="44"
-                                                    WidthRequest="104" />
+                                                    Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
+                                                    HeightRequest="{OnPlatform Default=44, WinUI=-1}"
+                                                    MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
+                                                    WidthRequest="{OnPlatform Default=104, WinUI=-1}"
+                                                    MinimumWidthRequest="{OnPlatform Default=44, WinUI=76}" />
                                             <!-- Edit, Rename, Duplicate and Delete (OnMoreClicked) -->
                                             <Button Text="&#x22EF;"
                                                     Clicked="OnMoreClicked"
@@ -196,8 +206,10 @@
                                                     TextColor="White"
                                                     FontSize="{core:ScaledFont 18}"
                                                     CornerRadius="8"
-                                                    HeightRequest="34"
-                                                    WidthRequest="104"
+                                                    HeightRequest="{OnPlatform Default=34, WinUI=-1}"
+                                                    MinimumHeightRequest="{OnPlatform Default=44, WinUI=26}"
+                                                    WidthRequest="{OnPlatform Default=104, WinUI=-1}"
+                                                    MinimumWidthRequest="{OnPlatform Default=44, WinUI=76}"
                                                     Padding="0"
                                                     SemanticProperties.Description="More: edit, rename, duplicate, delete" />
                                         </VerticalStackLayout>
@@ -234,7 +246,9 @@
                         BorderColor="#333333"
                         BorderWidth="1"
                         CornerRadius="6"
-                        HeightRequest="40"
+                        Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
+                        HeightRequest="{OnPlatform Default=40, WinUI=-1}"
+                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
                         HorizontalOptions="Fill"
                         SemanticProperties.Description="Score history" />
                 <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
@@ -249,26 +263,6 @@
                        IsVisible="{Binding ShowListError}"
                        HorizontalOptions="Center" />
             </VerticalStackLayout>
-
-            <!-- The Text size page again (Pages/FontSetupPage). Large on purpose: a player who cannot
-                 read this page has to be able to find this. -->
-            <Button x:Name="FontSetupButton"
-                    Grid.Row="5"
-                    Text="Aa  Text size"
-                    Clicked="OnFontSetupClicked"
-                    IsEnabled="{Binding IsNotConnecting}"
-                    Opacity="{Binding IdleOpacity}"
-                    IsVisible="{OnPlatform Default=True, Android=False, iOS=False}"
-                    BackgroundColor="#1a1a1a"
-                    TextColor="#58a6ff"
-                    BorderColor="#333333"
-                    BorderWidth="1"
-                    CornerRadius="6"
-                    FontSize="{core:ScaledFont 16}"
-                    MinimumHeightRequest="44"
-                    Margin="12,8"
-                    Padding="16,8"
-                    SemanticProperties.Description="Change the text size"/>
         </Grid>
 
         <BoxView x:Name="Separator"

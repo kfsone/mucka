@@ -144,15 +144,14 @@ saves what it shows and writes the key, so they open by themselves once. On the 
 come after any `-import` result and before the Mac password-storage question, one modal at a time,
 and before a direct-connect launch connects.
 
-FACT Android and iOS never open them and show neither button: the wizard's examples are laid out
+FACT Android and iOS never open them and hide the Settings tab's "Mucka Text Wizard" button: its examples are laid out
 for a desktop window, and nobody has looked at them at phone width. Both run at their stored step,
 and their side panel keeps `CombatRailResize.SidePanelWidthDp` at every step
 (`SidePanelWidthConverter`): on a phone a panel widened with the step would take the screen, so its
 text scales and may wrap.
 
-FACT The Text Wizard alone opens again from the "Text size" button at the bottom of the profile
-page's left column, and from the "Mucka Text Wizard" button at the top of the Display tab of Settings,
-above the two size sliders. Opened from Settings, the choice goes back
+FACT The Text Wizard alone opens again from the "Mucka Text Wizard" button at the top of the Display
+tab of Settings, above the two size sliders. Opened from Settings, the choice goes back
 into the settings editor's own fields and is saved by the editor's Save, so the editor cannot
 overwrite it. A dropped session closes it together with the editor (Invariant #0's modal exception,
 and a drop outranks any modal).
@@ -172,6 +171,24 @@ it is answered:
 - Values stored but never answered (an existing player): their own values, except that on the Mac
   the UI step is at least `FontSetup.MacBaselineStep`, the step that undoes the 77%.
 - Answered: their own values, untouched.
+
+## The profile page on Windows
+
+FACT The Mac draws the profile page at 77%, so its authored dimensions (the list column, the 44-high
+buttons, the card padding) were laid out against that and against phones. Windows draws them at
+100%, and at those dimensions the default window showed one profile card and a logo taller than the
+list. The page therefore carries `{OnPlatform WinUI=...}` values for its dimensions, and the other
+platforms keep the authored ones.
+
+FACT On Windows the list column is `ConnectPage.WideListColumnDp` times `UiFontScale.PanelScale`, so
+it widens with the step like the game page's side panel, and `ConnectPage.WideListColumn` re-applies
+it when `UiFontScaleState.Step` changes. Buttons and fields there have a minimum height and no fixed
+one, so they grow with their text. The header's "Profiles" title and the version label truncate
+rather than wrap when the header row is short of room.
+
+FACT Fonts are not part of the Windows density: every authored size still goes through
+`ScaledFontExtension`. The explicit styles on this page and in the profile editor replace the
+app-wide ones in `Resources/Styles/Styles.xaml`, so each sets `FontFamily` and `FontSize` itself.
 
 ## The window
 

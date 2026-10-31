@@ -222,8 +222,17 @@ public sealed class ConnectViewModel : BaseViewModel
         set { if (Set(ref _guidedLogin, value)) OnPropertiesChanged(nameof(PersonaManual), nameof(PersonaNameEnabled)); }
     }
 
-    /// <summary>"Manual": the player picks the persona in the game's own menu; off, Mucka does it.</summary>
-    public bool PersonaManual { get => !_guidedLogin; set => GuidedLogin = !value; }
+    /// <summary>"Manual": the player picks the persona in the game's own menu; off, Mucka does it.
+    /// Ticking it empties the persona name, which a manual login never uses.</summary>
+    public bool PersonaManual
+    {
+        get => !_guidedLogin;
+        set
+        {
+            if (value && _guidedLogin) GuidedLoginPersona = string.Empty;
+            GuidedLogin = !value;
+        }
+    }
 
     /// <summary>The persona name only means something when Mucka logs in and picks the persona.</summary>
     public bool PersonaNameEnabled => _telnetLoginEnabled && _guidedLogin;

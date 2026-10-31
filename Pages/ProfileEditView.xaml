@@ -10,13 +10,18 @@
          login only; everything else is in Settings. Every card is always laid out,
          and a choice that does not apply dims its fields instead of hiding them, so switching
          profile (or login kind) never moves anything. Shown beside the list on a wide window and on
-         its own sheet on a narrow one. -->
+         its own sheet on a narrow one. WinUI values: docs/font-setup-design.md, "The profile page on
+         Windows". These styles replace the app's own (Resources/Styles), so each sets its font size
+         itself, or it would not follow the UI font step. -->
     <ContentView.Resources>
         <Style TargetType="Entry">
             <Setter Property="TextColor" Value="White" />
             <Setter Property="BackgroundColor" Value="#0d1117" />
             <Setter Property="PlaceholderColor" Value="#444444" />
-            <Setter Property="HeightRequest" Value="44" />
+            <Setter Property="FontFamily" Value="OpenSansRegular" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 14}" />
+            <Setter Property="HeightRequest" Value="{OnPlatform Default=44, WinUI=-1}" />
+            <Setter Property="MinimumHeightRequest" Value="{OnPlatform Default=44, WinUI=32}" />
         </Style>
         <Style x:Key="SectionLabel" TargetType="Label">
             <Setter Property="TextColor" Value="#8b949e" />
@@ -32,16 +37,8 @@
             <Setter Property="BackgroundColor" Value="#161b22" />
             <Setter Property="Stroke" Value="#30363d" />
             <Setter Property="StrokeThickness" Value="1" />
-            <Setter Property="Padding" Value="14" />
+            <Setter Property="Padding" Value="{OnPlatform Default=14, WinUI=10}" />
             <Setter Property="StrokeShape" Value="RoundRectangle 10" />
-        </Style>
-        <Style x:Key="Seg" TargetType="Button">
-            <Setter Property="BackgroundColor" Value="#0d1117" />
-            <Setter Property="TextColor" Value="#8b949e" />
-            <Setter Property="CornerRadius" Value="0" />
-            <Setter Property="HeightRequest" Value="40" />
-            <Setter Property="BorderWidth" Value="1" />
-            <Setter Property="BorderColor" Value="#30363d" />
         </Style>
         <Style x:Key="Ghost" TargetType="Button">
             <Setter Property="BackgroundColor" Value="#1a1a1a" />
@@ -49,6 +46,8 @@
             <Setter Property="BorderColor" Value="#333333" />
             <Setter Property="BorderWidth" Value="1" />
             <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="FontFamily" Value="OpenSansRegular" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 14}" />
             <Setter Property="Padding" Value="14,0" />
         </Style>
     </ContentView.Resources>
@@ -63,7 +62,8 @@
                         Text="Cancel"
                         IsVisible="{Binding IsNewProfile}"
                         Style="{StaticResource Ghost}"
-                        HeightRequest="40"
+                        HeightRequest="{OnPlatform Default=40, WinUI=-1}"
+                        MinimumHeightRequest="{OnPlatform Default=0, WinUI=32}"
                         Clicked="OnCloseClicked" />
                 <Label Grid.Column="1"
                        Text="{Binding EditTitle}"
@@ -80,14 +80,15 @@
                         BackgroundColor="#1f6feb"
                         TextColor="White"
                         CornerRadius="6"
-                        HeightRequest="40"
+                        HeightRequest="{OnPlatform Default=40, WinUI=-1}"
+                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
                         Padding="22,0" />
             </Grid>
 
             <!-- Profile name -->
             <Label Text="PROFILE" Style="{StaticResource SectionLabel}" />
             <Border Style="{StaticResource Card}">
-                <Grid HeightRequest="44">
+                <Grid HeightRequest="{OnPlatform Default=44, WinUI=-1}">
                     <Entry Text="{Binding ProfileName}"
                            IsVisible="{Binding IsNewProfile}"
                            Placeholder="profile name"
@@ -109,6 +110,7 @@
                                 Text="Rename"
                                 Command="{Binding RenameProfileCommand}"
                                 IsEnabled="{Binding CanConnect}"
+                                MinimumHeightRequest="{OnPlatform Default=0, WinUI=32}"
                                 Style="{StaticResource Ghost}" />
                     </Grid>
                 </Grid>
@@ -144,8 +146,9 @@
                                 Style="{StaticResource Ghost}"
                                 TextColor="White"
                                 BackgroundColor="#0d1117"
-                                HeightRequest="44"
-                                MinimumWidthRequest="112"
+                                HeightRequest="{OnPlatform Default=44, WinUI=-1}"
+                                MinimumHeightRequest="{OnPlatform Default=0, WinUI=32}"
+                                MinimumWidthRequest="{OnPlatform Default=112, WinUI=88}"
                                 Clicked="OnConnectionClicked"
                                 SemanticProperties.Description="Connection" />
                     </Grid>
@@ -224,7 +227,8 @@
                     Command="{Binding ToggleAdvancedCommand}"
                     Style="{StaticResource Ghost}"
                     TextColor="#8b949e"
-                    HeightRequest="40"
+                    HeightRequest="{OnPlatform Default=40, WinUI=-1}"
+                    MinimumHeightRequest="{OnPlatform Default=0, WinUI=32}"
                     HorizontalOptions="Fill" />
             <Border Style="{StaticResource Card}" IsVisible="{Binding AdvancedVisible}">
                 <VerticalStackLayout Spacing="10">

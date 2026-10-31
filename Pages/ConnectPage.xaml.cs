@@ -18,7 +18,16 @@ public partial class ConnectPage : ContentPage
     // Size-based rather than OnIdiom so rotating a phone re-lays-out.
     private const double WideLayoutMinWidthDp = 600.0;
     private const double LargeLogoMinHeightDp = 700.0;
+    // Windows: narrower than the others, and widened with the UI font step like the game page's
+    // side panel. docs/font-setup-design.md, "The profile page on Windows".
+#if WINDOWS
+    private const double WideListColumnDp     = 288.0;
+    private static double WideListColumn
+        => WideListColumnDp * Mucka.Ui.UiFontScale.PanelScale(UiFontScaleState.Current.Step);
+#else
     private const double WideListColumnDp     = 340.0;
+    private static double WideListColumn => WideListColumnDp;
+#endif
     private bool? _isWideLayout;
     private bool? _isTallLayout;
 
@@ -37,6 +46,13 @@ public partial class ConnectPage : ContentPage
         NarrowWelcome.GuestRequested += OnGuestRequested;
         WideWelcome.GuestRequested += OnGuestRequested;
         WidePane.CloseRequested += (_, _) => _vm.CancelNewProfile();
+#if WINDOWS
+        UiFontScaleState.Current.PropertyChanged += (_, _) =>
+        {
+            if (_isWideLayout == true && RootGrid.ColumnDefinitions.Count == 3)
+                RootGrid.ColumnDefinitions[0].Width = WideListColumn;
+        };
+#endif
 
         // Pick the initial layout from the display metrics BEFORE the first measure pass.
         try
@@ -70,7 +86,7 @@ public partial class ConnectPage : ContentPage
     {
         RootGrid.ColumnDefinitions = wide
             ? new ColumnDefinitionCollection(
-                new ColumnDefinition { Width = WideListColumnDp },
+                new ColumnDefinition { Width = WideListColumn },
                 new ColumnDefinition { Width = 1 },
                 new ColumnDefinition { Width = GridLength.Star })
             : new ColumnDefinitionCollection(new ColumnDefinition { Width = GridLength.Star });
@@ -239,7 +255,7 @@ public partial class ConnectPage : ContentPage
         try
         {
             if (Startup is { PromptFontSetup: true } startup)
-                await RunFontSetupAsync(startup.Font, firstRun: true);
+                await RunFontSetupAsync(startup.Font);
         }
         catch (Exception ex)
         {
@@ -251,25 +267,23 @@ public partial class ConnectPage : ContentPage
 #endif
     }
 
-    /// <summary>Opens the Text size page with <paramref name="initial"/> and saves what it returns -
-    /// on Skip or Cancel, the sizes it opened with, which also records that it was answered.</summary>
-    private async Task RunFontSetupAsync(Mucka.Ui.FontSetupChoice initial, bool firstRun)
+    /// <summary>The first-run size picker, then the Text size page, opened with
+    /// <paramref name="initial"/>; saves what it returns - on Skip, the sizes it opened with, which
+    /// also records that it was answered.</summary>
+    private async Task RunFontSetupAsync(Mucka.Ui.FontSetupChoice initial)
     {
-        if (firstRun)
-        {
-            // The plain size picker first: from here on the player can read this page's own words,
-            // and Skip on the next page keeps what was picked here.
-            var picked = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-            await Navigation.PushModalAsync(new InterfaceSizePage(initial.UiStep, picked));
-            initial = initial with { UiStep = await picked.Task };
-            UiFontScaleState.Current.Step = initial.UiStep;
+        // The plain size picker first: from here on the player can read this page's own words,
+        // and Skip on the next page keeps what was picked here.
+        var picked = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await Navigation.PushModalAsync(new InterfaceSizePage(initial.UiStep, picked));
+        initial = initial with { UiStep = await picked.Task };
+        UiFontScaleState.Current.Step = initial.UiStep;
 #if DESKTOP
-            FitWindowForWizard(initial.UiStep);
+        FitWindowForWizard(initial.UiStep);
 #endif
-        }
         var (theme, palette) = await Task.Run(SettingsStore.LoadChatColoursAsync);
         var tcs = new TaskCompletionSource<FontSetupResult?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await Navigation.PushModalAsync(new FontSetupPage(initial, initial.UiStep, firstRun, palette, theme, tcs));
+        await Navigation.PushModalAsync(new FontSetupPage(initial, initial.UiStep, firstRun: true, palette, theme, tcs));
         var result = await tcs.Task ?? new FontSetupResult(initial, null);
         // After the load, which would otherwise overwrite it with what the file held before the save;
         // and applied even when the save fails, so this run uses what was chosen.
@@ -303,34 +317,6 @@ public partial class ConnectPage : ContentPage
         if (window.Height < height) window.Height = height;
     }
 #endif
-
-    private bool _fontSetupOpen;
-
-    /// <summary>The Text size button: the page again, opened with what the app runs at now.</summary>
-    private async void OnFontSetupClicked(object? sender, EventArgs e)
-    {
-        // Set before the first await: a second click while the stored size is being read would
-        // otherwise open a second page.
-        if (_fontSetupOpen || Navigation.ModalStack.Count > 0) return;
-        _fontSetupOpen = true;
-        try
-        {
-            var fontPx = await Task.Run(() => SettingsStore.GetGlobalValueAsync("fontsize"));
-            var current = new Mucka.Ui.FontSetupChoice(UiFontScaleState.Current.Step,
-                int.TryParse(fontPx, System.Globalization.NumberStyles.Integer,
-                    System.Globalization.CultureInfo.InvariantCulture, out var px) && px > 0
-                    ? px : GameViewModel.DefaultFontSizePx);
-            await RunFontSetupAsync(current, firstRun: false);
-        }
-        catch (Exception ex)
-        {
-            CrashLog.Write("FontSetup", ex);
-        }
-        finally
-        {
-            _fontSetupOpen = false;
-        }
-    }
 
 #if MACCATALYST
     // Never asked on the game pages. Until it is answered nothing is stored anywhere (see ProfileStore).
