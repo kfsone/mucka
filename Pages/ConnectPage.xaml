@@ -88,8 +88,8 @@
             </Grid>
 
             <!-- Narrow: guest access mentioned once, the first run that has it -->
-            <ContentView x:Name="NarrowGuestIntro" Grid.Row="2">
-                <Border IsVisible="{Binding ShowGuestIntro}"
+            <Border Grid.Row="2"
+                        IsVisible="{Binding ShowNarrowGuestIntro}"
                         BackgroundColor="#0d1b2e"
                         Stroke="#1f6feb"
                         StrokeThickness="1"
@@ -122,7 +122,6 @@
                                 HorizontalOptions="Start" />
                     </Grid>
                 </Border>
-            </ContentView>
 
             <Grid Grid.Row="3">
                 <CollectionView x:Name="ProfileList"
@@ -200,21 +199,32 @@
                 </CollectionView>
 
                 <!-- Narrow, no profiles: the welcome in place of the list -->
-                <ContentView x:Name="NarrowWelcomeHost" VerticalOptions="Start">
-                    <pages:WelcomeView x:Name="NarrowWelcome" IsVisible="{Binding ShowWelcome}" />
-                </ContentView>
+                <pages:WelcomeView x:Name="NarrowWelcome"
+                                   IsVisible="{Binding ShowNarrowWelcome}"
+                                   VerticalOptions="Start" />
 
                 <!-- Wide, no profiles: the welcome is beside the list, which says why it is empty -->
-                <ContentView x:Name="WideEmptyNoteHost">
-                    <Label Text="No profiles yet."
-                           IsVisible="{Binding HasNoProfiles}"
-                           TextColor="#555555"
-                           HorizontalOptions="Center"
-                           Margin="0,24,0,0" />
-                </ContentView>
+                <Label Text="No profiles yet."
+                       IsVisible="{Binding ShowWideEmptyNote}"
+                       TextColor="#555555"
+                       HorizontalOptions="Center"
+                       VerticalOptions="Start"
+                       Margin="0,24,0,0" />
             </Grid>
 
-            <VerticalStackLayout Grid.Row="4" Spacing="4" Padding="16,4">
+            <VerticalStackLayout Grid.Row="4" Spacing="4" Padding="12,4">
+                <!-- The highlighted profile's server: its score history, without connecting -->
+                <Button Text="{Binding ScoreHistoryText}"
+                        IsVisible="{Binding HasProfiles}"
+                        Clicked="OnScoreHistoryClicked"
+                        BackgroundColor="Transparent"
+                        TextColor="#58a6ff"
+                        BorderColor="#333333"
+                        BorderWidth="1"
+                        CornerRadius="6"
+                        HeightRequest="40"
+                        HorizontalOptions="Fill"
+                        SemanticProperties.Description="Score history" />
                 <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
                                        HorizontalOptions="Center" Spacing="8">
                     <ActivityIndicator IsRunning="{Binding IsConnecting}" Color="#58a6ff"

@@ -138,6 +138,10 @@ public static class ScoreHistoryReader
     /// it.</param>
     public static ScoreHistory Read(string path, long sinceMs, long nowMs, long currentRunId)
     {
+        // No database yet is a player who has never connected: no history, not an error. Observed on a
+        // fresh install, where opening read-only failed with SQLite Error 14.
+        if (!File.Exists(path))
+            return ScoreHistory.Empty;
         using var connection = MuckaDb.OpenRead(path);
 
         var points = new Dictionary<PersonaKey, List<ScorePoint>>();

@@ -44,6 +44,14 @@ public sealed class ScoreGraphTests : IDisposable
             ("$t", ts), ("$v", total), ("$s", session));
 
     [Fact]
+    public void Reader_with_no_database_yet_is_an_empty_history()
+    {
+        Assert.False(File.Exists(DbPath));
+        var history = ScoreHistoryReader.Read(DbPath, sinceMs: 0, nowMs: 1000, currentRunId: -1);
+        Assert.Same(ScoreHistory.Empty, history);
+    }
+
+    [Fact]
     public void Reader_keys_by_server_and_persona_and_falls_back_to_the_run_host()
     {
         using (var c = MuckaDb.Open(DbPath))

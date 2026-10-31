@@ -12,12 +12,15 @@ public partial class ConnectPage : ContentPage
     private int _autoConnectAttempted;
 
     // -- Adaptive layout ------------------------------------------------------
-    // Wide: the large logo and the list in a fixed left column, the editor beside it (desktop, iPad,
-    // phone landscape). Narrow: a small logo, the list alone, and the editor on its own sheet. Width-based rather than OnIdiom so
-    // rotating a phone re-lays-out.
+    // Wide: the list in a fixed left column, the editor beside it (desktop, iPad, phone landscape).
+    // Narrow: the list alone, and the editor on its own sheet. The large logo heads the list only when
+    // the page is tall as well: in a phone's landscape it took the whole height and hid the list.
+    // Size-based rather than OnIdiom so rotating a phone re-lays-out.
     private const double WideLayoutMinWidthDp = 600.0;
+    private const double LargeLogoMinHeightDp = 700.0;
     private const double WideListColumnDp     = 340.0;
     private bool? _isWideLayout;
+    private bool? _isTallLayout;
 
     public ConnectPage(ConnectViewModel vm)
     {
@@ -40,11 +43,7 @@ public partial class ConnectPage : ContentPage
         {
             var info = DeviceDisplay.Current.MainDisplayInfo;
             if (info.Density > 0)
-            {
-                var wide = (info.Width / info.Density) >= WideLayoutMinWidthDp;
-                _isWideLayout = wide;
-                ApplyLayout(wide);
-            }
+                ApplyLayoutFor(info.Width / info.Density, info.Height / info.Density);
         }
         catch { /* no display info (unit tests, headless) - OnSizeAllocated will decide */ }
     }
@@ -54,15 +53,20 @@ public partial class ConnectPage : ContentPage
         base.OnSizeAllocated(width, height);
         if (width <= 0) return;
         _vm.PageWidthDp = width;
-        var wide = width >= WideLayoutMinWidthDp;
-        if (_isWideLayout != wide)
-        {
-            _isWideLayout = wide;
-            ApplyLayout(wide);
-        }
+        ApplyLayoutFor(width, height);
     }
 
-    private void ApplyLayout(bool wide)
+    private void ApplyLayoutFor(double width, double height)
+    {
+        var wide = width >= WideLayoutMinWidthDp;
+        var tall = height >= LargeLogoMinHeightDp;
+        if (_isWideLayout == wide && _isTallLayout == tall) return;
+        _isWideLayout = wide;
+        _isTallLayout = tall;
+        ApplyLayout(wide, tall);
+    }
+
+    private void ApplyLayout(bool wide, bool tall)
     {
         RootGrid.ColumnDefinitions = wide
             ? new ColumnDefinitionCollection(
@@ -73,12 +77,11 @@ public partial class ConnectPage : ContentPage
         Grid.SetColumnSpan(ListPane, 1);
         Separator.IsVisible = wide;
         RightPane.IsVisible = wide;
-        WideHeader.IsVisible = wide;
-        WideEmptyNoteHost.IsVisible = wide;
-        NarrowLogo.IsVisible = !wide;
-        NarrowVersionLabel.IsVisible = !wide;
-        NarrowGuestIntro.IsVisible = !wide;
-        NarrowWelcomeHost.IsVisible = !wide;
+        var largeLogo = wide && tall;
+        WideHeader.IsVisible = largeLogo;
+        NarrowLogo.IsVisible = !largeLogo;
+        NarrowVersionLabel.IsVisible = !largeLogo;
+        _vm.IsWideLayout = wide;
         // The list highlights its row beside the editor; on its own it is only buttons.
         ProfileList.SelectionMode = wide ? SelectionMode.Single : SelectionMode.None;
         // The editor beside the list shows the error itself.
@@ -95,6 +98,12 @@ public partial class ConnectPage : ContentPage
     }
 
     private async void OnGuestRequested() => await ChooseQuickStartAsync(showGuest: true);
+
+    private async void OnScoreHistoryClicked(object? sender, EventArgs e)
+    {
+        if (Navigation.ModalStack.Count > 0 || _vm.ScoreHistoryHost.Length == 0) return;
+        await Navigation.PushModalAsync(new ScorePage(_vm.ScoreHistoryHost));
+    }
 
     private bool _settingsOpen;
 

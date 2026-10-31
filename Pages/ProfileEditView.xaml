@@ -150,16 +150,10 @@
                                 SemanticProperties.Description="Connection" />
                     </Grid>
 
-                    <!-- The server's score history, without connecting -->
-                    <Button Text="Score history for this server"
-                            Style="{StaticResource Ghost}"
-                            HeightRequest="40"
-                            HorizontalOptions="Fill"
-                            Clicked="OnScoreClicked" />
                 </VerticalStackLayout>
             </Border>
 
-            <!-- Login: account or by hand -->
+            <!-- Login: an account id turns the automatic login on; blank, the player logs in by hand -->
             <Grid ColumnDefinitions="*,Auto">
                 <Label Grid.Column="0" Text="LOGIN" Style="{StaticResource SectionLabel}" VerticalOptions="Center" />
                 <Label Grid.Column="1"
@@ -174,90 +168,54 @@
                 </Label>
             </Grid>
             <Border Style="{StaticResource Card}">
-                <VerticalStackLayout Spacing="10">
-                    <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
-                        <Button Grid.Column="0" Text="Account" Style="{StaticResource Seg}"
-                                Command="{Binding SetLoginKindCommand}" CommandParameter="account">
-                            <Button.Triggers>
-                                <DataTrigger TargetType="Button" Binding="{Binding TelnetLoginEnabled}" Value="True">
-                                    <Setter Property="BackgroundColor" Value="#1f6feb" />
-                                    <Setter Property="TextColor" Value="White" />
-                                </DataTrigger>
-                            </Button.Triggers>
-                        </Button>
-                        <Button Grid.Column="1" Text="Type it myself" Style="{StaticResource Seg}"
-                                Command="{Binding SetLoginKindCommand}" CommandParameter="manual">
-                            <Button.Triggers>
-                                <DataTrigger TargetType="Button" Binding="{Binding TelnetLoginEnabled}" Value="False">
-                                    <Setter Property="BackgroundColor" Value="#1f6feb" />
-                                    <Setter Property="TextColor" Value="White" />
-                                </DataTrigger>
-                            </Button.Triggers>
-                        </Button>
-                    </Grid>
-                    <Label Text="{Binding LoginHint}"
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Mucka will log your account in automatically if you fill these in. Leave them blank if you're oldskool."
                            TextColor="#8b949e"
-                           FontSize="{core:ScaledFont 12}"
-                           MinimumHeightRequest="34" />
+                           FontSize="{core:ScaledFont 12}" />
+                    <Label Text="This is a guest profile: it looks around without an account."
+                           IsVisible="{Binding IsGuestLogin}"
+                           TextColor="#58a6ff"
+                           FontSize="{core:ScaledFont 12}" />
 
-                    <VerticalStackLayout Spacing="10"
-                                         Opacity="{Binding LoginFieldsOpacity}">
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="4">
-                            <Label Grid.Row="0" Grid.Column="0" Text="Account id" Style="{StaticResource FieldLabel}" />
-                            <Label Grid.Row="0" Grid.Column="1" Text="Password" Style="{StaticResource FieldLabel}" />
-                            <Entry Grid.Row="1" Grid.Column="0"
-                                   Text="{Binding AccountId}"
-                                   IsEnabled="{Binding TelnetLoginEnabled}"
-                                   Placeholder="{Binding AccountPlaceholder}"
-                                   SemanticProperties.Description="Account id"
-                                   ReturnType="Next" />
-                            <Entry Grid.Row="1" Grid.Column="1"
-                                   Text="{Binding Password}"
-                                   IsEnabled="{Binding TelnetLoginEnabled}"
-                                   IsPassword="True"
-                                   PlaceholderColor="{Binding PasswordPlaceholderColor}"
-                                   Placeholder="{Binding PasswordPlaceholder}"
-                                   SemanticProperties.Description="Password (optional)"
-                                   ReturnType="Done" />
-                        </Grid>
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                            <CheckBox Grid.Column="0"
-                                      IsChecked="{Binding RememberPassword}"
-                                      IsEnabled="{Binding TelnetLoginEnabled}"
-                                      Color="#1f6feb"
-                                      VerticalOptions="Center" />
-                            <Label Grid.Column="1"
-                                   Text="Remember password"
-                                   TextColor="#aaaaaa"
-                                   VerticalOptions="Center" />
-                        </Grid>
-                    </VerticalStackLayout>
-                </VerticalStackLayout>
-            </Border>
+                    <Label Text="MUD account ID" Style="{StaticResource FieldLabel}" Margin="0,6,0,0" />
+                    <Entry Text="{Binding AccountId}"
+                           Placeholder="{Binding AccountPlaceholder}"
+                           Keyboard="Plain"
+                           SemanticProperties.Description="MUD account ID"
+                           ReturnType="Next" />
 
-            <!-- Persona: pick it for me, or by hand in the terminal -->
-            <Label Text="PERSONA" Style="{StaticResource SectionLabel}" />
-            <Border Style="{StaticResource Card}">
-                <VerticalStackLayout Spacing="10" Opacity="{Binding LoginFieldsOpacity}">
-                    <Grid ColumnDefinitions="*,Auto">
-                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
-                            <Label Text="Choose my persona for me" TextColor="#cccccc" />
-                            <Label Text="Off: you pick it yourself in the game's menu."
-                                   TextColor="#8b949e"
-                                   FontSize="{core:ScaledFont 12}" />
-                        </VerticalStackLayout>
-                        <Switch Grid.Column="1"
-                                IsToggled="{Binding GuidedLogin}"
-                                IsEnabled="{Binding TelnetLoginEnabled}"
-                                OnColor="#1f6feb"
-                                VerticalOptions="Center"
-                                SemanticProperties.Description="Choose my persona for me" />
-                    </Grid>
-                    <Entry Text="{Binding GuidedLoginPersona}"
+                    <Label Text="Password (optional)" Style="{StaticResource FieldLabel}" Margin="0,6,0,0" />
+                    <Entry Text="{Binding Password}"
                            IsEnabled="{Binding TelnetLoginEnabled}"
-                           Placeholder="persona (blank: ask when I connect)"
-                           SemanticProperties.Description="Persona name"
-                           ReturnType="Done" />
+                           Opacity="{Binding LoginFieldsOpacity}"
+                           IsPassword="True"
+                           PlaceholderColor="{Binding PasswordPlaceholderColor}"
+                           Placeholder="{Binding PasswordPlaceholder}"
+                           SemanticProperties.Description="Password (optional)"
+                           ReturnType="Next" />
+
+                    <Label Text="Persona (optional)" Style="{StaticResource FieldLabel}" Margin="0,6,0,0" />
+                    <Grid ColumnDefinitions="*,Auto,Auto"
+                          ColumnSpacing="6"
+                          Opacity="{Binding LoginFieldsOpacity}">
+                        <Entry Grid.Column="0"
+                               Text="{Binding GuidedLoginPersona}"
+                               IsEnabled="{Binding PersonaNameEnabled}"
+                               Placeholder="blank: choose when I connect"
+                               Keyboard="Plain"
+                               SemanticProperties.Description="Persona (optional)"
+                               ReturnType="Done" />
+                        <CheckBox Grid.Column="1"
+                                  IsChecked="{Binding PersonaManual}"
+                                  IsEnabled="{Binding TelnetLoginEnabled}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"
+                                  SemanticProperties.Description="Manual: choose my persona myself" />
+                        <Label Grid.Column="2"
+                               Text="Manual"
+                               TextColor="#aaaaaa"
+                               VerticalOptions="Center" />
+                    </Grid>
                 </VerticalStackLayout>
             </Border>
 

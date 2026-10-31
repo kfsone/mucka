@@ -50,7 +50,6 @@
                    FontSize="{core:ScaledFont 12}" Margin="4,12,0,0" />
             <Button Text="MUD2 UK  -  mudii.co.uk"
                     Style="{StaticResource Preset}"
-                    IsVisible="{x:Static vm:ConnectViewModel.SshAvailable}"
                     CommandParameter="uk"
                     Clicked="OnPresetClicked" />
             <Button Text="MUD2 CA  -  mud2.com"

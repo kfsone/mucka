@@ -73,10 +73,4 @@ public partial class ProfileEditView : ContentView
                 break;
         }
     }
-
-    private async void OnScoreClicked(object? sender, EventArgs e)
-    {
-        if (BindingContext is not ConnectViewModel vm || Navigation.ModalStack.Count > (ShowClose ? 1 : 0)) return;
-        await Navigation.PushModalAsync(new ScorePage(vm.Host?.Trim() ?? string.Empty));
-    }
 }

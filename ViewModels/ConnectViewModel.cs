@@ -173,7 +173,13 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
     public bool HasError { get => _hasError; set => Set(ref _hasError, value); }
-    public string AccountId { get => _accountId; set => Set(ref _accountId, value); }
+    /// <summary>An account id is what turns the automatic login on: blank, the player logs in by hand
+    /// (or as a guest, by the profile's login name).</summary>
+    public string AccountId
+    {
+        get => _accountId;
+        set { if (Set(ref _accountId, value)) TelnetLoginEnabled = !string.IsNullOrWhiteSpace(value); }
+    }
     public string Password
     {
         get => _password;
@@ -193,7 +199,7 @@ public sealed class ConnectViewModel : BaseViewModel
            && string.IsNullOrEmpty(_password) && !_passwordFetchAttempted;
 
     public string PasswordPlaceholder
-        => RememberedPasswordUnfetched ? string.Concat(Enumerable.Repeat(Glyph.Bullet, 10)) : "password (optional)";
+        => RememberedPasswordUnfetched ? string.Concat(Enumerable.Repeat(Glyph.Bullet, 10)) : "blank: ask when I connect";
 
     public Color PasswordPlaceholderColor
         => RememberedPasswordUnfetched ? Color.FromArgb("#cccccc") : Color.FromArgb("#444444");
@@ -202,7 +208,7 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool TelnetLoginEnabled
     {
         get => _telnetLoginEnabled;
-        set { if (Set(ref _telnetLoginEnabled, value)) OnPropertiesChanged(nameof(LoginFieldsOpacity), nameof(LoginHint), nameof(IsGuestLogin)); }
+        set { if (Set(ref _telnetLoginEnabled, value)) OnPropertiesChanged(nameof(LoginFieldsOpacity), nameof(IsGuestLogin), nameof(PersonaNameEnabled)); }
     }
 
     /// <summary>True when the form is a guest login: no account sent, and the guest Unix login.</summary>
@@ -211,23 +217,15 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool IsGuestNameOnForm
         => string.Equals(_telnetLoginName.Trim(), Profile.GuestLoginName, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>One line under the login choice saying what the choice does. Two lines tall at most,
-    /// and the label reserves that height so switching profiles does not move the page.</summary>
-    public string LoginHint => IsGuestLogin
-        ? "Look around as a guest. No account needed."
-        : _telnetLoginEnabled
-            ? "Mucka logs you in with your account id and password."
-            : "You log in yourself, at the game's own prompts.";
-
-    /// <summary>The account rows are dimmed while MUD Login is off: the fields set their own colours,
-    /// so being disabled does not show on its own.</summary>
+    /// <summary>The persona row is dimmed with no account id: the fields set their own colours, so being
+    /// disabled does not show on its own.</summary>
     public double LoginFieldsOpacity => _telnetLoginEnabled ? 1.0 : 0.4;
     /// <summary>The shell login (and SSH user). Not on the page: read from and written to the
     /// profile's <c>loginname</c> key in mucka.ini, so it can be changed there.</summary>
     public string TelnetLoginName
     {
         get => _telnetLoginName;
-        set { if (Set(ref _telnetLoginName, value)) OnPropertiesChanged(nameof(LoginHint), nameof(IsGuestLogin)); }
+        set { if (Set(ref _telnetLoginName, value)) OnPropertyChanged(nameof(IsGuestLogin)); }
     }
     public int MaxColumns
     {
@@ -253,7 +251,17 @@ public sealed class ConnectViewModel : BaseViewModel
 
     /// <summary>Advanced feature: automate the MUD Shell (login through persona select/create)
     /// instead of requiring the player to drive it by hand after connecting.</summary>
-    public bool GuidedLogin { get => _guidedLogin; set => Set(ref _guidedLogin, value); }
+    public bool GuidedLogin
+    {
+        get => _guidedLogin;
+        set { if (Set(ref _guidedLogin, value)) OnPropertiesChanged(nameof(PersonaManual), nameof(PersonaNameEnabled)); }
+    }
+
+    /// <summary>"Manual": the player picks the persona in the game's own menu; off, Mucka does it.</summary>
+    public bool PersonaManual { get => !_guidedLogin; set => GuidedLogin = !value; }
+
+    /// <summary>The persona name only means something when Mucka logs in and picks the persona.</summary>
+    public bool PersonaNameEnabled => _telnetLoginEnabled && _guidedLogin;
     public string GuidedLoginPersona { get => _guidedLoginPersona; set => Set(ref _guidedLoginPersona, value); }
 
     public bool AdvancedVisible
@@ -292,8 +300,6 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand RenameProfileCommand { get; }
     /// <summary>The transport choice: "ssh" or "telnet".</summary>
     public ICommand SetTransportCommand { get; }
-    /// <summary>The login choice: "account" (MUD Login on) or "manual" (off).</summary>
-    public ICommand SetLoginKindCommand { get; }
     public ICommand DismissGuestIntroCommand { get; }
     public ICommand ToggleGuestPresetsCommand { get; }
 
@@ -391,13 +397,13 @@ public sealed class ConnectViewModel : BaseViewModel
         _useSsh = q.Ssh && SshAvailable;
         _portBeforeSsh = 0;
         OnPropertyChanged(nameof(UseSsh));
-        Port = q.Port;
+        // Without SSH (Android) an SSH preset connects with telnet, on telnet's port.
+        Port = q.Ssh && !SshAvailable ? TelnetPort : q.Port;
         AccountId = string.Empty;
         RememberPassword = false;
-        TelnetLoginEnabled = !q.Guest;
         TelnetLoginName = q.Guest ? Profile.GuestLoginName : "mud";
         MaxColumns = 0;
-        GuidedLogin = false;
+        GuidedLogin = true;
         GuidedLoginPersona = string.Empty;
         HasError = false;
         StatusText = string.Empty;
@@ -450,6 +456,28 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
+    /// <summary>The profile page's layout: the list beside the editor, or the list alone. Set by the page
+    /// from its width; the parts that belong to only one layout bind to the flags below.</summary>
+    public bool IsWideLayout
+    {
+        get => _isWideLayout;
+        set { if (Set(ref _isWideLayout, value)) RaiseLayoutFlags(); }
+    }
+    private bool _isWideLayout;
+
+    public bool ShowNarrowGuestIntro => ShowGuestIntro && !_isWideLayout;
+    public bool ShowNarrowWelcome => ShowWelcome && !_isWideLayout;
+    public bool ShowWideEmptyNote => HasNoProfiles && _isWideLayout;
+
+    private void RaiseLayoutFlags()
+        => OnPropertiesChanged(nameof(ShowNarrowGuestIntro), nameof(ShowNarrowWelcome), nameof(ShowWideEmptyNote));
+
+    /// <summary>The profile page's score history button: for the highlighted profile's server.</summary>
+    public string ScoreHistoryText => _selectedProfile is { } p ? $"Score history for {p.Name}" : "Score history";
+
+    /// <summary>The server whose score history that button opens; empty with no profile highlighted.</summary>
+    public string ScoreHistoryHost => _selectedProfile?.Host.Trim() ?? string.Empty;
+
     /// <summary>No profiles at all: the first run, or every profile deleted.</summary>
     public bool HasNoProfiles => SavedProfiles.Count == 0;
     public bool HasProfiles => SavedProfiles.Count > 0;
@@ -501,13 +529,6 @@ public sealed class ConnectViewModel : BaseViewModel
         SaveProfileCommand = new AsyncCommand(SaveProfileAsync);
         RenameProfileCommand = new AsyncCommand(RenameProfileAsync);
         SetTransportCommand = new Command<string>(t => UseSsh = t == "ssh" && SshAvailable);
-        SetLoginKindCommand = new Command<string>(kind =>
-        {
-            TelnetLoginEnabled = kind == "account";
-            // The account login is not the guest Unix login.
-            if (TelnetLoginEnabled && IsGuestNameOnForm)
-                TelnetLoginName = "mud";
-        });
         DismissGuestIntroCommand = new Command(() => GuestIntroVisible = false);
         ToggleGuestPresetsCommand = new Command(() => GuestPresetsVisible = !GuestPresetsVisible);
         _ = LoadGuestIntroAsync();
@@ -517,12 +538,17 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             if (e.PropertyName is nameof(Port) or nameof(UseSsh))
                 OnPropertyChanged(nameof(ConnectionLabel));
+            else if (e.PropertyName is nameof(SelectedProfile))
+                OnPropertiesChanged(nameof(ScoreHistoryText), nameof(ScoreHistoryHost));
+            else if (e.PropertyName is nameof(ShowGuestIntro) or nameof(ShowWelcome) or nameof(HasNoProfiles))
+                RaiseLayoutFlags();
         };
         ShowTelnetHelpCommand = new Command(() => _ = ShowHelpAsync("Logging in",
-            "Account: Mucka answers the game's login prompts with your account id and password, and "
-            + "remembers the password if you tick Remember password.\n\n"
-            + "Log in yourself: Mucka sends nothing, and you answer the game's prompts in the terminal.\n\n"
-            + "To look around without an account, use + Add and open Guest access."));
+            "MUD account ID: with it, Mucka answers the game's login prompts for you.\n\n"
+            + "Password: kept on this device so you are not asked again. Leave it blank to be asked each time you connect.\n\n"
+            + "Persona: the persona Mucka logs into for you. Leave it blank to pick from your personas when you connect, "
+            + "or tick Manual to choose it yourself in the game's own menu.\n\n"
+            + "Leave the account ID blank to log in yourself. To look around without an account, use + Add."));
         ShowConnectionHelpCommand = new Command(() => _ = ShowHelpAsync("Connection",
             "Secure (SSH): the connection is encrypted. The UK server offers it, on port 22.\n\n"
             + "Oldschool (Telnet): the classic connection, unencrypted, on port 23.\n\n"
@@ -779,7 +805,6 @@ public sealed class ConnectViewModel : BaseViewModel
         OnPropertyChanged(nameof(UseSsh));
         AccountId = p.AccountId;
         RememberPassword = p.RememberPassword;
-        TelnetLoginEnabled = p.TelnetLoginEnabled;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
         // Connecting always sizes the terminal to the window: the page no longer offers a width.
         MaxColumns = 0;
@@ -894,6 +919,9 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             var useSsh = UseSsh && SshAvailable;
             var port = Port > 0 ? Port : useSsh ? SshPort : TelnetPort;
+            // The editor has no Remember box: a password typed in is kept, an emptied box forgets it.
+            // A remembered one that has not been read yet is not an empty box.
+            RememberPassword = !string.IsNullOrEmpty(Password) || RememberedPasswordUnfetched;
             var profile = await BuildFormProfileAsync(port, useSsh, AccountId.Trim(), TelnetLoginName.Trim());
             await SaveCurrentProfileAsync(profile);
             HighlightProfileRow(profile.Name);
