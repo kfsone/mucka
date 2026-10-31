@@ -27,5 +27,8 @@
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
+	<!-- The same export declaration as Platforms/iOS/Info.plist, for the same reason. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
