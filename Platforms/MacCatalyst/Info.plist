@@ -27,10 +27,11 @@
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
-	<!-- SSH sessions are encrypted by SSH.NET, which ships BouncyCastle: industry-standard algorithms
-	     in the app itself. Apple's export compliance table asks such an app only for the French
-	     encryption declaration, and only when it is distributed in France. The operator's rule is that
-	     Mucka is not distributed in France, so it is exempt from documentation, which false declares. -->
+	<!-- False holds only for a build without the SSH transport. SSH.NET ships BouncyCastle:
+	     industry-standard algorithms in the app itself, for which Apple's export compliance table asks
+	     for the French encryption declaration when the app is distributed in France, and Mucka is. The
+	     operator's rule: a build uploaded to the App Store carries no SSH transport, as iOS does not
+	     (the SSH constant in Mucka.csproj). -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 </dict>
