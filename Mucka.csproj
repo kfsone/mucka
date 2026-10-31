@@ -6,15 +6,15 @@
 		     Linux runner    -> net10.0-android
 		     macOS runner    -> net10.0-maccatalyst  -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">net10.0-windows10.0.19041.0</TargetFrameworks>
-		<!-- Local Android build/deploy from a Windows dev box (opt-in so plain builds and CI
-		     don't require the android workload):
-		       dotnet build -f net10.0-android -p:LocalAndroid=true -t:Run   (deploys to adb device) -->
-		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows')) and '$(LocalAndroid)' == 'true'">net10.0-windows10.0.19041.0;net10.0-android</TargetFrameworks>
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx'))">net10.0-maccatalyst</TargetFrameworks>
 		<!-- Local iOS build from a Mac (opt-in so plain builds and CI don't require the ios workload):
 		       dotnet build -f net10.0-ios -p:LocalIos=true                      (simulator .app) -->
 		<TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('osx')) and '$(LocalIos)' == 'true'">net10.0-maccatalyst;net10.0-ios</TargetFrameworks>
 		<TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('windows')) and !$([MSBuild]::IsOSPlatform('osx'))">net10.0-android</TargetFrameworks>
+		<!-- Local Android build/deploy from a Windows or Mac dev box (opt-in so plain builds and CI
+		     don't require the android workload):
+		       dotnet build -f net10.0-android -p:LocalAndroid=true -t:Run   (deploys to adb device) -->
+		<TargetFrameworks Condition="'$(LocalAndroid)' == 'true' and ($([MSBuild]::IsOSPlatform('windows')) or $([MSBuild]::IsOSPlatform('osx')))">$(TargetFrameworks);net10.0-android</TargetFrameworks>
 
 		<OutputType>Exe</OutputType>
 		<RootNamespace>Mucka</RootNamespace>
