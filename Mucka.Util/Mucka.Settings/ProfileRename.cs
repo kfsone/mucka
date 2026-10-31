@@ -9,7 +9,9 @@ public static class ProfileRename
     public const string FkeysSectionPrefix = "fkeys:";
 
     /// <summary>Moves <paramref name="oldName"/>'s sections to <paramref name="newName"/>. False, with
-    /// nothing changed, when either name is blank or the new name already has a section of its own.</summary>
+    /// nothing changed, when either name is blank or another profile already has the new name. A
+    /// section under the new name with no profile of its own - the F-keys a deleted profile leaves
+    /// behind - is removed rather than inherited.</summary>
     public static bool Apply(IniFile ini, string oldName, string newName)
     {
         if (string.IsNullOrWhiteSpace(oldName) || string.IsNullOrWhiteSpace(newName))
@@ -17,8 +19,11 @@ public static class ProfileRename
         string[] prefixes = [GlobalSettingsMigration.ProfileSectionPrefix, FkeysSectionPrefix];
         // A section can differ from the old one's only by case and still be the same profile.
         var sameProfile = string.Equals(oldName, newName, StringComparison.OrdinalIgnoreCase);
-        if (!sameProfile && prefixes.Any(prefix => ini.HasSection(prefix + newName)))
+        if (!sameProfile && ini.HasSection(GlobalSettingsMigration.ProfileSectionPrefix + newName))
             return false;
+        if (!sameProfile)
+            foreach (var prefix in prefixes)
+                ini.RemoveSection(prefix + newName);
 
         foreach (var prefix in prefixes)
         {

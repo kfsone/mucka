@@ -1,3 +1,5 @@
+using Mucka.ViewModels;
+
 namespace Mucka.Pages;
 
 // Two fits for the stats bar, each measured against the room it has:
@@ -14,9 +16,6 @@ public partial class GamePage
     // Room to spare before something comes back into the bar, so a fit that is just made does not flicker.
     private const double StatsBarSlackDp = 16;
 
-    // BarEffects' left and right margins in GamePage.xaml.
-    private const double BarEffectsMarginDp = 10;
-
 #if MOBILE
     // What the one-row bar last wanted with everything on it, and with its maximums shed.
     private double _fullStatsWidthDp;
@@ -29,8 +28,32 @@ public partial class GamePage
         StatusBar.SizeChanged += OnStatsBarChanged;
         FullStatsBar.SizeChanged += OnStatsBarChanged;
         CompactStatsBar.SizeChanged += OnStatsBarChanged;
-        FullStatsBar.MeasureInvalidated += OnStatsBarChanged;
-        CompactStatsBar.MeasureInvalidated += OnStatsBarChanged;
+        _vm.PropertyChanged += OnStatsTextChanged;
+    }
+
+    // The bars' text, where it can change their width. Not every label change: the reset timer
+    // ticks every second, and its width only changes with its length.
+    private int _ttrLength;
+
+    private void OnStatsTextChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        switch (e.PropertyName)
+        {
+            case nameof(GameViewModel.TtrText):
+                var length = _vm.TtrText.Length;
+                if (length == _ttrLength) return;
+                _ttrLength = length;
+                break;
+            case nameof(GameViewModel.ScoreValue) or nameof(GameViewModel.ScoreDeltaValue)
+                or nameof(GameViewModel.ScoreCompactDeltaValue) or nameof(GameViewModel.WeatherDisplayText)
+                or nameof(GameViewModel.WeatherVisible) or nameof(GameViewModel.TtrVisible)
+                or nameof(GameViewModel.MagVisible) or nameof(GameViewModel.MailGlyphVisible)
+                or nameof(GameViewModel.IsRecording) or nameof(GameViewModel.StatsBarTight):
+                break;
+            default:
+                return;
+        }
+        OnStatsBarChanged(sender, EventArgs.Empty);
     }
 
     // One check per dispatcher tick however many changes arrive in it.
@@ -74,7 +97,8 @@ public partial class GamePage
             var wanted = CompactStatsBar.Measure(double.PositiveInfinity, double.PositiveInfinity).Width;
             _vm.EffectsInBar = _vm.EffectsInBar
                 ? wanted <= CompactStatsBar.Width + 0.5
-                : wanted + EffectSlotsView.SlotsWidthDp + BarEffectsMarginDp + StatsBarSlackDp <= CompactStatsBar.Width;
+                : wanted + BarEffects.SlotsWidthDp + BarEffects.Margin.HorizontalThickness + StatsBarSlackDp
+                  <= CompactStatsBar.Width;
         }
     }
 }

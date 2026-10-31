@@ -293,6 +293,9 @@ public sealed class GuidedLoginController : IDisposable
 
     private bool ConsumeDropToMenuRequest() => Interlocked.Exchange(ref _dropToMenuRequested, 0) != 0;
 
+    // Set by NegotiateBannerAsync when the server refuses the login.
+    private bool _loginRejected;
+
     /// <summary>
     /// Waits for the first "Option (H for help):" prompt, answering any "(y/n)" confirmation prompt
     /// with "y" if the server shows one before then -- mud2.com may ask to skip the rest of the MOTD,
@@ -301,9 +304,6 @@ public sealed class GuidedLoginController : IDisposable
     /// extracted by <see cref="ShellText.ExtractSplashRange"/> from the whole buffer accumulated
     /// since connecting -- see that method for exactly what's included/excluded.
     /// </summary>
-    // Set by NegotiateBannerAsync when the server refuses the login.
-    private bool _loginRejected;
-
     private async Task<bool> NegotiateBannerAsync(CancellationToken ct)
     {
         var deadline = DateTime.UtcNow + LandmarkTimeout;

@@ -66,6 +66,25 @@ public class ProfileRenameTests
     }
 
     [Fact]
+    public async Task FkeysADeletedProfileLeftBehindDoNotBlockTheName()
+    {
+        // Deleting a profile leaves its [fkeys:] section; the name is free again all the same.
+        var ini = await Parse(TwoProfiles + "\n\n[fkeys:Gone]\nf1=north\n");
+        Assert.True(ProfileRename.Apply(ini, "Alt", "Gone"));
+        Assert.Equal("mud2.com", ini.Get("profile:Gone", "host"));
+        // Alt had no F-keys of its own, and does not take the deleted profile's.
+        Assert.False(ini.HasSection("fkeys:Gone"));
+    }
+
+    [Fact]
+    public async Task FkeysOfTheRenamedProfileReplaceOnesLeftBehind()
+    {
+        var ini = await Parse(TwoProfiles + "\n\n[fkeys:Gone]\nf1=north\n");
+        Assert.True(ProfileRename.Apply(ini, "Main", "Gone"));
+        Assert.Equal("look", ini.Get("fkeys:Gone", "f1"));
+    }
+
+    [Fact]
     public async Task ChangingOnlyTheCaseIsARename()
     {
         var ini = await Parse(TwoProfiles);

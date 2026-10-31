@@ -33,10 +33,20 @@ public partial class QuickStartPage : ContentPage
 
     private async void OnPresetClicked(object? sender, EventArgs e)
     {
-        if (sender is not Button { CommandParameter: string key }) return;
+        if (_closing || sender is not Button { CommandParameter: string key }) return;
         _key = key;
-        await Navigation.PopModalAsync();
+        await CloseAsync();
     }
 
-    private async void OnCancelClicked(object? sender, EventArgs e) => await Navigation.PopModalAsync();
+    private async void OnCancelClicked(object? sender, EventArgs e) => await CloseAsync();
+
+    // A second tap while the sheet is closing would pop the page beneath it.
+    private bool _closing;
+
+    private async Task CloseAsync()
+    {
+        if (_closing) return;
+        _closing = true;
+        await Navigation.PopModalAsync();
+    }
 }

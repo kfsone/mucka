@@ -16,8 +16,8 @@
          transparent rather than collapsed. Observed on an iPad: icons collapsed while their bar was
          hidden did not reappear when the bar was shown, so slot N always means the same effect.
          | sta str dex | glow combat | deaf blind dumb crippled. Per stat the buff sits behind the
-         debuff, offset so a little of it shows, as on the one-row bar. Width is SlotsWidthDp. -->
-    <Grid ColumnDefinitions="28,28,28,7,24,24,7,24,24,24,24" HeightRequest="24" VerticalOptions="Center">
+         debuff, offset so a little of it shows, as on the one-row bar. Its width is SlotsWidthDp. -->
+    <Grid x:Name="Slots" ColumnDefinitions="28,28,28,7,24,24,7,24,24,24,24" HeightRequest="24" VerticalOptions="Center">
         <Image Grid.Column="0" Source="stamina.png"       Margin="4,0,0,0" TranslationY="{Binding SidePanel.StaminaBuffDy}"    Opacity="{Binding SidePanel.StaminaBuff, Converter={StaticResource ShownOpacity}}"    WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
         <Image Grid.Column="0" Source="stamina_neg.png"                    TranslationY="{Binding SidePanel.StaminaDebuffDy}"  Opacity="{Binding SidePanel.StaminaDebuff, Converter={StaticResource ShownOpacity}}"  WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>
         <Image Grid.Column="1" Source="strength.png"      Margin="4,0,0,0" TranslationY="{Binding SidePanel.StrengthBuffDy}"   Opacity="{Binding SidePanel.StrengthBuff, Converter={StaticResource ShownOpacity}}"   WidthRequest="22" HeightRequest="22" HorizontalOptions="Start" VerticalOptions="Center"/>

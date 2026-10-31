@@ -73,42 +73,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
     /// <summary>0 means the port field is empty; connecting then uses the transport's own port.</summary>
-    public int Port
-    {
-        get => _port;
-        set
-        {
-            if (Set(ref _port, value))
-                OnPropertyChanged(nameof(PortText));
-        }
-    }
-
-    /// <summary>The port as typed, blank for 0. An Entry bound straight to the int never writes back
-    /// when cleared (blank does not convert), so the parse is here: blank is 0, a number above 65535
-    /// (or a run of digits too long to parse) is held at it, and anything else leaves the port as it was. The change is always announced, so
-    /// the Entry is put back to the port in force. Invariant culture for the same reason as
-    /// <see cref="MaxColumnsText"/>.</summary>
-    public string PortText
-    {
-        get => _port == 0 ? string.Empty : _port.ToString(CultureInfo.InvariantCulture);
-        set
-        {
-            var text = value?.Trim() ?? string.Empty;
-            var port = _port;
-            if (text.Length == 0)
-                port = 0;
-            else if (int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
-                port = n > 0 ? Math.Min(n, 65535) : _port;
-            else if (text.All(char.IsAsciiDigit))
-                port = 65535;   // digits too many for an int
-            // A real edit forfeits the port UseSsh set aside. Every change the view model makes is
-            // echoed back through here unchanged, and must not.
-            if (port != _port)
-                _portBeforeSsh = 0;
-            Port = port;
-            OnPropertyChanged(nameof(PortText));
-        }
-    }
+    public int Port { get => _port; set => Set(ref _port, value); }
 
     /// <summary>The SSH transport exists on every build but Android.</summary>
     public static bool SshAvailable =>
@@ -148,7 +113,7 @@ public sealed class ConnectViewModel : BaseViewModel
         set
         {
             if (Set(ref _isConnecting, value))
-                OnPropertiesChanged(nameof(IsNotConnecting), nameof(ConnectButtonText), nameof(CanConnect), nameof(IdleOpacity));
+                OnPropertiesChanged(nameof(IsNotConnecting), nameof(CanConnect), nameof(IdleOpacity));
         }
     }
 
@@ -157,7 +122,6 @@ public sealed class ConnectViewModel : BaseViewModel
     /// <summary>The page's controls fade while a connection is being made: disabled alone, the
     /// buttons keep their own colours and look as live as before.</summary>
     public double IdleOpacity => _isConnecting ? 0.4 : 1.0;
-    public string ConnectButtonText => _isConnecting ? "Connecting..." : "Connect  " + Glyph.TriangleRight;
 
     /// <summary>What the connection attempt is doing right now; shown while <see cref="IsConnecting"/>.</summary>
     public string ProgressText { get => _progressText; set => Set(ref _progressText, value); }
@@ -176,7 +140,10 @@ public sealed class ConnectViewModel : BaseViewModel
             if (value is not null) SelectProfile(value);
         }
     }
-    public bool HasError { get => _hasError; set => Set(ref _hasError, value); }
+    public bool HasError { get => _hasError; set { if (Set(ref _hasError, value)) OnPropertyChanged(nameof(ShowListError)); } }
+
+    /// <summary>The error line under the list: not when the editor is beside it, which shows the error itself.</summary>
+    public bool ShowListError => _hasError && !(_isWideLayout && ShowEditorPane);
     /// <summary>An account id is what turns the automatic login on: blank, the player logs in by hand
     /// (or as a guest, by the profile's login name).</summary>
     public string AccountId
@@ -236,16 +203,10 @@ public sealed class ConnectViewModel : BaseViewModel
         get => _maxColumns;
         set
         {
-            if (Set(ref _maxColumns, Math.Clamp(value, 0, 160)))
-                OnPropertyChanged(nameof(MaxColumnsText));
+            Set(ref _maxColumns, Math.Clamp(value, 0, 160));
         }
     }
 
-    /// <summary>Display string for the MaxColumns entry - blank means "auto" (0).</summary>
-    // Invariant, not the reader's culture: this text goes back into the entry and is parsed out of
-    // it again, so the two ends have to agree on one format. See OnMaxColumnsEntryCompleted.
-    public string MaxColumnsText =>
-        _maxColumns == 0 ? string.Empty : _maxColumns.ToString(CultureInfo.InvariantCulture);
     /// <summary>This page's width, set by the page as it lays out. The game page has the same width,
     /// so the terminal's columns are worked out from it before connecting.</summary>
     public double PageWidthDp { get; set; }
@@ -302,8 +263,6 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand DeleteProfileCommand { get; }
     public ICommand SaveProfileCommand { get; }
     public ICommand RenameProfileCommand { get; }
-    /// <summary>The transport choice: "ssh" or "telnet".</summary>
-    public ICommand SetTransportCommand { get; }
     public ICommand DismissGuestIntroCommand { get; }
     public ICommand ToggleGuestPresetsCommand { get; }
 
@@ -359,7 +318,7 @@ public sealed class ConnectViewModel : BaseViewModel
         HasError = false;
         StatusText = string.Empty;
         if (SavedProfiles.Count > 0)
-            ApplyProfile(SavedProfiles[0]);
+            SelectProfile(SavedProfiles[0]);
     }
 
     /// <summary>Guest presets in Quick Start are folded away until asked for.</summary>
@@ -410,13 +369,18 @@ public sealed class ConnectViewModel : BaseViewModel
         finally
         {
             _guestSession = false;
-            if (before is not null && SavedProfiles.Contains(before)) ApplyProfile(before);
-            else if (SavedProfiles.Count > 0) ApplyProfile(SavedProfiles[0]);
+            if (before is not null && SavedProfiles.Contains(before)) SelectProfile(before);
+            else if (SavedProfiles.Count > 0) SelectProfile(SavedProfiles[0]);
         }
     }
 
     // Set while ConnectAsGuestAsync's connection is made: nothing about it is saved.
     private bool _guestSession;
+
+    // The saved profile the form is, by name. Never for a guest: a saved profile may share the
+    // guest preset's name.
+    private Profile? SavedProfileForForm() => _guestSession ? null
+        : SavedProfiles.FirstOrDefault(p => string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
 
     private void FillFromQuickStart(QuickStart q, string name)
     {
@@ -435,7 +399,8 @@ public sealed class ConnectViewModel : BaseViewModel
         TelnetLoginEnabled = !string.IsNullOrWhiteSpace(AccountId);
         RememberPassword = false;
         TelnetLoginName = q.Guest ? Profile.GuestLoginName : "mud";
-        MaxColumns = 0;
+        // The settings editor's Columns, which every profile carries.
+        MaxColumns = SavedProfiles.FirstOrDefault()?.MaxColumns ?? 0;
         GuidedLogin = true;
         GuidedLoginPersona = string.Empty;
         HasError = false;
@@ -534,7 +499,8 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool ShowWideEmptyNote => HasNoProfiles && _isWideLayout;
 
     private void RaiseLayoutFlags()
-        => OnPropertiesChanged(nameof(ShowNarrowGuestIntro), nameof(ShowNarrowWelcome), nameof(ShowWideEmptyNote));
+        => OnPropertiesChanged(nameof(ShowNarrowGuestIntro), nameof(ShowNarrowWelcome), nameof(ShowWideEmptyNote),
+            nameof(ShowListError));
 
     /// <summary>The profile page's score history button: for the highlighted profile's server.</summary>
     public string ScoreHistoryText
@@ -593,7 +559,6 @@ public sealed class ConnectViewModel : BaseViewModel
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         SaveProfileCommand = new AsyncCommand(SaveProfileAsync);
         RenameProfileCommand = new AsyncCommand(RenameProfileAsync);
-        SetTransportCommand = new Command<string>(t => UseSsh = t == "ssh" && SshAvailable);
         DismissGuestIntroCommand = new Command(() => GuestIntroVisible = false);
         ToggleGuestPresetsCommand = new Command(() => GuestPresetsVisible = !GuestPresetsVisible);
         _ = LoadGuestIntroAsync();
@@ -605,7 +570,8 @@ public sealed class ConnectViewModel : BaseViewModel
                 OnPropertyChanged(nameof(ConnectionLabel));
             else if (e.PropertyName is nameof(SelectedProfile))
                 OnPropertiesChanged(nameof(ScoreHistoryText), nameof(ScoreHistoryHost));
-            else if (e.PropertyName is nameof(ShowGuestIntro) or nameof(ShowWelcome) or nameof(HasNoProfiles))
+            else if (e.PropertyName is nameof(ShowGuestIntro) or nameof(ShowWelcome) or nameof(HasNoProfiles)
+                     or nameof(ShowEditorPane))
                 RaiseLayoutFlags();
         };
         ShowTelnetHelpCommand = new Command(() => _ = ShowHelpAsync("Logging in",
@@ -688,8 +654,8 @@ public sealed class ConnectViewModel : BaseViewModel
             // The server wraps the login at the width it is told on connecting, before the game page
             // exists to measure; this page is as wide as that one, so the count is worked out here.
             // Auto used to reach the connection as 0 and be clamped to 20.
-            var fontPx = SavedProfiles.FirstOrDefault(p =>
-                    string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase)) is { } font
+            // The game font is global, so a guest takes any saved profile's.
+            var fontPx = (SavedProfileForForm() ?? SavedProfiles.FirstOrDefault()) is { } font
                 ? (font.FontSize > 0 ? font.FontSize : GameViewModel.DefaultFontSizePx)
                 : GameViewModel.DefaultFontSizePx;
 #if MACCATALYST
@@ -758,8 +724,7 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         // Carry the persisted settings (fkeys, font, volume, ...) over from the saved
         // profile - they are not editable on this page but must not reset on connect.
-        var saved = SavedProfiles.FirstOrDefault(p =>
-            string.Equals(p.Name, ProfileName, StringComparison.OrdinalIgnoreCase));
+        var saved = SavedProfileForForm();
 
         var profile = new Profile
         {
@@ -823,15 +788,9 @@ public sealed class ConnectViewModel : BaseViewModel
         // to the file after that is on disk while the cache still holds the old one, and a relog
         // inside one run restores what the player turned off. The fields above stay: ApplyTo only writes the
         // keys the file actually has, so they are the defaults for the ones it does not.
-        // The page-edited column count wins over the stored one.
         try
         {
-            var stored = await SettingsStore.LoadProfileAsync(profile.Name);
-            if (stored is not null)
-            {
-                stored.ApplyTo(profile);
-                profile.MaxColumns = MaxColumns;
-            }
+            (await SettingsStore.LoadProfileAsync(profile.Name))?.ApplyTo(profile);
         }
         catch (Exception ex)
         {
@@ -869,12 +828,13 @@ public sealed class ConnectViewModel : BaseViewModel
         _portBeforeSsh = 0;
         OnPropertyChanged(nameof(UseSsh));
         AccountId = p.AccountId;
-        // The setter only acts on a change, and the form may already hold the same id.
-        TelnetLoginEnabled = !string.IsNullOrWhiteSpace(AccountId);
+        // Set outright: the setter only acts on a change. A profile saved with MUD Login off keeps
+        // it off until its account id is edited.
+        TelnetLoginEnabled = p.AutoLogin;
         RememberPassword = p.RememberPassword;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
-        // Connecting always sizes the terminal to the window: the page no longer offers a width.
-        MaxColumns = 0;
+        // Not on this page: the settings editor's Columns, which every profile carries.
+        MaxColumns = p.MaxColumns;
         AntiIdleSeconds = p.AntiIdleSeconds;
         KeepScreenOn = p.KeepScreenOn;
         GuidedLogin = p.GuidedLogin;
@@ -965,7 +925,8 @@ public sealed class ConnectViewModel : BaseViewModel
     /// <summary>Writes the form to its profile without connecting.</summary>
     private async Task SaveProfileAsync()
     {
-        if (IsConnecting || IsDirectConnectMode) return;
+        // Not while the selected profile's password is still being read: the box is empty until then.
+        if (IsConnecting || IsDirectConnectMode || Volatile.Read(ref _profileLoadsInProgress) > 0) return;
         var name = ProfileName.Trim();
         if (name.Length == 0)
         {
@@ -987,16 +948,16 @@ public sealed class ConnectViewModel : BaseViewModel
             var useSsh = UseSsh && SshAvailable;
             var port = Port > 0 ? Port : useSsh ? SshPort : TelnetPort;
             // The editor has no Remember box: a password typed in is kept, an emptied box forgets it.
-            // A remembered one that has not been read yet is not an empty box.
-            RememberPassword = !string.IsNullOrEmpty(Password) || RememberedPasswordUnfetched;
+            // A remembered one that was never read (not fetched yet, or the fetch failed) is not an
+            // empty box, and is decided before RememberPassword is overwritten.
+            var storedPasswordUnread = string.IsNullOrEmpty(Password)
+                && _selectedProfile is { RememberPassword: true }
+                && (_passwordFetchFailed || RememberedPasswordUnfetched);
+            RememberPassword = !string.IsNullOrEmpty(Password) || storedPasswordUnread;
             var profile = await BuildFormProfileAsync(port, useSsh, AccountId.Trim(), TelnetLoginName.Trim());
             await SaveCurrentProfileAsync(profile);
             HighlightProfileRow(profile.Name);
             IsNewProfile = false;
-            // As on connect: an empty box over a stored password that was never fetched is not a
-            // request to delete it.
-            var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(Password)
-                && (_passwordFetchFailed || RememberedPasswordUnfetched);
             if (!storedPasswordUnread)
                 await SavePasswordAsync(profile.Name, RememberPassword ? Password : null);
         }
@@ -1121,7 +1082,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
         else
         {
-            ApplyProfile(SavedProfiles[0]);
+            SelectProfile(SavedProfiles[0]);
         }
 
         await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
@@ -1185,6 +1146,8 @@ public sealed class ConnectViewModel : BaseViewModel
         if (_cmdArgs.User != null) TelnetLoginName = _cmdArgs.User;
         if (_cmdArgs.Account != null) AccountId = _cmdArgs.Account;
         if (_cmdArgs.Password != null) Password = _cmdArgs.Password;
+        // A direct connection with no saved profile to start from is named after its server.
+        if (string.IsNullOrWhiteSpace(ProfileName) && _cmdArgs.Host != null) ProfileName = _cmdArgs.Host;
     }
 
     /// <summary>The Game Font and chat colour theme chosen on the Text size page: global, so every

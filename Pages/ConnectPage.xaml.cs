@@ -82,11 +82,15 @@ public partial class ConnectPage : ContentPage
         NarrowLogo.IsVisible = !largeLogo;
         NarrowVersionLabel.IsVisible = !largeLogo;
         _vm.IsWideLayout = wide;
-        // The editor beside the list shows the error itself.
-        ListStatus.MaximumHeightRequest = wide ? 0 : -1;
+        // A new profile was being filled in beside the list: on its own, the list has no editor.
+        if (!wide && _vm.IsNewProfile)
+            OnEditRequested();
     }
 
     private async void OnAddClicked(object? sender, EventArgs e) => await ChooseQuickStartAsync(showGuest: false);
+
+    // Observed: an editor sheet pushed while the Quick Start sheet was still closing never appeared.
+    private const int ChooserCloseDelayMs = 400;
 
     // The guest note and the welcome both open Quick Start with its guest servers showing.
     private void OnGuestIntroClicked(object? sender, EventArgs e)
@@ -145,7 +149,7 @@ public partial class ConnectPage : ContentPage
             return;
         }
         // The chooser is still on its way out: a sheet pushed now is lost.
-        await Task.Delay(400);
+        await Task.Delay(ChooserCloseDelayMs);
         _vm.BeginNewProfile(key);
     }
 

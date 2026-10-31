@@ -244,10 +244,9 @@
                     <Label Text="{Binding ProgressText}" TextColor="#58a6ff" VerticalOptions="Center"/>
                 </HorizontalStackLayout>
                 <!-- The editor shows save errors itself when it is beside the list -->
-                <Label x:Name="ListStatus"
-                       Text="{Binding StatusText}"
+                <Label Text="{Binding StatusText}"
                        TextColor="#f85149"
-                       IsVisible="{Binding HasError}"
+                       IsVisible="{Binding ShowListError}"
                        HorizontalOptions="Center" />
             </VerticalStackLayout>
 

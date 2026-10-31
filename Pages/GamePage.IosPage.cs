@@ -51,6 +51,9 @@ public partial class GamePage
         fkeys.State = _vm.FkeysVisible ? UIKit.UIMenuElementState.On : UIKit.UIMenuElementState.Off;
         button.Menu = UIKit.UIMenu.Create([chat, fkeys]);
         button.ShowsMenuAsPrimaryAction = false;
+        // Observed: near the foot of the screen iOS listed them the other way up.
+        if (OperatingSystem.IsIOSVersionAtLeast(16))
+            button.PreferredMenuElementOrder = UIKit.UIContextMenuConfigurationElementOrder.Fixed;
     }
 
     private void OnIosSendButtonHandlerChanged(object? sender, EventArgs e) => SetIosSendMenu();
@@ -64,7 +67,7 @@ public partial class GamePage
     private void OnIosTerminalSizeChanged(object? sender, EventArgs e) => RecalculateColumns(Width);
 
     // The online list was observed empty on the iPhone simulator while the wire log held the
-    // server's FEW replies. Each list sits in a ScrollView sized by its content (at most 180); the
+    // server's FEW replies. Each list sits in a ScrollView sized by its content (at most its MaximumHeightRequest); the
     // ScrollView's height is set from the list's own here.
     private void OnIosWhoListSizeChanged(object? sender, EventArgs e)
     {

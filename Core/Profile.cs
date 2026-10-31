@@ -22,13 +22,13 @@ public class Profile : INotifyPropertyChanged
     public string Host
     {
         get => _host;
-        set { if (_host == value) return; _host = value; Raise(nameof(Host), nameof(Endpoint)); }
+        set { if (_host == value) return; _host = value; Raise(nameof(Host)); }
     }
 
     public int Port
     {
         get => _port;
-        set { if (_port == value) return; _port = value; Raise(nameof(Port), nameof(Endpoint)); }
+        set { if (_port == value) return; _port = value; Raise(nameof(Port)); }
     }
 
     /// <summary>Connect over SSH instead of telnet. Not on Android; the login name is the SSH user.</summary>
@@ -38,9 +38,6 @@ public class Profile : INotifyPropertyChanged
         set { if (_useSsh == value) return; _useSsh = value; Raise(nameof(UseSsh), nameof(KindSummary)); }
     }
 
-    /// <summary>The server as the profile list shows it: host and port.</summary>
-    public string Endpoint => $"{Host}:{Port}";
-
     /// <summary>The profile list's third line: the connection, then how the login is done - with
     /// the account, as a guest (the <c>mudguest</c> login), or typed by the player.</summary>
     public string KindSummary
@@ -48,16 +45,16 @@ public class Profile : INotifyPropertyChanged
         get
         {
             var transport = UseSsh && ViewModels.ConnectViewModel.SshAvailable ? "SSH" : "Telnet";
-            var login = IsGuest ? "Guest" : TelnetLoginEnabled ? "Account" : "Log in yourself";
+            var login = IsGuest ? "Guest" : AutoLogin ? "Account" : "Log in yourself";
             return $"{transport}  {Glyph.Bullet}  {login}";
         }
     }
 
     /// <summary>The guest Unix login on the real servers.</summary>
-    public const string GuestLoginName = "mudguest";
+    public const string GuestLoginName = Mucka.Commands.ShellLogin.Guest;
 
     /// <summary>True when the client sends no account and the Unix login is the guest one.</summary>
-    public bool IsGuest => !TelnetLoginEnabled
+    public bool IsGuest => !AutoLogin
         && string.Equals(TelnetLoginName, GuestLoginName, StringComparison.OrdinalIgnoreCase);
 
     private int _port = 23;
@@ -69,7 +66,16 @@ public class Profile : INotifyPropertyChanged
     {
         foreach (var n in names) PropertyChanged?.Invoke(this, new(n));
     }
-    public string AccountId { get; set; } = string.Empty;
+    public string AccountId
+    {
+        get => _accountId;
+        set { if (_accountId == value) return; _accountId = value; Raise(nameof(AccountId), nameof(KindSummary)); }
+    }
+    private string _accountId = string.Empty;
+
+    /// <summary>The client answers the account prompts itself: MUD Login on (profiles saved before it
+    /// left the page can have it off) and an account id to send.</summary>
+    public bool AutoLogin => TelnetLoginEnabled && !string.IsNullOrWhiteSpace(AccountId);
     public bool RememberPassword { get; set; }
     public bool TelnetLoginEnabled
     {
