@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:vm="clr-namespace:Mucka.ViewModels"
              xmlns:core="clr-namespace:Mucka.Core"
+             xmlns:pages="clr-namespace:Mucka.Pages"
              x:Class="Mucka.Pages.ConnectPage"
              x:DataType="vm:ConnectViewModel"
              Title="mucka"
@@ -10,455 +11,285 @@
              NavigationPage.HasNavigationBar="False"
              SafeAreaEdges="All">
 
-    <!-- Static placement below is the WIDE layout (list panel left of the form); ApplyLayout in
-         the code-behind re-grids by actual width - narrow puts the logo beside a height-capped
-         list, then the form below. Width-based (not OnIdiom) so a phone in landscape goes wide. -->
-    <Grid x:Name="RootGrid"
-          RowDefinitions="Auto,*,Auto"
-          ColumnDefinitions="256,1,*">
+    <ContentPage.Resources>
+        <Style x:Key="HeaderButton" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#1a1a1a" />
+            <Setter Property="TextColor" Value="#58a6ff" />
+            <Setter Property="BorderColor" Value="#333333" />
+            <Setter Property="BorderWidth" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="HeightRequest" Value="44" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="VerticalOptions" Value="Center" />
+        </Style>
+    </ContentPage.Resources>
 
-        <!-- Narrow-only title strip: app name + version.
-             Hidden in wide layout, where the version renders under the logo instead. -->
-        <Border x:Name="TitleBar"
-                Grid.Row="0" Grid.Column="0"
-                IsVisible="False"
-                BackgroundColor="#161b22"
-                StrokeThickness="0"
-                Padding="12,6">
-            <Label x:Name="TitleLabel"
-                   TextColor="#cccccc"
-                   FontSize="{core:ScaledFont 14}"
-                   FontAttributes="Bold"
-                   VerticalOptions="Center"/>
-        </Border>
+    <!-- The profile list is the page. Static placement below is the WIDE layout: the large logo and
+         the list on the left, the selected profile's editor on the right. ApplyLayout in the
+         code-behind collapses it by actual width to the list alone, with a small logo, and the
+         editor on its own sheet. Width-based (not OnIdiom) so a phone in landscape goes wide. -->
+    <Grid x:Name="RootGrid" ColumnDefinitions="340,1,*">
 
-        <!-- Logo + version - fixed above the profile list so the list scrolls under it -->
-        <VerticalStackLayout x:Name="HeaderPanel"
-                             Grid.Row="0" Grid.Column="0"
-                             Padding="0" BackgroundColor="#111111">
-            <Image x:Name="LogoImage"
-                   Source="mucka_logo.png"
-                   HorizontalOptions="Fill"
-                   Aspect="AspectFit"/>
-            <Label x:Name="VersionLabel"
-                   TextColor="#555555"
-                   FontSize="{core:ScaledFont 11}"
-                   HorizontalOptions="Center"
-                   Padding="0,0,0,2"/>
-        </VerticalStackLayout>
+        <Grid x:Name="ListPane"
+              Grid.Column="0"
+              RowDefinitions="Auto,Auto,Auto,*,Auto,Auto"
+              BackgroundColor="#0C0C0C">
 
-        <CollectionView Grid.Row="1"
-                        Grid.Column="0"
-                        x:Name="ProfileList"
-                        ItemsSource="{Binding SavedProfiles}"
-                        SelectionMode="Single"
-                        SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
-                        IsEnabled="{Binding IsNotConnecting}"
-                        BackgroundColor="#111111">
-            <CollectionView.Header>
-                <Label Text="Saved profiles"
+            <!-- Wide: the large logo and the version above the list -->
+            <VerticalStackLayout x:Name="WideHeader"
+                                 Grid.Row="0"
+                                 BackgroundColor="#111111">
+                <Image Source="mucka_logo.png"
+                       HorizontalOptions="Fill"
+                       Aspect="AspectFit" />
+                <Label x:Name="WideVersionLabel"
                        TextColor="#555555"
-                       FontSize="{core:ScaledFont 12}"
-                       Padding="12,4,12,4" />
-            </CollectionView.Header>
-            <CollectionView.ItemTemplate>
-                <DataTemplate x:DataType="core:Profile">
-                    <VerticalStackLayout Padding="12,6" Spacing="2">
-                        <VerticalStackLayout.GestureRecognizers>
-                            <!-- Selecting on a single click is the row's own job: on the Mac the double-tap
-                                 recognizer below stops the list's native selection from firing. -->
-                            <TapGestureRecognizer NumberOfTapsRequired="1"
-                                                  Tapped="OnProfileTapped"
-                                                  CommandParameter="{Binding .}" />
-                            <TapGestureRecognizer NumberOfTapsRequired="2"
-                                                  Tapped="OnProfileDoubleTapped"
-                                                  CommandParameter="{Binding .}" />
-                        </VerticalStackLayout.GestureRecognizers>
-                        <Label Text="{Binding Name}"
-                               TextColor="#cccccc" />
-                        <Label Text="{Binding Host}"
-                               TextColor="#555555"
-                               FontSize="{core:ScaledFont 11}" />
-                    </VerticalStackLayout>
-                </DataTemplate>
-            </CollectionView.ItemTemplate>
-        </CollectionView>
+                       FontSize="{core:ScaledFont 11}"
+                       HorizontalOptions="Center"
+                       Padding="0,0,0,2" />
+            </VerticalStackLayout>
 
-        <!-- The Text size page again (Pages/FontSetupPage). Large on purpose: a player who cannot
-             read this page has to be able to find this. -->
-        <Button x:Name="FontSetupButton"
-                Grid.Row="2" Grid.Column="0"
-                Text="Aa  Text size"
-                Clicked="OnFontSetupClicked"
-                IsVisible="{OnPlatform Default=True, Android=False, iOS=False}"
-                BackgroundColor="#1a1a1a"
-                TextColor="#58a6ff"
-                BorderColor="#333333"
-                BorderWidth="1"
-                CornerRadius="6"
-                FontSize="{core:ScaledFont 16}"
-                MinimumHeightRequest="44"
-                Margin="12,8"
-                Padding="16,8"
-                SemanticProperties.Description="Change the text size"/>
+            <!-- Title, Settings and Add; narrow puts a small logo and the version here too -->
+            <Grid Grid.Row="1"
+                  ColumnDefinitions="Auto,*,Auto,Auto"
+                  ColumnSpacing="8"
+                  Padding="12,8">
+                <Image x:Name="NarrowLogo"
+                       Grid.Column="0"
+                       Source="mucka_logo.png"
+                       HeightRequest="46"
+                       Aspect="AspectFit" />
+                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="0">
+                    <Label Text="Profiles"
+                           TextColor="White"
+                           FontAttributes="Bold"
+                           FontSize="{core:ScaledFont 20}" />
+                    <Label x:Name="NarrowVersionLabel"
+                           TextColor="#555555"
+                           FontSize="{core:ScaledFont 11}" />
+                </VerticalStackLayout>
+                <Button Grid.Column="2"
+                        Text="Settings"
+                        Style="{StaticResource HeaderButton}"
+                        Clicked="OnSettingsClicked"
+                        IsEnabled="{Binding IsNotConnecting}"
+                        SemanticProperties.Description="Settings" />
+                <Button Grid.Column="3"
+                        Text="+ Add"
+                        Clicked="OnAddClicked"
+                        IsEnabled="{Binding IsNotConnecting}"
+                        BackgroundColor="#1f6feb"
+                        TextColor="White"
+                        CornerRadius="8"
+                        HeightRequest="44"
+                        Padding="16,0"
+                        VerticalOptions="Center"
+                        SemanticProperties.Description="Add a profile" />
+            </Grid>
 
-        <!-- Separator between the profile panel and the form -->
-        <BoxView x:Name="Separator"
-                 Grid.Row="0" Grid.RowSpan="3"
-                 Grid.Column="1"
-                 Color="#333333"
-                 WidthRequest="1" />
-
-        <ScrollView x:Name="FormScroll"
-                    Grid.Row="0" Grid.RowSpan="3"
-                    Grid.Column="2"
-                    VerticalOptions="Center">
-            <VerticalStackLayout HorizontalOptions="{OnIdiom Phone=Fill, Default=Center}"
-                                 Spacing="16"
-                                 Padding="24">
-                <Grid ColumnDefinitions="80,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                      RowSpacing="10"
-                      ColumnSpacing="10">
-
-                    <!-- Profile name: full-width, no label; Rename renames the highlighted profile -->
-                    <Grid Grid.Row="0"
-                          Grid.Column="0"
-                          Grid.ColumnSpan="2"
-                          ColumnDefinitions="*,Auto"
-                          ColumnSpacing="8">
-                        <Entry Grid.Column="0"
-                               Text="{Binding ProfileName}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="profile name"
-                               Keyboard="Plain"
-                               IsTextPredictionEnabled="False"
-                               IsSpellCheckEnabled="False"
-                               SemanticProperties.Description="Profile name"
-                               ReturnType="Next" />
-                        <Button Grid.Column="1"
-                                Text="Rename"
-                                Command="{Binding RenameProfileCommand}"
-                                IsEnabled="{Binding CanConnect}"
-                                BackgroundColor="#1a1a1a"
-                                TextColor="#58a6ff"
-                                BorderColor="#333333"
-                                BorderWidth="1"
-                                CornerRadius="6"
-                                Padding="12,0" />
-                    </Grid>
-
-                    <!-- Host + Port side by side -->
-                    <Label Grid.Row="1"
-                           Grid.Column="0"
-                           Text="Host"
-                           TextColor="#888888"
-                           VerticalOptions="Center" />
-                    <Grid Grid.Row="1"
-                          Grid.Column="1"
-                          ColumnDefinitions="*,80"
-                          ColumnSpacing="8">
-                        <Entry Grid.Column="0"
-                               x:Name="HostEntry"
-                               Text="{Binding Host}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="mud2.co.uk"
-                               Keyboard="Url"
-                               ReturnType="Next" />
-                        <Entry Grid.Column="1"
-                               Text="{Binding PortText}"
-                               Placeholder="default"
-                               PlaceholderColor="#444444"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               Keyboard="Numeric"
-                               SemanticProperties.Description="Port"
-                               ReturnType="Next" />
-                    </Grid>
-
-                    <!-- Use SSH: not on Android; the SSH user is the profile's loginname in mucka.ini -->
-                    <Grid Grid.Row="2"
-                          Grid.Column="1"
-                          ColumnDefinitions="Auto,*"
-                          ColumnSpacing="8"
-                          HorizontalOptions="Start"
-                          IsVisible="{x:Static vm:ConnectViewModel.SshAvailable}">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding UseSsh}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="Use SSH"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                    </Grid>
-
-                    <!-- MUD Login: off, the account fields are disabled and not sent -->
-                    <Grid Grid.Row="3"
-                          Grid.Column="0"
-                          Grid.ColumnSpan="2"
-                          ColumnDefinitions="Auto,Auto,Auto"
-                          HorizontalOptions="Start"
-                          ColumnSpacing="8">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding TelnetLoginEnabled}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="MUD Login"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                        <Label Grid.Column="2"
-                               Text="&#x24D8;"
-                               TextColor="#1f6feb"
+            <!-- Narrow: guest access mentioned once, the first run that has it -->
+            <ContentView x:Name="NarrowGuestIntro" Grid.Row="2">
+                <Border IsVisible="{Binding ShowGuestIntro}"
+                        BackgroundColor="#0d1b2e"
+                        Stroke="#1f6feb"
+                        StrokeThickness="1"
+                        StrokeShape="RoundRectangle 10"
+                        Padding="14,10"
+                        Margin="12,0,12,8">
+                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+                        <Label Grid.Row="0" Grid.Column="0"
+                               Text="New: look around MUD2 as a guest, without an account."
+                               TextColor="#c9d1d9"
+                               FontSize="{core:ScaledFont 13}" />
+                        <Label Grid.Row="0" Grid.Column="1"
+                               Text="&#x2715;"
+                               TextColor="#8b949e"
                                FontSize="{core:ScaledFont 16}"
-                               VerticalOptions="Center">
+                               VerticalOptions="Start"
+                               Padding="8,0,0,8"
+                               SemanticProperties.Description="Dismiss">
                             <Label.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}"/>
+                                <TapGestureRecognizer Command="{Binding DismissGuestIntroCommand}" />
                             </Label.GestureRecognizers>
                         </Label>
+                        <Button Grid.Row="1" Grid.Column="0"
+                                Text="Look around as a guest"
+                                Clicked="OnGuestIntroClicked"
+                                BackgroundColor="Transparent"
+                                TextColor="#58a6ff"
+                                Padding="0"
+                                HeightRequest="36"
+                                HorizontalOptions="Start" />
                     </Grid>
+                </Border>
+            </ContentView>
 
-                    <!-- Account + Password side by side -->
-                    <Label Grid.Row="4"
-                           Grid.Column="0"
-                           Opacity="{Binding LoginFieldsOpacity}"
-                           Text="Account"
-                           TextColor="#888888"
-                           VerticalOptions="Center" />
-                    <Grid Grid.Row="4"
-                          Grid.Column="1"
-                          Opacity="{Binding LoginFieldsOpacity}"
-                          ColumnDefinitions="*,*"
-                          ColumnSpacing="8">
-                        <Entry Grid.Column="0"
-                               Text="{Binding AccountId}"
-                               IsEnabled="{Binding TelnetLoginEnabled}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="account id"
-                               ReturnType="Next" />
-                        <Entry Grid.Column="1"
-                               Text="{Binding Password}"
-                               IsEnabled="{Binding TelnetLoginEnabled}"
-                               IsPassword="True"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="{Binding PasswordPlaceholderColor}"
-                               Placeholder="{Binding PasswordPlaceholder}"
-                               ToolTipProperties.Text="password (optional)"
-                               SemanticProperties.Description="Password (optional)"
-                               ReturnType="Done" />
-                    </Grid>
+            <Grid Grid.Row="3">
+                <CollectionView x:Name="ProfileList"
+                                ItemsSource="{Binding SavedProfiles}"
+                                SelectionMode="Single"
+                                SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                                IsEnabled="{Binding IsNotConnecting}"
+                                IsVisible="{Binding HasProfiles}"
+                                BackgroundColor="Transparent">
+                    <CollectionView.ItemsLayout>
+                        <LinearItemsLayout Orientation="Vertical" ItemSpacing="8" />
+                    </CollectionView.ItemsLayout>
+                    <CollectionView.ItemTemplate>
+                        <DataTemplate x:DataType="core:Profile">
+                            <!-- A card: what it is on the left, Connect and Edit on the right. The selected
+                                 card gets a blue outline; the platform's grey selection is turned off
+                                 because it left the card's white text on grey. -->
+                            <Grid Padding="12,0" BackgroundColor="Transparent">
+                                <VisualStateManager.VisualStateGroups>
+                                    <VisualStateGroup Name="CommonStates">
+                                        <VisualState Name="Normal" />
+                                        <VisualState Name="Selected">
+                                            <VisualState.Setters>
+                                                <Setter Property="BackgroundColor" Value="Transparent" />
+                                                <Setter TargetName="Card" Property="Border.Stroke" Value="#1f6feb" />
+                                                <Setter TargetName="Card" Property="Border.StrokeThickness" Value="2" />
+                                            </VisualState.Setters>
+                                        </VisualState>
+                                    </VisualStateGroup>
+                                </VisualStateManager.VisualStateGroups>
+                                <Border x:Name="Card"
+                                        BackgroundColor="#161b22"
+                                        Stroke="#30363d"
+                                        StrokeThickness="1"
+                                        StrokeShape="RoundRectangle 10"
+                                        Padding="14,10">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                        <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
+                                            <Label Text="{Binding Name}"
+                                                   TextColor="White"
+                                                   FontAttributes="Bold"
+                                                   FontSize="{core:ScaledFont 17}"
+                                                   LineBreakMode="TailTruncation" />
+                                            <Label Text="{Binding Host}"
+                                                   TextColor="#8b949e"
+                                                   FontSize="{core:ScaledFont 13}"
+                                                   LineBreakMode="MiddleTruncation" />
+                                            <Label Text="{Binding KindSummary}"
+                                                   TextColor="#58a6ff"
+                                                   FontSize="{core:ScaledFont 12}" />
+                                        </VerticalStackLayout>
+                                        <VerticalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                                            <Button Text="Connect"
+                                                    Clicked="OnConnectClicked"
+                                                    CommandParameter="{Binding .}"
+                                                    BackgroundColor="#1f6feb"
+                                                    TextColor="White"
+                                                    CornerRadius="8"
+                                                    HeightRequest="44"
+                                                    WidthRequest="104" />
+                                            <Button Text="Edit"
+                                                    Clicked="OnEditClicked"
+                                                    CommandParameter="{Binding .}"
+                                                    BackgroundColor="Transparent"
+                                                    TextColor="#58a6ff"
+                                                    HeightRequest="34"
+                                                    WidthRequest="104"
+                                                    Padding="0" />
+                                        </VerticalStackLayout>
+                                    </Grid>
+                                </Border>
+                            </Grid>
+                        </DataTemplate>
+                    </CollectionView.ItemTemplate>
+                </CollectionView>
 
-                    <Grid Grid.Row="5"
-                          Grid.Column="0"
-                          Opacity="{Binding LoginFieldsOpacity}"
-                          Grid.ColumnSpan="2"
-                          ColumnDefinitions="Auto,Auto"
-                          HorizontalOptions="Start"
-                          ColumnSpacing="8">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding RememberPassword}"
-                                  IsEnabled="{Binding TelnetLoginEnabled}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="Remember Password"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                    </Grid>
+                <!-- Narrow, no profiles: the welcome in place of the list -->
+                <ContentView x:Name="NarrowWelcomeHost" VerticalOptions="Start">
+                    <pages:WelcomeView x:Name="NarrowWelcome" IsVisible="{Binding ShowWelcome}" />
+                </ContentView>
 
-                    <!-- Persona Login: automate the MUD Shell (login through persona select/create) -->
-                    <Grid Grid.Row="6"
-                          Grid.Column="0"
-                          Opacity="{Binding LoginFieldsOpacity}"
-                          Grid.ColumnSpan="2"
-                          ColumnDefinitions="Auto,*"
-                          RowDefinitions="Auto,Auto"
-                          RowSpacing="6">
-                        <Grid Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2"
-                              ColumnDefinitions="Auto,*"
-                              ColumnSpacing="8">
-                            <CheckBox Grid.Column="0"
-                                      IsChecked="{Binding GuidedLogin}"
-                                      IsEnabled="{Binding TelnetLoginEnabled}"
-                                      Color="#1f6feb"
-                                      VerticalOptions="Center"/>
-                            <Label Grid.Column="1"
-                                   Text="Persona Login"
-                                   TextColor="#888888"
-                                   VerticalOptions="Center"/>
-                        </Grid>
-                        <Entry Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2"
-                               Text="{Binding GuidedLoginPersona}"
-                               IsVisible="{Binding GuidedLogin}"
-                               IsEnabled="{Binding TelnetLoginEnabled}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               PlaceholderColor="#444444"
-                               Placeholder="persona (blank to choose at connect time)"
-                               SemanticProperties.Description="Persona login persona name"
-                               ReturnType="Done"/>
-                    </Grid>
+                <!-- Wide, no profiles: the welcome is beside the list, which says why it is empty -->
+                <ContentView x:Name="WideEmptyNoteHost">
+                    <Label Text="No profiles yet."
+                           IsVisible="{Binding HasNoProfiles}"
+                           TextColor="#555555"
+                           HorizontalOptions="Center"
+                           Margin="0,24,0,0" />
+                </ContentView>
+            </Grid>
 
-                    <!-- Line Width: terminal columns advertised via NAWS -->
-                    <Label Grid.Row="7"
-                           Grid.Column="0"
-                           Text="Line Width"
-                           TextColor="#888888"
-                           VerticalOptions="Center"/>
-                    <Grid Grid.Row="7"
-                          Grid.Column="1"
-                          ColumnDefinitions="80,*"
-                          ColumnSpacing="8">
-                        <Entry Grid.Column="0"
-                               x:Name="MaxColumnsEntry"
-                               Text="{Binding MaxColumnsText, Mode=OneWay}"
-                               Placeholder="auto"
-                               PlaceholderColor="#555555"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               Keyboard="Numeric"
-                               Completed="OnMaxColumnsEntryCompleted"
-                               Unfocused="OnMaxColumnsEntryCompleted"
-                               SemanticProperties.Description="Terminal line width"
-                               ToolTipProperties.Text="Terminal width advertised to server via NAWS (blank = auto-size to window)"
-                               ReturnType="Done"/>
-                        <Label Grid.Column="1"
-                               Text="blank = auto; 20&#x2013;160"
-                               TextColor="#555555"
-                               FontSize="{core:ScaledFont 11}"
-                               VerticalOptions="Center"/>
-                    </Grid>
-
-                    <!-- Anti-Idle: keep-alive interval -->
-                    <Label Grid.Row="8"
-                           Grid.Column="0"
-                           Text="Anti-Idle"
-                           TextColor="#888888"
-                           VerticalOptions="Center"/>
-                    <Grid Grid.Row="8"
-                          Grid.Column="1"
-                          ColumnDefinitions="80,*"
-                          ColumnSpacing="8">
-                        <Entry Grid.Column="0"
-                               Text="{Binding AntiIdleSeconds}"
-                               TextColor="White"
-                               BackgroundColor="#161b22"
-                               Keyboard="Numeric"
-                               SemanticProperties.Description="Anti-idle interval in seconds"
-                               ToolTipProperties.Text="Seconds of inactivity before sending a keep-alive (0 = disabled)"
-                               ReturnType="Done"/>
-                        <Label Grid.Column="1"
-                               Text="seconds (0=off)"
-                               TextColor="#555555"
-                               FontSize="{core:ScaledFont 11}"
-                               VerticalOptions="Center"/>
-                    </Grid>
-                </Grid>
-
-                <Grid ColumnDefinitions="*,Auto,Auto"
-                      ColumnSpacing="8">
-                    <Button Grid.Column="0"
-                            Text="{Binding ConnectButtonText}"
-                            Command="{Binding ConnectCommand}"
-                            IsEnabled="{Binding CanConnect}"
-                            BackgroundColor="#1f6feb"
-                            TextColor="White"
-                            CornerRadius="6"
-                            HeightRequest="48" />
-                    <!-- The form to its profile, without connecting. -->
-                    <Button Grid.Column="1"
-                            Text="{Binding SaveButtonText}"
-                            Command="{Binding SaveProfileCommand}"
-                            IsEnabled="{Binding CanConnect}"
-                            BackgroundColor="#1a1a1a"
-                            TextColor="#58a6ff"
-                            BorderColor="#333333"
-                            BorderWidth="1"
-                            CornerRadius="6"
-                            HeightRequest="48"
-                            Padding="16,0" />
-                    <!-- This server's score history, without connecting. -->
-                    <Button Grid.Column="2"
-                            x:Name="ScoreButton"
-                            Text="Score  &#x1F50D;"
-                            Clicked="OnScoreClicked"
-                            BackgroundColor="#1a1a1a"
-                            TextColor="#58a6ff"
-                            BorderColor="#333333"
-                            BorderWidth="1"
-                            CornerRadius="6"
-                            HeightRequest="48"
-                            Padding="16,0" />
-                </Grid>
-
-                <!-- Advanced toggle -->
-                <Button Text="{Binding AdvancedChevron}"
-                        Command="{Binding ToggleAdvancedCommand}"
-                        BackgroundColor="#1a1a1a"
-                        TextColor="#555555"
-                        BorderColor="#333333"
-                        BorderWidth="1"
-                        CornerRadius="4"
-                        HeightRequest="36"
-                        HorizontalOptions="Fill"
-                        FontSize="{core:ScaledFont 13}"
-                        Padding="12,0"/>
-
-                <!-- Advanced section -->
-                <VerticalStackLayout IsVisible="{Binding AdvancedVisible}"
-                                     Spacing="10">
-
-                    <!-- Keep Screen On (Android and iOS) -->
-                    <Grid ColumnDefinitions="Auto,Auto"
-                          HorizontalOptions="Start"
-                          ColumnSpacing="8"
-                          IsVisible="{OnPlatform Default=False, Android=True, iOS=True}">
-                        <CheckBox Grid.Column="0"
-                                  IsChecked="{Binding KeepScreenOn}"
-                                  Color="#1f6feb"
-                                  VerticalOptions="Center"/>
-                        <Label Grid.Column="1"
-                               Text="Keep Screen On"
-                               TextColor="#888888"
-                               VerticalOptions="Center"/>
-                    </Grid>
-
-
-                    <Button Text="Delete Profile"
-                            Command="{Binding DeleteProfileCommand}"
-                            IsEnabled="{Binding CanConnect}"
-                            BackgroundColor="#3d1a1a"
-                            TextColor="#f85149"
-                            BorderColor="#5a2020"
-                            BorderWidth="1"
-                            CornerRadius="6"
-                            HeightRequest="44"
-                            HorizontalOptions="Fill"/>
-
-                </VerticalStackLayout>
-
+            <VerticalStackLayout Grid.Row="4" Spacing="4" Padding="16,4">
                 <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
                                        HorizontalOptions="Center" Spacing="8">
                     <ActivityIndicator IsRunning="{Binding IsConnecting}" Color="#58a6ff"
                                        HeightRequest="18" WidthRequest="18" VerticalOptions="Center"/>
                     <Label Text="{Binding ProgressText}" TextColor="#58a6ff" VerticalOptions="Center"/>
                 </HorizontalStackLayout>
-
-                <Label Text="{Binding StatusText}"
+                <!-- The editor shows save errors itself when it is beside the list -->
+                <Label x:Name="ListStatus"
+                       Text="{Binding StatusText}"
                        TextColor="#f85149"
                        IsVisible="{Binding HasError}"
                        HorizontalOptions="Center" />
-
             </VerticalStackLayout>
-        </ScrollView>
 
+            <!-- The Text size page again (Pages/FontSetupPage). Large on purpose: a player who cannot
+                 read this page has to be able to find this. -->
+            <Button x:Name="FontSetupButton"
+                    Grid.Row="5"
+                    Text="Aa  Text size"
+                    Clicked="OnFontSetupClicked"
+                    IsVisible="{OnPlatform Default=True, Android=False, iOS=False}"
+                    BackgroundColor="#1a1a1a"
+                    TextColor="#58a6ff"
+                    BorderColor="#333333"
+                    BorderWidth="1"
+                    CornerRadius="6"
+                    FontSize="{core:ScaledFont 16}"
+                    MinimumHeightRequest="44"
+                    Margin="12,8"
+                    Padding="16,8"
+                    SemanticProperties.Description="Change the text size"/>
+        </Grid>
+
+        <BoxView x:Name="Separator"
+                 Grid.Column="1"
+                 Color="#333333"
+                 WidthRequest="1" />
+
+        <!-- Wide only: the guest note, then the editor (or the welcome when there are no profiles) -->
+        <Grid x:Name="RightPane" Grid.Column="2" RowDefinitions="Auto,*">
+            <Border Grid.Row="0"
+                    IsVisible="{Binding ShowGuestIntro}"
+                    BackgroundColor="#0d1b2e"
+                    Stroke="#1f6feb"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 10"
+                    Padding="18,14"
+                    Margin="16,12,16,0"
+                    MaximumWidthRequest="560">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="New: look around as a guest"
+                           TextColor="White"
+                           FontAttributes="Bold"
+                           FontSize="{core:ScaledFont 16}" />
+                    <Label Text="You can try MUD2 without an account, to look around and see what it is like."
+                           TextColor="#c9d1d9"
+                           FontSize="{core:ScaledFont 14}" />
+                    <HorizontalStackLayout Spacing="20">
+                        <Button Text="Look around as a guest"
+                                Clicked="OnGuestIntroClicked"
+                                BackgroundColor="Transparent"
+                                TextColor="#58a6ff"
+                                Padding="0"
+                                HeightRequest="36" />
+                        <Button Text="Dismiss"
+                                Command="{Binding DismissGuestIntroCommand}"
+                                BackgroundColor="Transparent"
+                                TextColor="#8b949e"
+                                Padding="0"
+                                HeightRequest="36" />
+                    </HorizontalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+            <pages:ProfileEditView x:Name="WidePane" Grid.Row="1" IsVisible="{Binding ShowEditorPane}" />
+            <pages:WelcomeView x:Name="WideWelcome" Grid.Row="1" IsVisible="{Binding ShowWelcome}" />
+        </Grid>
     </Grid>
 </ContentPage>

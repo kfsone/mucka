@@ -12,12 +12,11 @@ public partial class ConnectPage : ContentPage
     private int _autoConnectAttempted;
 
     // -- Adaptive layout ------------------------------------------------------
-    // Wide: logo+list in a fixed left column, form beside it (desktop, phone landscape).
-    // Narrow: logo beside a height-capped scrollable list, form below (phone portrait).
-    // Width-based rather than OnIdiom so rotating a phone re-lays-out.
+    // Wide: the large logo and the list in a fixed left column, the editor beside it (desktop, iPad,
+    // phone landscape). Narrow: a small logo, the list alone, and the editor on its own sheet. Width-based rather than OnIdiom so
+    // rotating a phone re-lays-out.
     private const double WideLayoutMinWidthDp = 600.0;
-    private const double NarrowLogoColumnDp   = 150.0;
-    private const double NarrowListHeightDp   = 128.0;
+    private const double WideListColumnDp     = 340.0;
     private bool? _isWideLayout;
 
     public ConnectPage(ConnectViewModel vm)
@@ -25,118 +24,137 @@ public partial class ConnectPage : ContentPage
         InitializeComponent();
         _vm = vm;
         BindingContext = _vm;
+        WidePane.BindingContext = _vm;
         _vm.Connected += OnConnected;
+        _vm.EditRequested += OnEditRequested;
         _vm.PasswordRequired = PromptPasswordAsync;
-        VersionLabel.Text = $"v{AppInfo.VersionString}";
-        TitleLabel.Text = $"mucka  v{AppInfo.VersionString}";
+        WideVersionLabel.Text = NarrowVersionLabel.Text = $"v{AppInfo.VersionString}";
+        NarrowWelcome.PresetChosen += _vm.BeginNewProfile;
+        WideWelcome.PresetChosen += _vm.BeginNewProfile;
+        NarrowWelcome.GuestRequested += OnGuestRequested;
+        WideWelcome.GuestRequested += OnGuestRequested;
+        WidePane.CloseRequested += (_, _) => _vm.CancelNewProfile();
 
-        // Pick the initial layout from the display metrics BEFORE the first measure pass:
-        // CollectionView (Android RecyclerView) caches item sizes from its first measure, so
-        // re-gridding it after startup leaves degenerate (unrendered) items behind.
+        // Pick the initial layout from the display metrics BEFORE the first measure pass.
         try
         {
             var info = DeviceDisplay.Current.MainDisplayInfo;
             if (info.Density > 0)
             {
-                bool wide = (info.Width / info.Density) >= WideLayoutMinWidthDp;
+                var wide = (info.Width / info.Density) >= WideLayoutMinWidthDp;
                 _isWideLayout = wide;
-                if (!wide) ApplyLayout(wide);   // XAML default is already wide
-                SizeLogo(wide, info.Height / info.Density);
+                ApplyLayout(wide);
             }
         }
         catch { /* no display info (unit tests, headless) - OnSizeAllocated will decide */ }
     }
-
-    // The logo only gets its natural size when there's room for the list below it (tall, wide
-    // screens - i.e. desktop). Narrow layouts and short screens (phone landscape) cap it.
-    private void SizeLogo(bool wide, double heightDp)
-        => LogoImage.HeightRequest = (!wide || heightDp < 500) ? 88 : -1;
 
     protected override void OnSizeAllocated(double width, double height)
     {
         base.OnSizeAllocated(width, height);
         if (width <= 0) return;
         _vm.PageWidthDp = width;
-        bool wide = width >= WideLayoutMinWidthDp;
+        var wide = width >= WideLayoutMinWidthDp;
         if (_isWideLayout != wide)
         {
             _isWideLayout = wide;
             ApplyLayout(wide);
         }
-        SizeLogo(wide, height);
     }
 
     private void ApplyLayout(bool wide)
     {
-        if (wide)
-        {
-            RootGrid.RowDefinitions = new RowDefinitionCollection(
-                new RowDefinition { Height = GridLength.Auto },
-                new RowDefinition { Height = GridLength.Star },
-                new RowDefinition { Height = GridLength.Auto });   // Text size button
-            RootGrid.ColumnDefinitions = new ColumnDefinitionCollection(
-                new ColumnDefinition { Width = 256 },
+        RootGrid.ColumnDefinitions = wide
+            ? new ColumnDefinitionCollection(
+                new ColumnDefinition { Width = WideListColumnDp },
                 new ColumnDefinition { Width = 1 },
-                new ColumnDefinition { Width = GridLength.Star });
+                new ColumnDefinition { Width = GridLength.Star })
+            : new ColumnDefinitionCollection(new ColumnDefinition { Width = GridLength.Star });
+        Grid.SetColumnSpan(ListPane, 1);
+        Separator.IsVisible = wide;
+        RightPane.IsVisible = wide;
+        WideHeader.IsVisible = wide;
+        WideEmptyNoteHost.IsVisible = wide;
+        NarrowLogo.IsVisible = !wide;
+        NarrowVersionLabel.IsVisible = !wide;
+        NarrowGuestIntro.IsVisible = !wide;
+        NarrowWelcomeHost.IsVisible = !wide;
+        // The list highlights its row beside the editor; on its own it is only buttons.
+        ProfileList.SelectionMode = wide ? SelectionMode.Single : SelectionMode.None;
+        // The editor beside the list shows the error itself.
+        ListStatus.MaximumHeightRequest = wide ? 0 : -1;
+    }
 
-            Grid.SetRow(HeaderPanel, 0);  Grid.SetColumn(HeaderPanel, 0);  Grid.SetColumnSpan(HeaderPanel, 1);
-            Grid.SetRow(ProfileList, 1);  Grid.SetColumn(ProfileList, 0);  Grid.SetColumnSpan(ProfileList, 1);
-            Grid.SetRow(FontSetupButton, 2); Grid.SetColumn(FontSetupButton, 0); Grid.SetColumnSpan(FontSetupButton, 1);
-            Grid.SetRow(Separator, 0);    Grid.SetRowSpan(Separator, 3);
-            Grid.SetColumn(Separator, 1); Grid.SetColumnSpan(Separator, 1);
-            Grid.SetRow(FormScroll, 0);   Grid.SetRowSpan(FormScroll, 3);
-            Grid.SetColumn(FormScroll, 2); Grid.SetColumnSpan(FormScroll, 1);
-            Grid.SetRow(TitleBar, 0);     Grid.SetColumn(TitleBar, 0);     Grid.SetColumnSpan(TitleBar, 1);
+    private async void OnAddClicked(object? sender, EventArgs e) => await ChooseQuickStartAsync(showGuest: false);
 
-            TitleBar.IsVisible        = false;
-            VersionLabel.IsVisible    = true;
-            ProfileList.HeightRequest = -1;   // fill the star row
-            Separator.WidthRequest    = 1;
-            Separator.HeightRequest   = -1;
-        }
-        else
+    // The guest note and the welcome both open Quick Start with its guest servers showing.
+    private void OnGuestIntroClicked(object? sender, EventArgs e)
+    {
+        _vm.DismissGuestIntroCommand.Execute(null);
+        OnGuestRequested();
+    }
+
+    private async void OnGuestRequested() => await ChooseQuickStartAsync(showGuest: true);
+
+    private bool _settingsOpen;
+
+    /// <summary>Settings without a game running: what mucka.ini holds, saved back to it. A profile is
+    /// only the server and the login; the rest is here.</summary>
+    private async void OnSettingsClicked(object? sender, EventArgs e)
+    {
+        if (_settingsOpen || Navigation.ModalStack.Count > 0) return;
+        _settingsOpen = true;
+        try
         {
-            RootGrid.RowDefinitions = new RowDefinitionCollection(
-                new RowDefinition { Height = GridLength.Auto },   // title strip
-                new RowDefinition { Height = GridLength.Auto },   // logo + list band
-                new RowDefinition { Height = 1 },                 // separator
-                new RowDefinition { Height = GridLength.Star },   // form
-                new RowDefinition { Height = GridLength.Auto });  // Text size button
-            RootGrid.ColumnDefinitions = new ColumnDefinitionCollection(
-                new ColumnDefinition { Width = NarrowLogoColumnDp },
-                new ColumnDefinition { Width = GridLength.Star });
-
-            Grid.SetRow(FontSetupButton, 4); Grid.SetColumn(FontSetupButton, 0); Grid.SetColumnSpan(FontSetupButton, 2);
-
-            Grid.SetRow(TitleBar, 0);     Grid.SetColumn(TitleBar, 0);     Grid.SetColumnSpan(TitleBar, 2);
-            Grid.SetRow(HeaderPanel, 1);  Grid.SetColumn(HeaderPanel, 0);  Grid.SetColumnSpan(HeaderPanel, 1);
-            Grid.SetRow(ProfileList, 1);  Grid.SetColumn(ProfileList, 1);  Grid.SetColumnSpan(ProfileList, 1);
-            Grid.SetRow(Separator, 2);    Grid.SetRowSpan(Separator, 1);
-            Grid.SetColumn(Separator, 0); Grid.SetColumnSpan(Separator, 2);
-            Grid.SetRow(FormScroll, 3);   Grid.SetRowSpan(FormScroll, 1);
-            Grid.SetColumn(FormScroll, 0); Grid.SetColumnSpan(FormScroll, 2);
-
-            TitleBar.IsVisible        = true;
-            VersionLabel.IsVisible    = false;   // version lives in the title strip here
-            ProfileList.HeightRequest = NarrowListHeightDp;   // caps the Auto row; list scrolls within
-            Separator.WidthRequest    = -1;
-            Separator.HeightRequest   = 1;
+            var (settings, fkeys, name) = await _vm.LoadSettingsForEditorAsync();
+            Func<ClientSettings, string[], Task>? onSave = _vm.IsDirectConnectMode
+                ? null
+                : (saved, keys) => _vm.SaveProfileSettingsAsync(name, saved, keys);
+            var editorVm = new FkeyEditorViewModel(fkeys, settings,
+                (applied, _) => UiFontScaleState.Current.Step = applied.UiFontStep, onSave);
+            await Navigation.PushModalAsync(new FkeyEditorPage(editorVm), NavAnimation.ModalAnimated);
         }
-
-        // Re-gridding a live CollectionView leaves Android's RecyclerView with item sizes cached
-        // from the old cell; resetting ItemsSource forces a rebuild. Deferred a dispatcher tick so
-        // the rebuild measures against the NEW cell - resetting synchronously re-measures against
-        // the outgoing layout and reproduces the bug on the wide->narrow flip. SavedProfiles is a
-        // single ObservableCollection instance, so re-assigning it directly is binding-equivalent.
-        if (ProfileList.Handler is not null)
+        catch (Exception ex)
         {
-            Dispatcher.Dispatch(() =>
-            {
-                var src = ProfileList.ItemsSource;
-                ProfileList.ItemsSource = null;
-                ProfileList.ItemsSource = src;
-            });
+            CrashLog.Write("OpenSettings", ex);
         }
+        finally
+        {
+            _settingsOpen = false;
+        }
+    }
+
+    /// <summary>Add: the Quick Start chooser, then the editor on the chosen preset.</summary>
+    private async Task ChooseQuickStartAsync(bool showGuest)
+    {
+        if (Navigation.ModalStack.Count > 0) return;
+        var chosen = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await Navigation.PushModalAsync(new QuickStartPage(_vm, chosen, showGuest));
+        if (await chosen.Task is { } key)
+        {
+            // The chooser is still on its way out: a sheet pushed now is lost.
+            await Task.Delay(400);
+            _vm.BeginNewProfile(key);
+        }
+    }
+
+    private async void OnConnectClicked(object? sender, EventArgs e)
+    {
+        if (sender is Button { CommandParameter: Profile profile })
+            await _vm.LaunchProfileAsync(profile);
+    }
+
+    private void OnEditClicked(object? sender, EventArgs e)
+    {
+        if (sender is Button { CommandParameter: Profile profile })
+            _vm.BeginEdit(profile);
+    }
+
+    // Beside the list the editor is already showing the form; on its own it is a sheet.
+    private async void OnEditRequested()
+    {
+        if (_isWideLayout == true || Navigation.ModalStack.Count > 0) return;
+        await Navigation.PushModalAsync(new EditProfilePage(_vm));
     }
 
     /// <summary>What App's start-up found: an import outcome to report and whether the Text size page
@@ -362,19 +380,6 @@ public partial class ConnectPage : ContentPage
         }
     }
 
-    // Blank -> auto (0); a valid number is clamped by the VM setter; anything else restores display.
-    private void OnMaxColumnsEntryCompleted(object? sender, EventArgs e)
-    {
-        var text = MaxColumnsEntry.Text;
-        if (string.IsNullOrWhiteSpace(text))
-            _vm.MaxColumns = 0;
-        else if (int.TryParse(text, System.Globalization.NumberStyles.Integer,
-                              System.Globalization.CultureInfo.InvariantCulture, out var v))
-            _vm.MaxColumns = v;
-        // Reflect the (possibly clamped) value back - blank for auto, number otherwise.
-        MaxColumnsEntry.Text = _vm.MaxColumnsText;
-    }
-
     private void OnConnected(MuckaConnection conn, Profile profile)    {
         // Create GameViewModel on the UI thread so Dispatcher.CreateTimer() is available.
         // The lambda is async void (BeginInvokeOnMainThread takes Action), so an unhandled exception
@@ -452,25 +457,4 @@ public partial class ConnectPage : ContentPage
         });
     }
 
-    private void OnProfileTapped(object? sender, TappedEventArgs e)
-    {
-        if (e.Parameter is Profile profile)
-            _vm.SelectedProfile = profile;
-    }
-
-    private async void OnProfileDoubleTapped(object? sender, TappedEventArgs e)
-    {
-        if (e.Parameter is Profile profile)
-        {
-            await _vm.LaunchProfileAsync(profile);
-        }
-    }
-
-    /// <summary>The score history for the server in the form, without connecting to it.</summary>
-    private async void OnScoreClicked(object? sender, EventArgs e)
-    {
-        var host = _vm.Host?.Trim() ?? string.Empty;
-        if (Navigation.ModalStack.Count == 0)
-            await Navigation.PushModalAsync(new ScorePage(host));
-    }
 }

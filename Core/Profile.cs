@@ -22,15 +22,66 @@ public class Profile : INotifyPropertyChanged
     public string Host
     {
         get => _host;
-        set { if (_host == value) return; _host = value; PropertyChanged?.Invoke(this, new(nameof(Host))); }
+        set { if (_host == value) return; _host = value; Raise(nameof(Host), nameof(Endpoint)); }
     }
-    public int Port { get; set; } = 23;
-    /// <summary>Connect over SSH instead of telnet. Desktop only; the login name is the SSH user.</summary>
-    public bool UseSsh { get; set; }
+
+    public int Port
+    {
+        get => _port;
+        set { if (_port == value) return; _port = value; Raise(nameof(Port), nameof(Endpoint)); }
+    }
+
+    /// <summary>Connect over SSH instead of telnet. Not on Android; the login name is the SSH user.</summary>
+    public bool UseSsh
+    {
+        get => _useSsh;
+        set { if (_useSsh == value) return; _useSsh = value; Raise(nameof(UseSsh), nameof(KindSummary)); }
+    }
+
+    /// <summary>The server as the profile list shows it: host and port.</summary>
+    public string Endpoint => $"{Host}:{Port}";
+
+    /// <summary>The profile list's third line: the connection, then how the login is done - with
+    /// the account, as a guest (the <c>mudguest</c> login), or typed by the player.</summary>
+    public string KindSummary
+    {
+        get
+        {
+            var transport = UseSsh && ViewModels.ConnectViewModel.SshAvailable ? "SSH" : "Telnet";
+            var login = IsGuest ? "Guest" : TelnetLoginEnabled ? "Account" : "Log in yourself";
+            return $"{transport}  {Glyph.Bullet}  {login}";
+        }
+    }
+
+    /// <summary>The guest Unix login on the real servers.</summary>
+    public const string GuestLoginName = "mudguest";
+
+    /// <summary>True when the client sends no account and the Unix login is the guest one.</summary>
+    public bool IsGuest => !TelnetLoginEnabled
+        && string.Equals(TelnetLoginName, GuestLoginName, StringComparison.OrdinalIgnoreCase);
+
+    private int _port = 23;
+    private bool _useSsh;
+    private bool _telnetLoginEnabled = true;
+    private string _telnetLoginName = "mud";
+
+    private void Raise(params string[] names)
+    {
+        foreach (var n in names) PropertyChanged?.Invoke(this, new(n));
+    }
     public string AccountId { get; set; } = string.Empty;
     public bool RememberPassword { get; set; }
-    public bool TelnetLoginEnabled { get; set; } = true;
-    public string TelnetLoginName { get; set; } = "mud";
+    public bool TelnetLoginEnabled
+    {
+        get => _telnetLoginEnabled;
+        set { if (_telnetLoginEnabled == value) return; _telnetLoginEnabled = value; Raise(nameof(TelnetLoginEnabled), nameof(KindSummary)); }
+    }
+
+    public string TelnetLoginName
+    {
+        get => _telnetLoginName;
+        set { if (_telnetLoginName == value) return; _telnetLoginName = value; Raise(nameof(TelnetLoginName), nameof(KindSummary)); }
+    }
     /// <summary>Automate the MUD Shell (Option menu -> persona selection) after login instead of
     /// leaving the raw shell prompts for the user to type through manually.</summary>
     public bool GuidedLogin { get; set; }
@@ -85,6 +136,38 @@ public class Profile : INotifyPropertyChanged
     /// the stat rows are part of it arriving complete once it is switched on.</para></summary>
     public bool ShowCombatStats { get; set; } = true;
     public string[] Fkeys { get => _fkeys; set => _fkeys = NormalizeFkeys(value); }
+
+    /// <summary>The settings this profile carries, as the settings editor takes them: all of them
+    /// global but the F-key choice.</summary>
+    public ClientSettings ToClientSettings(int uiFontStep) => new()
+    {
+        FontSize            = FontSize,
+        MaxColumns          = MaxColumns,
+        Volume              = Volume,
+        StatUpdateFrequency = StatUpdateFrequency,
+        MuteBeepPermanently = MuteBeepPermanently,
+        LogResetDiagnostics = LogResetDiagnostics,
+        FkeysPerProfile     = FkeysPerProfile,
+        Sounds              = Sounds.Clone(),
+        UiFontStep          = uiFontStep,
+        DefaultMaxColumns   = DefaultMaxColumns,
+        DreamwordSizeOffset = DreamwordSizeOffset,
+        EmoteColor          = EmoteColor,
+        SayColor            = SayColor,
+        ShoutColor          = ShoutColor,
+        TellColor           = TellColor,
+        ChatTheme           = ChatTheme,
+        ChatFaces           = ChatFaces,
+        ShowOnline          = ShowOnline,
+        ShowInventory       = ShowInventory,
+        ShowItemsHere       = ShowItemsHere,
+        ShowMapCompass      = ShowMapCompass,
+        MaxOnlineDisplay    = MaxOnlineDisplay,
+        OnlineNamesOnly     = OnlineNamesOnly,
+        OnlineForgetWindow  = OnlineForgetWindow,
+        FloatOnline         = FloatOnline,
+        FloatCompass        = FloatCompass,
+    };
 
     /// <summary>True when the fkeys came from a per-profile [fkeys:Name] ini section
     /// rather than the global [fkeys]. Derived from mucka.ini at load; not persisted here.</summary>

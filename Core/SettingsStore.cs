@@ -401,8 +401,8 @@ public static class SettingsStore
 
     /// <summary>
     /// Loads the connection profiles from mucka.ini: [profiles] gives the MRU order,
-    /// one [profile:Name] section each holds the identity fields. When the ini defines
-    /// no profiles, falls back to the built-in defaults.
+    /// one [profile:Name] section each holds the identity fields. None at all is the first run: the
+    /// profile page offers its Quick Start servers then.
     /// </summary>
     public static async Task<List<Profile>> LoadProfilesAsync()
     {
@@ -411,7 +411,7 @@ public static class SettingsStore
         {
             var ini  = await LoadIniAsync().ConfigureAwait(false);
             var profiles = ReadProfiles(ini);
-            return profiles.Count > 0 ? profiles : DefaultProfiles();
+            return profiles;
         }
         finally
         {
@@ -577,11 +577,6 @@ public static class SettingsStore
         }
     }
 
-    private static List<Profile> DefaultProfiles() => new()
-    {
-        new Profile { Name = "MUD2 UK",  Host = "mud2.co.uk",  Port = 23    },
-        new Profile { Name = "MUD2.COM", Host = "www.mud2.com", Port = 27723 },
-    };
 
     private static List<Profile> ReadProfiles(IniFile ini)
     {

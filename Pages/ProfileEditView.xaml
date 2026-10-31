@@ -1,0 +1,313 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:core="clr-namespace:Mucka.Core"
+             x:Class="Mucka.Pages.ProfileEditView"
+             x:DataType="vm:ConnectViewModel">
+
+    <!-- The profile editor: one scrolling column of grouped cards. A profile holds the server and the
+         login only; everything else is in Settings. Every card is always laid out,
+         and a choice that does not apply dims its fields instead of hiding them, so switching
+         profile (or login kind) never moves anything. Shown beside the list on a wide window and on
+         its own sheet on a narrow one. -->
+    <ContentView.Resources>
+        <Style TargetType="Entry">
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="BackgroundColor" Value="#0d1117" />
+            <Setter Property="PlaceholderColor" Value="#444444" />
+            <Setter Property="HeightRequest" Value="44" />
+        </Style>
+        <Style x:Key="SectionLabel" TargetType="Label">
+            <Setter Property="TextColor" Value="#8b949e" />
+            <Setter Property="FontAttributes" Value="Bold" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 12}" />
+            <Setter Property="Margin" Value="4,0,0,0" />
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="Label">
+            <Setter Property="TextColor" Value="#888888" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 12}" />
+        </Style>
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="BackgroundColor" Value="#161b22" />
+            <Setter Property="Stroke" Value="#30363d" />
+            <Setter Property="StrokeThickness" Value="1" />
+            <Setter Property="Padding" Value="14" />
+            <Setter Property="StrokeShape" Value="RoundRectangle 10" />
+        </Style>
+        <Style x:Key="Seg" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#0d1117" />
+            <Setter Property="TextColor" Value="#8b949e" />
+            <Setter Property="CornerRadius" Value="0" />
+            <Setter Property="HeightRequest" Value="40" />
+            <Setter Property="BorderWidth" Value="1" />
+            <Setter Property="BorderColor" Value="#30363d" />
+        </Style>
+        <Style x:Key="Ghost" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#1a1a1a" />
+            <Setter Property="TextColor" Value="#58a6ff" />
+            <Setter Property="BorderColor" Value="#333333" />
+            <Setter Property="BorderWidth" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="14,0" />
+        </Style>
+    </ContentView.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="16,12,16,32" Spacing="14" MaximumWidthRequest="560">
+
+            <!-- Header: Cancel (sheet only), title, Save -->
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <Button x:Name="CloseButton"
+                        Grid.Column="0"
+                        Text="Cancel"
+                        IsVisible="{Binding IsNewProfile}"
+                        Style="{StaticResource Ghost}"
+                        HeightRequest="40"
+                        Clicked="OnCloseClicked" />
+                <Label Grid.Column="1"
+                       Text="{Binding EditTitle}"
+                       TextColor="White"
+                       FontAttributes="Bold"
+                       FontSize="{core:ScaledFont 18}"
+                       HorizontalOptions="Start"
+                       VerticalOptions="Center"
+                       Margin="4,0" />
+                <Button Grid.Column="2"
+                        Text="{Binding SaveButtonText}"
+                        Command="{Binding SaveProfileCommand}"
+                        IsEnabled="{Binding CanConnect}"
+                        BackgroundColor="#1f6feb"
+                        TextColor="White"
+                        CornerRadius="6"
+                        HeightRequest="40"
+                        Padding="22,0" />
+            </Grid>
+
+            <!-- Profile name -->
+            <Label Text="PROFILE" Style="{StaticResource SectionLabel}" />
+            <Border Style="{StaticResource Card}">
+                <Grid HeightRequest="44">
+                    <Entry Text="{Binding ProfileName}"
+                           IsVisible="{Binding IsNewProfile}"
+                           Placeholder="profile name"
+                           Keyboard="Plain"
+                           IsTextPredictionEnabled="False"
+                           IsSpellCheckEnabled="False"
+                           SemanticProperties.Description="Profile name"
+                           ReturnType="Next" />
+                    <Grid IsVisible="{Binding IsExistingProfile}"
+                          ColumnDefinitions="*,Auto"
+                          ColumnSpacing="8">
+                        <Label Grid.Column="0"
+                               Text="{Binding ProfileName}"
+                               TextColor="White"
+                               FontSize="{core:ScaledFont 17}"
+                               LineBreakMode="TailTruncation"
+                               VerticalOptions="Center" />
+                        <Button Grid.Column="1"
+                                Text="Rename"
+                                Command="{Binding RenameProfileCommand}"
+                                IsEnabled="{Binding CanConnect}"
+                                Style="{StaticResource Ghost}" />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- Server and transport -->
+            <Label Text="SERVER" Style="{StaticResource SectionLabel}" />
+            <Border Style="{StaticResource Card}">
+                <VerticalStackLayout Spacing="10">
+                    <!-- The address, and how to connect: Secure (SSH), Oldschool (Telnet) or a port number -->
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="4">
+                        <Label Grid.Row="0" Grid.Column="0" Text="Address" Style="{StaticResource FieldLabel}" />
+                        <HorizontalStackLayout Grid.Row="0" Grid.Column="1" Spacing="6">
+                            <Label Text="Connection" Style="{StaticResource FieldLabel}" VerticalOptions="Center" />
+                            <Label Text="&#x24D8;"
+                                   TextColor="#1f6feb"
+                                   FontSize="{core:ScaledFont 14}"
+                                   VerticalOptions="Center"
+                                   SemanticProperties.Description="About the connection">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding ShowConnectionHelpCommand}" />
+                                </Label.GestureRecognizers>
+                            </Label>
+                        </HorizontalStackLayout>
+                        <Entry Grid.Row="1" Grid.Column="0"
+                               Text="{Binding Host}"
+                               Placeholder="mudii.co.uk"
+                               Keyboard="Url"
+                               SemanticProperties.Description="Server address"
+                               ReturnType="Next" />
+                        <Button Grid.Row="1" Grid.Column="1"
+                                Text="{Binding ConnectionLabel, StringFormat='{0}  &#x25BE;'}"
+                                Style="{StaticResource Ghost}"
+                                TextColor="White"
+                                BackgroundColor="#0d1117"
+                                HeightRequest="44"
+                                MinimumWidthRequest="112"
+                                Clicked="OnConnectionClicked"
+                                SemanticProperties.Description="Connection" />
+                    </Grid>
+
+                    <!-- The server's score history, without connecting -->
+                    <Button Text="Score history for this server"
+                            Style="{StaticResource Ghost}"
+                            HeightRequest="40"
+                            HorizontalOptions="Fill"
+                            Clicked="OnScoreClicked" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Login: account or by hand -->
+            <Grid ColumnDefinitions="*,Auto">
+                <Label Grid.Column="0" Text="LOGIN" Style="{StaticResource SectionLabel}" VerticalOptions="Center" />
+                <Label Grid.Column="1"
+                       Text="&#x24D8;"
+                       TextColor="#1f6feb"
+                       FontSize="{core:ScaledFont 18}"
+                       Padding="12,0"
+                       SemanticProperties.Description="About logging in">
+                    <Label.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding ShowTelnetHelpCommand}" />
+                    </Label.GestureRecognizers>
+                </Label>
+            </Grid>
+            <Border Style="{StaticResource Card}">
+                <VerticalStackLayout Spacing="10">
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="0">
+                        <Button Grid.Column="0" Text="Account" Style="{StaticResource Seg}"
+                                Command="{Binding SetLoginKindCommand}" CommandParameter="account">
+                            <Button.Triggers>
+                                <DataTrigger TargetType="Button" Binding="{Binding TelnetLoginEnabled}" Value="True">
+                                    <Setter Property="BackgroundColor" Value="#1f6feb" />
+                                    <Setter Property="TextColor" Value="White" />
+                                </DataTrigger>
+                            </Button.Triggers>
+                        </Button>
+                        <Button Grid.Column="1" Text="Type it myself" Style="{StaticResource Seg}"
+                                Command="{Binding SetLoginKindCommand}" CommandParameter="manual">
+                            <Button.Triggers>
+                                <DataTrigger TargetType="Button" Binding="{Binding TelnetLoginEnabled}" Value="False">
+                                    <Setter Property="BackgroundColor" Value="#1f6feb" />
+                                    <Setter Property="TextColor" Value="White" />
+                                </DataTrigger>
+                            </Button.Triggers>
+                        </Button>
+                    </Grid>
+                    <Label Text="{Binding LoginHint}"
+                           TextColor="#8b949e"
+                           FontSize="{core:ScaledFont 12}"
+                           MinimumHeightRequest="34" />
+
+                    <VerticalStackLayout Spacing="10"
+                                         Opacity="{Binding LoginFieldsOpacity}">
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="8" RowDefinitions="Auto,Auto" RowSpacing="4">
+                            <Label Grid.Row="0" Grid.Column="0" Text="Account id" Style="{StaticResource FieldLabel}" />
+                            <Label Grid.Row="0" Grid.Column="1" Text="Password" Style="{StaticResource FieldLabel}" />
+                            <Entry Grid.Row="1" Grid.Column="0"
+                                   Text="{Binding AccountId}"
+                                   IsEnabled="{Binding TelnetLoginEnabled}"
+                                   Placeholder="{Binding AccountPlaceholder}"
+                                   SemanticProperties.Description="Account id"
+                                   ReturnType="Next" />
+                            <Entry Grid.Row="1" Grid.Column="1"
+                                   Text="{Binding Password}"
+                                   IsEnabled="{Binding TelnetLoginEnabled}"
+                                   IsPassword="True"
+                                   PlaceholderColor="{Binding PasswordPlaceholderColor}"
+                                   Placeholder="{Binding PasswordPlaceholder}"
+                                   SemanticProperties.Description="Password (optional)"
+                                   ReturnType="Done" />
+                        </Grid>
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                            <CheckBox Grid.Column="0"
+                                      IsChecked="{Binding RememberPassword}"
+                                      IsEnabled="{Binding TelnetLoginEnabled}"
+                                      Color="#1f6feb"
+                                      VerticalOptions="Center" />
+                            <Label Grid.Column="1"
+                                   Text="Remember password"
+                                   TextColor="#aaaaaa"
+                                   VerticalOptions="Center" />
+                        </Grid>
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Persona: pick it for me, or by hand in the terminal -->
+            <Label Text="PERSONA" Style="{StaticResource SectionLabel}" />
+            <Border Style="{StaticResource Card}">
+                <VerticalStackLayout Spacing="10" Opacity="{Binding LoginFieldsOpacity}">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <VerticalStackLayout Grid.Column="0" Spacing="2" VerticalOptions="Center">
+                            <Label Text="Choose my persona for me" TextColor="#cccccc" />
+                            <Label Text="Off: you pick it yourself in the game's menu."
+                                   TextColor="#8b949e"
+                                   FontSize="{core:ScaledFont 12}" />
+                        </VerticalStackLayout>
+                        <Switch Grid.Column="1"
+                                IsToggled="{Binding GuidedLogin}"
+                                IsEnabled="{Binding TelnetLoginEnabled}"
+                                OnColor="#1f6feb"
+                                VerticalOptions="Center"
+                                SemanticProperties.Description="Choose my persona for me" />
+                    </Grid>
+                    <Entry Text="{Binding GuidedLoginPersona}"
+                           IsEnabled="{Binding TelnetLoginEnabled}"
+                           Placeholder="persona (blank: ask when I connect)"
+                           SemanticProperties.Description="Persona name"
+                           ReturnType="Done" />
+                </VerticalStackLayout>
+            </Border>
+
+            <!-- Advanced -->
+            <Button Text="{Binding AdvancedChevron}"
+                    Command="{Binding ToggleAdvancedCommand}"
+                    Style="{StaticResource Ghost}"
+                    TextColor="#8b949e"
+                    HeightRequest="40"
+                    HorizontalOptions="Fill" />
+            <Border Style="{StaticResource Card}" IsVisible="{Binding AdvancedVisible}">
+                <VerticalStackLayout Spacing="10">
+                    <VerticalStackLayout Spacing="4">
+                        <HorizontalStackLayout Spacing="6">
+                            <Label Text="Server login name" Style="{StaticResource FieldLabel}" VerticalOptions="Center" />
+                            <Label Text="&#x24D8;"
+                                   TextColor="#1f6feb"
+                                   FontSize="{core:ScaledFont 14}"
+                                   VerticalOptions="Center"
+                                   SemanticProperties.Description="About the server login name">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding ShowLoginNameHelpCommand}" />
+                                </Label.GestureRecognizers>
+                            </Label>
+                        </HorizontalStackLayout>
+                        <Entry Text="{Binding TelnetLoginName}"
+                               Placeholder="mud"
+                               Keyboard="Plain"
+                               SemanticProperties.Description="Server login name"
+                               ReturnType="Done" />
+                    </VerticalStackLayout>
+                </VerticalStackLayout>
+            </Border>
+
+            <Label Text="{Binding StatusText}"
+                   TextColor="#f85149"
+                   IsVisible="{Binding HasError}"
+                   HorizontalOptions="Center" />
+
+            <Button Text="Delete profile"
+                    Command="{Binding DeleteProfileCommand}"
+                    IsVisible="{Binding IsExistingProfile}"
+                    IsEnabled="{Binding CanConnect}"
+                    BackgroundColor="#3d1a1a"
+                    TextColor="#f85149"
+                    BorderColor="#5a2020"
+                    BorderWidth="1"
+                    CornerRadius="6"
+                    HeightRequest="44"
+                    HorizontalOptions="Fill" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentView>

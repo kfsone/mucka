@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:core="clr-namespace:Mucka.Core"
+             x:Class="Mucka.Pages.QuickStartPage"
+             x:DataType="vm:ConnectViewModel"
+             BackgroundColor="#0C0C0C"
+             Title="Quick start">
+
+    <ContentPage.Resources>
+        <Style x:Key="Preset" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#161b22" />
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="BorderColor" Value="#30363d" />
+            <Setter Property="BorderWidth" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="HeightRequest" Value="60" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 16}" />
+            <Setter Property="HorizontalOptions" Value="Fill" />
+        </Style>
+        <Style x:Key="Note" TargetType="Label">
+            <Setter Property="TextColor" Value="#8b949e" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 12}" />
+            <Setter Property="Margin" Value="4,0,0,6" />
+        </Style>
+    </ContentPage.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,20,20,32" Spacing="8" MaximumWidthRequest="520">
+            <Grid ColumnDefinitions="*,Auto">
+                <Label Text="Quick start"
+                       TextColor="White"
+                       FontAttributes="Bold"
+                       FontSize="{core:ScaledFont 20}"
+                       VerticalOptions="Center" />
+                <Button Grid.Column="1"
+                        Text="Cancel"
+                        BackgroundColor="#1a1a1a"
+                        TextColor="#58a6ff"
+                        BorderColor="#333333"
+                        BorderWidth="1"
+                        CornerRadius="6"
+                        HeightRequest="40"
+                        Padding="14,0"
+                        Clicked="OnCancelClicked" />
+            </Grid>
+
+            <Label Text="I HAVE AN ACCOUNT" TextColor="#8b949e" FontAttributes="Bold"
+                   FontSize="{core:ScaledFont 12}" Margin="4,12,0,0" />
+            <Button Text="MUD2 UK  -  mudii.co.uk"
+                    Style="{StaticResource Preset}"
+                    IsVisible="{x:Static vm:ConnectViewModel.SshAvailable}"
+                    CommandParameter="uk"
+                    Clicked="OnPresetClicked" />
+            <Button Text="MUD2 CA  -  mud2.com"
+                    Style="{StaticResource Preset}"
+                    CommandParameter="ca"
+                    Clicked="OnPresetClicked" />
+            <Label Text="You will need your account id and password." Style="{StaticResource Note}" />
+
+            <Button Text="Another server"
+                    Style="{StaticResource Preset}"
+                    HeightRequest="48"
+                    CommandParameter="blank"
+                    Clicked="OnPresetClicked" />
+
+            <Button Text="{Binding GuestPresetsToggleText}"
+                    Command="{Binding ToggleGuestPresetsCommand}"
+                    BackgroundColor="Transparent"
+                    TextColor="#555555"
+                    HeightRequest="40"
+                    HorizontalOptions="Start"
+                    Margin="0,12,0,0" />
+            <VerticalStackLayout IsVisible="{Binding GuestPresetsVisible}" Spacing="8">
+                <Button Text="Try MUD2 UK as a guest"
+                        Style="{StaticResource Preset}"
+                        CommandParameter="guest-uk"
+                        Clicked="OnPresetClicked" />
+                <Button Text="Try MUD2 CA as a guest"
+                        Style="{StaticResource Preset}"
+                        CommandParameter="guest-ca"
+                        Clicked="OnPresetClicked" />
+                <Label Text="No account needed: look around and see what MUD2 is like." Style="{StaticResource Note}" />
+            </VerticalStackLayout>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

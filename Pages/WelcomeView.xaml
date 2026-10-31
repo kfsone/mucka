@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentView xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:core="clr-namespace:Mucka.Core"
+             x:Class="Mucka.Pages.WelcomeView">
+
+    <!-- No profiles yet: the first run, or every profile deleted. The Quick Start servers, offered
+         on the page itself, with guest access one tap further in. -->
+    <ContentView.Resources>
+        <Style x:Key="Preset" TargetType="Button">
+            <Setter Property="BackgroundColor" Value="#161b22" />
+            <Setter Property="TextColor" Value="White" />
+            <Setter Property="BorderColor" Value="#30363d" />
+            <Setter Property="BorderWidth" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="HeightRequest" Value="56" />
+            <Setter Property="FontSize" Value="{core:ScaledFont 16}" />
+            <Setter Property="HorizontalOptions" Value="Fill" />
+        </Style>
+    </ContentView.Resources>
+
+    <ScrollView>
+        <VerticalStackLayout Padding="20,16,20,32" Spacing="10" MaximumWidthRequest="520">
+            <Label Text="Welcome to Mucka"
+                   TextColor="White"
+                   FontAttributes="Bold"
+                   FontSize="{core:ScaledFont 22}" />
+            <Label Text="Which MUD2 server do you play on? Mucka sets it up; you add your account id and password."
+                   TextColor="#c9d1d9"
+                   FontSize="{core:ScaledFont 14}" />
+            <Button Text="MUD2 UK  -  mudii.co.uk"
+                    Style="{StaticResource Preset}"
+                    CommandParameter="uk"
+                    Clicked="OnPresetClicked"
+                    Margin="0,8,0,0" />
+            <Button Text="MUD2 CA  -  mud2.com"
+                    Style="{StaticResource Preset}"
+                    CommandParameter="ca"
+                    Clicked="OnPresetClicked" />
+            <Button Text="Another server"
+                    Style="{StaticResource Preset}"
+                    HeightRequest="48"
+                    CommandParameter="blank"
+                    Clicked="OnPresetClicked" />
+            <Border BackgroundColor="#0d1b2e"
+                    Stroke="#1f6feb"
+                    StrokeThickness="1"
+                    StrokeShape="RoundRectangle 10"
+                    Padding="14,12"
+                    Margin="0,16,0,0">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Just looking?"
+                           TextColor="White"
+                           FontAttributes="Bold"
+                           FontSize="{core:ScaledFont 15}" />
+                    <Label Text="You can look around MUD2 as a guest, without an account."
+                           TextColor="#c9d1d9"
+                           FontSize="{core:ScaledFont 13}" />
+                    <Button Text="Look around as a guest"
+                            BackgroundColor="Transparent"
+                            TextColor="#58a6ff"
+                            Padding="0"
+                            HeightRequest="36"
+                            HorizontalOptions="Start"
+                            Clicked="OnGuestClicked" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentView>

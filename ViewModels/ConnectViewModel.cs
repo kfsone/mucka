@@ -40,7 +40,7 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _advancedVisible;
     private bool _guidedLogin;
     private string _guidedLoginPersona = string.Empty;
-    private int _maxColumns = 80;
+    private int _maxColumns;
     private int _antiIdleSeconds;
     private int _profileSelectionVersion;
     private int _profileLoadsInProgress;
@@ -55,7 +55,23 @@ public sealed class ConnectViewModel : BaseViewModel
 #endif
 
     public string ProfileName { get => _profileName; set => Set(ref _profileName, value); }
-    public string Host { get => _host; set => Set(ref _host, value); }
+    public string Host
+    {
+        get => _host;
+        set { if (Set(ref _host, value)) OnPropertyChanged(nameof(AccountPlaceholder)); }
+    }
+
+    /// <summary>The account id box's hint: the shape of an account id on the two real servers.</summary>
+    public string AccountPlaceholder
+    {
+        get
+        {
+            var host = _host.Trim();
+            if (host.EndsWith("mudii.co.uk", StringComparison.OrdinalIgnoreCase)) return "Z000?????";
+            if (host.EndsWith("mud2.com", StringComparison.OrdinalIgnoreCase)) return "P000?????";
+            return "account id";
+        }
+    }
     /// <summary>0 means the port field is empty; connecting then uses the transport's own port.</summary>
     public int Port
     {
@@ -186,15 +202,33 @@ public sealed class ConnectViewModel : BaseViewModel
     public bool TelnetLoginEnabled
     {
         get => _telnetLoginEnabled;
-        set { if (Set(ref _telnetLoginEnabled, value)) OnPropertyChanged(nameof(LoginFieldsOpacity)); }
+        set { if (Set(ref _telnetLoginEnabled, value)) OnPropertiesChanged(nameof(LoginFieldsOpacity), nameof(LoginHint), nameof(IsGuestLogin)); }
     }
+
+    /// <summary>True when the form is a guest login: no account sent, and the guest Unix login.</summary>
+    public bool IsGuestLogin => !_telnetLoginEnabled && IsGuestNameOnForm;
+
+    private bool IsGuestNameOnForm
+        => string.Equals(_telnetLoginName.Trim(), Profile.GuestLoginName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>One line under the login choice saying what the choice does. Two lines tall at most,
+    /// and the label reserves that height so switching profiles does not move the page.</summary>
+    public string LoginHint => IsGuestLogin
+        ? "Look around as a guest. No account needed."
+        : _telnetLoginEnabled
+            ? "Mucka logs you in with your account id and password."
+            : "You log in yourself, at the game's own prompts.";
 
     /// <summary>The account rows are dimmed while MUD Login is off: the fields set their own colours,
     /// so being disabled does not show on its own.</summary>
     public double LoginFieldsOpacity => _telnetLoginEnabled ? 1.0 : 0.4;
     /// <summary>The shell login (and SSH user). Not on the page: read from and written to the
     /// profile's <c>loginname</c> key in mucka.ini, so it can be changed there.</summary>
-    public string TelnetLoginName { get => _telnetLoginName; set => Set(ref _telnetLoginName, value); }
+    public string TelnetLoginName
+    {
+        get => _telnetLoginName;
+        set { if (Set(ref _telnetLoginName, value)) OnPropertiesChanged(nameof(LoginHint), nameof(IsGuestLogin)); }
+    }
     public int MaxColumns
     {
         get => _maxColumns;
@@ -234,7 +268,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    public string AdvancedChevron => (AdvancedVisible ? Glyph.TriangleDown : Glyph.TriangleRight) + "  Advanced";
+    public string AdvancedChevron => (AdvancedVisible ? Glyph.ChevronDown : Glyph.ChevronRight) + "  Advanced";
     public bool CanConnect => !_isConnecting && Volatile.Read(ref _profileLoadsInProgress) == 0;
     public bool IsDirectConnectMode => _cmdArgs.Error == null && _cmdArgs.HasDirectConnectOptions;
     public Task LoadProfilesTask => _loadProfilesTask;
@@ -244,9 +278,211 @@ public sealed class ConnectViewModel : BaseViewModel
     public ICommand ConnectCommand { get; }
     public ICommand ToggleAdvancedCommand { get; }
     public ICommand ShowTelnetHelpCommand { get; }
+    public ICommand ShowConnectionHelpCommand { get; }
+    public ICommand ShowLoginNameHelpCommand { get; }
+
+    private static async Task ShowHelpAsync(string title, string body)
+    {
+        var page = Application.Current?.Windows is [var window, ..] ? window.Page : null;
+        if (page != null)
+            await page.DisplayAlertAsync(title, body, "OK");
+    }
     public ICommand DeleteProfileCommand { get; }
     public ICommand SaveProfileCommand { get; }
     public ICommand RenameProfileCommand { get; }
+    /// <summary>The transport choice: "ssh" or "telnet".</summary>
+    public ICommand SetTransportCommand { get; }
+    /// <summary>The login choice: "account" (MUD Login on) or "manual" (off).</summary>
+    public ICommand SetLoginKindCommand { get; }
+    public ICommand DismissGuestIntroCommand { get; }
+    public ICommand ToggleGuestPresetsCommand { get; }
+
+    /// <summary>The form is a profile that has not been saved yet (from Quick Start): its name is
+    /// typed, where a saved profile's is changed with Rename.</summary>
+    public bool IsNewProfile
+    {
+        get => _isNewProfile;
+        private set
+        {
+            if (Set(ref _isNewProfile, value))
+                OnPropertiesChanged(nameof(IsExistingProfile), nameof(EditTitle), nameof(ShowEditorPane), nameof(ShowWelcome));
+        }
+    }
+    private bool _isNewProfile;
+
+    public bool IsExistingProfile => !_isNewProfile;
+    public string EditTitle => _isNewProfile ? "New profile" : "Edit profile";
+
+    /// <summary>Raised when the editor has nothing more to do: a save went through or the profile
+    /// was deleted. A sheet showing the editor closes on it.</summary>
+    public event Action? EditFinished;
+
+    /// <summary>Raised when a row's Edit is pressed or a Quick Start fills the form.</summary>
+    public event Action? EditRequested;
+
+    // -- Guest access: shown once, on the first run that has it ---------------------------------
+    private const string GuestIntroKey = "guestintroseen";
+    private bool _guestIntroVisible;
+    private bool _guestPresetsVisible;
+
+    /// <summary>The one-time note about guest access on the profile list.</summary>
+    public bool GuestIntroVisible
+    {
+        get => _guestIntroVisible;
+        private set { if (Set(ref _guestIntroVisible, value)) OnPropertyChanged(nameof(ShowGuestIntro)); }
+    }
+
+    /// <summary>The guest note shows above profiles; with none, the welcome offers guest access itself.</summary>
+    public bool ShowGuestIntro => _guestIntroVisible && HasProfiles;
+
+    /// <summary>The editor has something to edit: a saved profile, or a new one being filled in.</summary>
+    public bool ShowEditorPane => HasProfiles || _isNewProfile;
+
+    /// <summary>No profiles and none being made: the welcome, with the Quick Start servers.</summary>
+    public bool ShowWelcome => !ShowEditorPane;
+
+    /// <summary>Leaves a profile that was never saved: the form goes back to the first saved one.</summary>
+    public void CancelNewProfile()
+    {
+        if (!IsNewProfile) return;
+        IsNewProfile = false;
+        HasError = false;
+        StatusText = string.Empty;
+        if (SavedProfiles.Count > 0)
+            ApplyProfile(SavedProfiles[0]);
+    }
+
+    /// <summary>Guest presets in Quick Start are folded away until asked for.</summary>
+    public bool GuestPresetsVisible
+    {
+        get => _guestPresetsVisible;
+        private set { if (Set(ref _guestPresetsVisible, value)) OnPropertyChanged(nameof(GuestPresetsToggleText)); }
+    }
+
+    /// <summary>The Quick Start presets. Key is what <see cref="BeginNewProfile"/> takes.</summary>
+    public sealed record QuickStart(string Key, string Name, string Host, int Port, bool Ssh, bool Guest);
+
+    public static readonly IReadOnlyList<QuickStart> QuickStarts =
+    [
+        new("uk", "MUD2 UK", "mudii.co.uk", 22, Ssh: true, Guest: false),
+        new("ca", "MUD2 CA", "mud2.com", 27723, Ssh: false, Guest: false),
+        new("guest-uk", "Try MUD2 UK", "mudii.co.uk", 23, Ssh: false, Guest: true),
+        new("guest-ca", "Try MUD2 CA", "mud2.com", 27723, Ssh: false, Guest: true),
+        new("blank", "New profile", "", 23, Ssh: false, Guest: false),
+    ];
+
+    /// <summary>Fills the form from a Quick Start preset as an unsaved profile.</summary>
+    public void BeginNewProfile(string key)
+    {
+        if (IsConnecting) return;
+        var q = QuickStarts.FirstOrDefault(x => x.Key == key) ?? QuickStarts[^1];
+        var name = q.Name;
+        for (var n = 2; SavedProfiles.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)); n++)
+            name = $"{q.Name} {n}";
+
+        _selectedProfile = null;
+        OnPropertyChanged(nameof(SelectedProfile));
+        IsNewProfile = true;
+        _passwordFetchAttempted = false;
+        _passwordFetchFailed = false;
+        Password = string.Empty;
+        ProfileName = name;
+        Host = q.Host;
+        _useSsh = q.Ssh && SshAvailable;
+        _portBeforeSsh = 0;
+        OnPropertyChanged(nameof(UseSsh));
+        Port = q.Port;
+        AccountId = string.Empty;
+        RememberPassword = false;
+        TelnetLoginEnabled = !q.Guest;
+        TelnetLoginName = q.Guest ? Profile.GuestLoginName : "mud";
+        MaxColumns = 0;
+        GuidedLogin = false;
+        GuidedLoginPersona = string.Empty;
+        HasError = false;
+        StatusText = string.Empty;
+        EditRequested?.Invoke();
+    }
+
+    /// <summary>Row Edit: the profile into the form, then ask for the editor.</summary>
+    public void BeginEdit(Profile profile)
+    {
+        if (IsConnecting) return;
+        SelectedProfile = profile;
+        // Selecting the profile already in the form is a no-op for the property, so fill it again:
+        // an abandoned edit must not reappear.
+        SelectProfile(profile);
+        HasError = false;
+        StatusText = string.Empty;
+        EditRequested?.Invoke();
+    }
+
+    // -- The connection: Secure (SSH), Oldschool (Telnet), or a port number ---------------------
+    public const string ConnectionSsh = "ssh";
+    public const string ConnectionTelnet = "telnet";
+
+    /// <summary>What the connection picker shows: SSH or Telnet on their usual ports, otherwise the
+    /// port number that was typed.</summary>
+    public string ConnectionLabel
+    {
+        get
+        {
+            var port = Port;
+            if (UseSsh && SshAvailable)
+                return port is 0 or SshPort ? "SSH" : $"SSH {port}";
+            return port is 0 or TelnetPort ? "Telnet" : port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>Sets the connection from the picker: <see cref="ConnectionSsh"/>,
+    /// <see cref="ConnectionTelnet"/>, or a typed port, which connects with telnet.</summary>
+    public void SetConnection(string kind, int port = 0)
+    {
+        if (kind == ConnectionSsh && SshAvailable)
+        {
+            UseSsh = true;
+            Port = SshPort;
+        }
+        else
+        {
+            UseSsh = false;
+            Port = kind == ConnectionTelnet || port <= 0 ? TelnetPort : port;
+        }
+    }
+
+    /// <summary>No profiles at all: the first run, or every profile deleted.</summary>
+    public bool HasNoProfiles => SavedProfiles.Count == 0;
+    public bool HasProfiles => SavedProfiles.Count > 0;
+
+    /// <summary>The settings editor's starting point when it is opened from this page: what
+    /// mucka.ini holds, for the highlighted profile's F-keys (the global set when there is none).</summary>
+    public async Task<(ClientSettings Settings, string[] Fkeys, string ProfileName)> LoadSettingsForEditorAsync()
+    {
+        var name = _selectedProfile?.Name ?? string.Empty;
+        var p = new Profile { Name = name };
+        (await SettingsStore.LoadProfileAsync(name).ConfigureAwait(true))?.ApplyTo(p);
+        return (p.ToClientSettings(UiFontScaleState.Current.Step), p.Fkeys, name);
+    }
+
+    public void SetGuestPresetsVisible(bool visible) => GuestPresetsVisible = visible;
+
+    public string GuestPresetsToggleText
+        => (_guestPresetsVisible ? Glyph.ChevronDown : Glyph.ChevronRight) + "  Just looking? Try it as a guest";
+
+    private async Task LoadGuestIntroAsync()
+    {
+        if (IsDirectConnectMode) return;
+        try
+        {
+            if (await SettingsStore.GetGlobalValueAsync(GuestIntroKey) is not null) return;
+            GuestIntroVisible = true;
+            await SettingsStore.SetGlobalFlagAsync(GuestIntroKey, true);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ConnectViewModel] guest intro flag failed: {ex}");
+        }
+    }
 
     /// <summary>"Save", or "Saved" for a moment after a save.</summary>
     public string SaveButtonText { get => _saveButtonText; private set => Set(ref _saveButtonText, value); }
@@ -264,17 +500,38 @@ public sealed class ConnectViewModel : BaseViewModel
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         SaveProfileCommand = new AsyncCommand(SaveProfileAsync);
         RenameProfileCommand = new AsyncCommand(RenameProfileAsync);
-        ShowTelnetHelpCommand = new Command(async () =>
+        SetTransportCommand = new Command<string>(t => UseSsh = t == "ssh" && SshAvailable);
+        SetLoginKindCommand = new Command<string>(kind =>
         {
-            var page = Application.Current?.Windows is [var window, ..] ? window.Page : null;
-            if (page != null)
-            {
-                await page.DisplayAlertAsync(
-                    "Telnet Login",
-                    "MUSE games (MUD2, MUD1) require a telnet login of \"mud\" followed by your Account ID and password.\n\nChecked, Mucka logs in with the Account and Password above. Unchecked, they are not sent and you log in by hand.\n\nFor anything else, please file an issue on GitHub.",
-                    "OK");
-            }
+            TelnetLoginEnabled = kind == "account";
+            // The account login is not the guest Unix login.
+            if (TelnetLoginEnabled && IsGuestNameOnForm)
+                TelnetLoginName = "mud";
         });
+        DismissGuestIntroCommand = new Command(() => GuestIntroVisible = false);
+        ToggleGuestPresetsCommand = new Command(() => GuestPresetsVisible = !GuestPresetsVisible);
+        _ = LoadGuestIntroAsync();
+        SavedProfiles.CollectionChanged += (_, _) => OnPropertiesChanged(nameof(HasNoProfiles), nameof(HasProfiles),
+            nameof(ShowGuestIntro), nameof(ShowEditorPane), nameof(ShowWelcome));
+        PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(Port) or nameof(UseSsh))
+                OnPropertyChanged(nameof(ConnectionLabel));
+        };
+        ShowTelnetHelpCommand = new Command(() => _ = ShowHelpAsync("Logging in",
+            "Account: Mucka answers the game's login prompts with your account id and password, and "
+            + "remembers the password if you tick Remember password.\n\n"
+            + "Log in yourself: Mucka sends nothing, and you answer the game's prompts in the terminal.\n\n"
+            + "To look around without an account, use + Add and open Guest access."));
+        ShowConnectionHelpCommand = new Command(() => _ = ShowHelpAsync("Connection",
+            "Secure (SSH): the connection is encrypted. The UK server offers it, on port 22.\n\n"
+            + "Oldschool (Telnet): the classic connection, unencrypted, on port 23.\n\n"
+            + "Manual: a port number of your own. Mucka connects to it with telnet. The CA server uses 27723."));
+        ShowLoginNameHelpCommand = new Command(() => _ = ShowHelpAsync("Server login name",
+            "Before the game itself, the server asks for a login name. \"mud\" leads to the account "
+            + "prompt and \"mudguest\" is the guest login; over a secure connection it is the SSH user.\n\n"
+            + "Leave it as it is unless the people who run your server tell you otherwise. "
+            + "With an account login, Mucka never uses the guest name."));
         _loadProfilesTask = LoadProfilesAsync();
     }
 
@@ -510,6 +767,7 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         _selectedProfile = p;
         OnPropertyChanged(nameof(SelectedProfile));
+        IsNewProfile = false;
         _passwordFetchAttempted = false;
         _passwordFetchFailed = false;
         Password = string.Empty;
@@ -523,7 +781,8 @@ public sealed class ConnectViewModel : BaseViewModel
         RememberPassword = p.RememberPassword;
         TelnetLoginEnabled = p.TelnetLoginEnabled;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
-        MaxColumns = p.MaxColumns;
+        // Connecting always sizes the terminal to the window: the page no longer offers a width.
+        MaxColumns = 0;
         AntiIdleSeconds = p.AntiIdleSeconds;
         KeepScreenOn = p.KeepScreenOn;
         GuidedLogin = p.GuidedLogin;
@@ -625,6 +884,12 @@ public sealed class ConnectViewModel : BaseViewModel
         ProfileName = name;
         HasError = false;
         StatusText = string.Empty;
+        if (IsNewProfile && SavedProfiles.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            StatusText = $"There is already a profile called \"{name}\".";
+            HasError = true;
+            return;
+        }
         try
         {
             var useSsh = UseSsh && SshAvailable;
@@ -632,6 +897,7 @@ public sealed class ConnectViewModel : BaseViewModel
             var profile = await BuildFormProfileAsync(port, useSsh, AccountId.Trim(), TelnetLoginName.Trim());
             await SaveCurrentProfileAsync(profile);
             HighlightProfileRow(profile.Name);
+            IsNewProfile = false;
             // As on connect: an empty box over a stored password that was never fetched is not a
             // request to delete it.
             var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(Password)
@@ -646,6 +912,7 @@ public sealed class ConnectViewModel : BaseViewModel
             return;
         }
         SaveButtonText = "Saved";
+        EditFinished?.Invoke();
         await Task.Delay(TimeSpan.FromSeconds(1.5));
         SaveButtonText = SaveLabel;
     }
@@ -754,9 +1021,8 @@ public sealed class ConnectViewModel : BaseViewModel
 
         if (SavedProfiles.Count == 0)
         {
-            var def = new Profile { Name = "Default", Host = "mud2.co.uk", Port = 23 };
-            SavedProfiles.Add(def);
-            ApplyProfile(def);
+            _selectedProfile = null;
+            OnPropertyChanged(nameof(SelectedProfile));
         }
         else
         {
@@ -764,6 +1030,7 @@ public sealed class ConnectViewModel : BaseViewModel
         }
 
         await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
+        EditFinished?.Invoke();
     }
 
     private async Task LoadProfilesAsync()
