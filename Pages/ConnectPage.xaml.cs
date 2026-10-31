@@ -13,23 +13,25 @@ public partial class ConnectPage : ContentPage
 
     // -- Adaptive layout ------------------------------------------------------
     // Wide: the list in a fixed left column, the editor beside it (desktop, iPad, phone landscape).
-    // Narrow: the list alone, and the editor on its own sheet. The large logo heads the list only when
-    // the page is tall as well: in a phone's landscape it took the whole height and hid the list.
-    // Size-based rather than OnIdiom so rotating a phone re-lays-out.
+    // Narrow: the list alone, and the editor on its own sheet. The large logo heads the wide list when
+    // ProfileLogoFit says the pane has room for it: in a phone's landscape it took the whole height
+    // and hid the list. Size-based rather than OnIdiom so rotating a phone re-lays-out.
     private const double WideLayoutMinWidthDp = 600.0;
-    private const double LargeLogoMinHeightDp = 700.0;
     // Windows: narrower than the others, and widened with the UI font step like the game page's
     // side panel. docs/font-setup-design.md, "The profile page on Windows".
 #if WINDOWS
     private const double WideListColumnDp     = 288.0;
+    private const double ListNeedDp           = Mucka.Ui.ProfileLogoFit.DenseListNeedDp;
     private static double WideListColumn
         => WideListColumnDp * Mucka.Ui.UiFontScale.PanelScale(UiFontScaleState.Current.Step);
 #else
     private const double WideListColumnDp     = 340.0;
+    private const double ListNeedDp           = Mucka.Ui.ProfileLogoFit.ListNeedDp;
     private static double WideListColumn => WideListColumnDp;
 #endif
     private bool? _isWideLayout;
-    private bool? _isTallLayout;
+    private double _pageHeightDp;
+    private Mucka.Ui.ProfileLogoFit.Fit? _logoFit;
 
     public ConnectPage(ConnectViewModel vm)
     {
@@ -46,13 +48,15 @@ public partial class ConnectPage : ContentPage
         NarrowWelcome.GuestRequested += OnGuestRequested;
         WideWelcome.GuestRequested += OnGuestRequested;
         WidePane.CloseRequested += (_, _) => _vm.CancelNewProfile();
-#if WINDOWS
         UiFontScaleState.Current.PropertyChanged += (_, _) =>
         {
+#if WINDOWS
             if (_isWideLayout == true && RootGrid.ColumnDefinitions.Count == 3)
                 RootGrid.ColumnDefinitions[0].Width = WideListColumn;
-        };
 #endif
+            FitLogo();
+        };
+        ListPane.SizeChanged += (_, _) => FitLogo();
 
         // Pick the initial layout from the display metrics BEFORE the first measure pass.
         try
@@ -75,14 +79,13 @@ public partial class ConnectPage : ContentPage
     private void ApplyLayoutFor(double width, double height)
     {
         var wide = width >= WideLayoutMinWidthDp;
-        var tall = height >= LargeLogoMinHeightDp;
-        if (_isWideLayout == wide && _isTallLayout == tall) return;
+        _pageHeightDp = height;
+        if (_isWideLayout == wide) return;
         _isWideLayout = wide;
-        _isTallLayout = tall;
-        ApplyLayout(wide, tall);
+        ApplyLayout(wide);
     }
 
-    private void ApplyLayout(bool wide, bool tall)
+    private void ApplyLayout(bool wide)
     {
         RootGrid.ColumnDefinitions = wide
             ? new ColumnDefinitionCollection(
@@ -93,15 +96,45 @@ public partial class ConnectPage : ContentPage
         Grid.SetColumnSpan(ListPane, 1);
         Separator.IsVisible = wide;
         RightPane.IsVisible = wide;
-        var largeLogo = wide && tall;
-        WideHeader.IsVisible = largeLogo;
-        NarrowLogo.IsVisible = !largeLogo;
-        NarrowVersionLabel.IsVisible = !largeLogo;
+        NarrowVersionLabel.IsVisible = !wide;
+        _logoFit = null;
+        FitLogo();
         _vm.IsWideLayout = wide;
         // A new profile was being filled in beside the list: on its own, the list has no editor.
         if (!wide && _vm.IsNewProfile)
             OnEditRequested();
     }
+
+    // The large logo behind the wide list, from the list pane's size (before its first layout, the
+    // column and the page's height). The rows start below what it takes and the scrim darkens the
+    // part they cover; with no large logo the header carries the small one.
+    private void FitLogo()
+    {
+        var wide = _isWideLayout == true;
+        var fit = wide
+            ? Mucka.Ui.ProfileLogoFit.Compute(
+                ListPane.Width > 0 ? ListPane.Width : WideListColumn,
+                ListPane.Height > 0 ? ListPane.Height : _pageHeightDp,
+                UiFontScaleState.Current.Step, ListNeedDp)
+            : default;
+        if (_logoFit == fit) return;
+        _logoFit = fit;
+        LargeLogo.IsVisible = fit.Show;
+        LargeLogo.HeightRequest = fit.LogoHeight;
+        WideHeader.IsVisible = fit.Show;
+        WideHeader.HeightRequest = fit.SpaceTaken;
+        NarrowLogo.IsVisible = !fit.Show;
+        LogoScrim.IsVisible = fit.Show && fit.Overlap > 0;
+        if (LogoScrim.IsVisible)
+        {
+            var scrim = fit.Overlap + LogoScrimLeadDp;
+            LogoScrim.HeightRequest = scrim;
+            LogoScrim.Margin = new Thickness(0, fit.LogoHeight - scrim, 0, 0);
+        }
+    }
+
+    // How far above the covered part the scrim starts, so the art fades rather than stops.
+    private const double LogoScrimLeadDp = 24.0;
 
     private async void OnAddClicked(object? sender, EventArgs e) => await ChooseQuickStartAsync(showGuest: false);
 

@@ -36,233 +36,251 @@
 
         <Grid x:Name="ListPane"
               Grid.Column="0"
-              RowDefinitions="Auto,Auto,Auto,*,Auto"
               BackgroundColor="#0C0C0C">
 
-            <!-- Wide: the large logo and the version above the list -->
-            <VerticalStackLayout x:Name="WideHeader"
-                                 Grid.Row="0"
-                                 BackgroundColor="#111111">
-                <Image Source="mucka_logo.png"
-                       HorizontalOptions="Fill"
-                       Aspect="AspectFit" />
-                <Label x:Name="WideVersionLabel"
-                       TextColor="#555555"
-                       FontSize="{core:ScaledFont 11}"
-                       HorizontalOptions="Center"
-                       Padding="0,0,0,2" />
-            </VerticalStackLayout>
+            <!-- Wide: the large logo, behind the rows. ProfileLogoFit sizes it, and when the pane is
+                 short lets the rows cover its bottom, which the scrim darkens for the text over it. -->
+            <Image x:Name="LargeLogo"
+                   Source="mucka_logo.png"
+                   IsVisible="False"
+                   VerticalOptions="Start"
+                   HorizontalOptions="Fill"
+                   Aspect="AspectFit" />
+            <Grid x:Name="LogoScrim"
+                  IsVisible="False"
+                  VerticalOptions="Start"
+                  HorizontalOptions="Fill">
+                <Grid.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#000C0C0C" Offset="0.0" />
+                        <GradientStop Color="#F00C0C0C" Offset="1.0" />
+                    </LinearGradientBrush>
+                </Grid.Background>
+            </Grid>
 
-            <!-- Title, Settings and Add; narrow puts a small logo and the version here too -->
-            <Grid Grid.Row="1"
-                  IsEnabled="{Binding IsNotConnecting}"
-                  Opacity="{Binding IdleOpacity}"
-                  ColumnDefinitions="Auto,*,Auto,Auto"
-                  ColumnSpacing="{OnPlatform Default=8, WinUI=6}"
-                  Padding="{OnPlatform Default='12,8', WinUI='8,6'}">
-                <Image x:Name="NarrowLogo"
-                       Grid.Column="0"
-                       Source="mucka_logo.png"
-                       HeightRequest="46"
-                       Aspect="AspectFit" />
-                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="0">
-                    <Label Text="Profiles"
-                           TextColor="White"
-                           FontAttributes="Bold"
-                           LineBreakMode="TailTruncation"
-                           FontSize="{core:ScaledFont 20}" />
-                    <Label x:Name="NarrowVersionLabel"
+            <Grid x:Name="ListRows" RowDefinitions="Auto,Auto,Auto,*,Auto">
+
+                <!-- Wide: the space the large logo leaves above the rows, with the version at its foot -->
+                <Grid x:Name="WideHeader"
+                      Grid.Row="0"
+                      IsVisible="False">
+                    <Label x:Name="WideVersionLabel"
                            TextColor="#555555"
-                           LineBreakMode="TailTruncation"
-                           FontSize="{core:ScaledFont 11}" />
+                           FontSize="{core:ScaledFont 11}"
+                           HorizontalOptions="Center"
+                           VerticalOptions="End"
+                           Padding="0,0,0,2" />
+                </Grid>
+
+                <!-- Title, Settings and Add; narrow puts a small logo and the version here too -->
+                <Grid Grid.Row="1"
+                      IsEnabled="{Binding IsNotConnecting}"
+                      Opacity="{Binding IdleOpacity}"
+                      ColumnDefinitions="Auto,*,Auto,Auto"
+                      ColumnSpacing="{OnPlatform Default=8, WinUI=6}"
+                      Padding="{OnPlatform Default='12,8', WinUI='8,6'}">
+                    <Image x:Name="NarrowLogo"
+                           Grid.Column="0"
+                           Source="mucka_logo.png"
+                           HeightRequest="46"
+                           Aspect="AspectFit" />
+                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="0">
+                        <Label Text="Profiles"
+                               TextColor="White"
+                               FontAttributes="Bold"
+                               LineBreakMode="TailTruncation"
+                               FontSize="{core:ScaledFont 20}" />
+                        <Label x:Name="NarrowVersionLabel"
+                               TextColor="#555555"
+                               LineBreakMode="TailTruncation"
+                               FontSize="{core:ScaledFont 11}" />
+                    </VerticalStackLayout>
+                    <Button Grid.Column="2"
+                            Text="Settings"
+                            Style="{StaticResource HeaderButton}"
+                            Clicked="OnSettingsClicked"
+                            IsEnabled="{Binding IsNotConnecting}"
+                            SemanticProperties.Description="Settings" />
+                    <Button Grid.Column="3"
+                            Text="+ Add"
+                            Clicked="OnAddClicked"
+                            IsEnabled="{Binding IsNotConnecting}"
+                            BackgroundColor="#1f6feb"
+                            TextColor="White"
+                            CornerRadius="8"
+                            HeightRequest="{OnPlatform Default=44, WinUI=-1}"
+                            MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
+                            Padding="{OnPlatform Default='16,0', WinUI='10,0'}"
+                            VerticalOptions="Center"
+                            SemanticProperties.Description="Add a profile" />
+                </Grid>
+
+                <!-- Narrow: guest access mentioned once, the first run that has it -->
+                <Border Grid.Row="2"
+                            IsVisible="{Binding ShowNarrowGuestIntro}"
+                            IsEnabled="{Binding IsNotConnecting}"
+                            Opacity="{Binding IdleOpacity}"
+                            BackgroundColor="#0d1b2e"
+                            Stroke="#1f6feb"
+                            StrokeThickness="1"
+                            StrokeShape="RoundRectangle 10"
+                            Padding="14,10"
+                            Margin="12,0,12,8">
+                        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+                            <Label Grid.Row="0" Grid.Column="0"
+                                   Text="New: look around MUD2 as a guest, without an account."
+                                   TextColor="#c9d1d9"
+                                   FontSize="{core:ScaledFont 13}" />
+                            <Label Grid.Row="0" Grid.Column="1"
+                                   Text="&#x2715;"
+                                   TextColor="#8b949e"
+                                   FontSize="{core:ScaledFont 16}"
+                                   VerticalOptions="Start"
+                                   Padding="8,0,0,8"
+                                   SemanticProperties.Description="Dismiss">
+                                <Label.GestureRecognizers>
+                                    <TapGestureRecognizer Command="{Binding DismissGuestIntroCommand}" />
+                                </Label.GestureRecognizers>
+                            </Label>
+                            <Button Grid.Row="1" Grid.Column="0"
+                                    Text="Look around as a guest"
+                                    Clicked="OnGuestIntroClicked"
+                                    BackgroundColor="Transparent"
+                                    TextColor="#58a6ff"
+                                    Padding="0"
+                                    HeightRequest="36"
+                                    HorizontalOptions="Start" />
+                        </Grid>
+                    </Border>
+
+                <Grid Grid.Row="3" IsEnabled="{Binding IsNotConnecting}" Opacity="{Binding IdleOpacity}">
+                    <CollectionView x:Name="ProfileList"
+                                    ItemsSource="{Binding SavedProfiles}"
+                                    SelectionMode="Single"
+                                    SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
+                                    IsEnabled="{Binding IsNotConnecting}"
+                                    IsVisible="{Binding HasProfiles}"
+                                    BackgroundColor="Transparent">
+                        <CollectionView.ItemsLayout>
+                            <LinearItemsLayout Orientation="Vertical" ItemSpacing="8" />
+                        </CollectionView.ItemsLayout>
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="core:Profile">
+                                <!-- A card: what it is on the left, Connect and the more-actions menu on the right. The selected
+                                     card gets a blue outline; the platform's grey selection is turned off
+                                     because it left the card's white text on grey. -->
+                                <Grid Padding="12,0" BackgroundColor="Transparent">
+                                    <VisualStateManager.VisualStateGroups>
+                                        <VisualStateGroup Name="CommonStates">
+                                            <VisualState Name="Normal" />
+                                            <VisualState Name="Selected">
+                                                <VisualState.Setters>
+                                                    <Setter Property="BackgroundColor" Value="Transparent" />
+                                                    <Setter TargetName="Card" Property="Border.Stroke" Value="#1f6feb" />
+                                                    <Setter TargetName="Card" Property="Border.StrokeThickness" Value="2" />
+                                                </VisualState.Setters>
+                                            </VisualState>
+                                        </VisualStateGroup>
+                                    </VisualStateManager.VisualStateGroups>
+                                    <Border x:Name="Card"
+                                            BackgroundColor="#161b22"
+                                            Stroke="#30363d"
+                                            StrokeThickness="1"
+                                            StrokeShape="RoundRectangle 10"
+                                            Padding="{OnPlatform Default='14,10', WinUI='12,8'}">
+                                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                            <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
+                                                <Label Text="{Binding Name}"
+                                                       TextColor="White"
+                                                       FontAttributes="Bold"
+                                                       FontSize="{core:ScaledFont 17}"
+                                                       LineBreakMode="TailTruncation" />
+                                                <Label Text="{Binding Host}"
+                                                       TextColor="#8b949e"
+                                                       FontSize="{core:ScaledFont 13}"
+                                                       LineBreakMode="MiddleTruncation" />
+                                                <Label Text="{Binding KindSummary}"
+                                                       TextColor="#58a6ff"
+                                                       FontSize="{core:ScaledFont 12}" />
+                                            </VerticalStackLayout>
+                                            <VerticalStackLayout Grid.Column="1" Spacing="{OnPlatform Default=6, WinUI=4}" VerticalOptions="Center">
+                                                <Button Text="Connect"
+                                                        Clicked="OnConnectClicked"
+                                                        CommandParameter="{Binding .}"
+                                                        BackgroundColor="#1f6feb"
+                                                        TextColor="White"
+                                                        CornerRadius="8"
+                                                        Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
+                                                        HeightRequest="{OnPlatform Default=44, WinUI=-1}"
+                                                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
+                                                        MinimumWidthRequest="{OnPlatform Default=104, WinUI=76}" />
+                                                <!-- Edit, Rename, Duplicate and Delete (OnMoreClicked) -->
+                                                <Button Text="&#x22EF;"
+                                                        Clicked="OnMoreClicked"
+                                                        CommandParameter="{Binding .}"
+                                                        BackgroundColor="#21262d"
+                                                        BorderColor="#3d444d"
+                                                        BorderWidth="1"
+                                                        TextColor="White"
+                                                        FontSize="{core:ScaledFont 18}"
+                                                        CornerRadius="8"
+                                                        HeightRequest="{OnPlatform Default=34, WinUI=-1}"
+                                                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=26}"
+                                                        MinimumWidthRequest="{OnPlatform Default=104, WinUI=76}"
+                                                        Padding="0"
+                                                        SemanticProperties.Description="More: edit, rename, duplicate, delete" />
+                                            </VerticalStackLayout>
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+
+                    <!-- Narrow, no profiles: the welcome in place of the list -->
+                    <pages:WelcomeView x:Name="NarrowWelcome"
+                                       IsVisible="{Binding ShowNarrowWelcome}"
+                                       VerticalOptions="Start" />
+
+                    <!-- Wide, no profiles: the welcome is beside the list, which says why it is empty -->
+                    <Label Text="No profiles yet."
+                           IsVisible="{Binding ShowWideEmptyNote}"
+                           TextColor="#555555"
+                           HorizontalOptions="Center"
+                           VerticalOptions="Start"
+                           Margin="0,24,0,0" />
+                </Grid>
+
+                <VerticalStackLayout Grid.Row="4" Spacing="4" Padding="12,4">
+                    <!-- The highlighted profile's server: its score history, without connecting -->
+                    <Button Text="{Binding ScoreHistoryText}"
+                            IsVisible="{Binding HasProfiles}"
+                            IsEnabled="{Binding IsNotConnecting}"
+                            Opacity="{Binding IdleOpacity}"
+                            Clicked="OnScoreHistoryClicked"
+                            BackgroundColor="Transparent"
+                            TextColor="#58a6ff"
+                            BorderColor="#333333"
+                            BorderWidth="1"
+                            CornerRadius="6"
+                            Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
+                            HeightRequest="{OnPlatform Default=40, WinUI=-1}"
+                            MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
+                            HorizontalOptions="Fill"
+                            SemanticProperties.Description="Score history" />
+                    <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
+                                           HorizontalOptions="Center" Spacing="8">
+                        <ActivityIndicator IsRunning="{Binding IsConnecting}" Color="#58a6ff"
+                                           HeightRequest="18" WidthRequest="18" VerticalOptions="Center"/>
+                        <Label Text="{Binding ProgressText}" TextColor="#58a6ff" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                    <!-- The editor shows save errors itself when it is beside the list -->
+                    <Label Text="{Binding StatusText}"
+                           TextColor="#f85149"
+                           IsVisible="{Binding ShowListError}"
+                           HorizontalOptions="Center" />
                 </VerticalStackLayout>
-                <Button Grid.Column="2"
-                        Text="Settings"
-                        Style="{StaticResource HeaderButton}"
-                        Clicked="OnSettingsClicked"
-                        IsEnabled="{Binding IsNotConnecting}"
-                        SemanticProperties.Description="Settings" />
-                <Button Grid.Column="3"
-                        Text="+ Add"
-                        Clicked="OnAddClicked"
-                        IsEnabled="{Binding IsNotConnecting}"
-                        BackgroundColor="#1f6feb"
-                        TextColor="White"
-                        CornerRadius="8"
-                        HeightRequest="{OnPlatform Default=44, WinUI=-1}"
-                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
-                        Padding="{OnPlatform Default='16,0', WinUI='10,0'}"
-                        VerticalOptions="Center"
-                        SemanticProperties.Description="Add a profile" />
             </Grid>
-
-            <!-- Narrow: guest access mentioned once, the first run that has it -->
-            <Border Grid.Row="2"
-                        IsVisible="{Binding ShowNarrowGuestIntro}"
-                        IsEnabled="{Binding IsNotConnecting}"
-                        Opacity="{Binding IdleOpacity}"
-                        BackgroundColor="#0d1b2e"
-                        Stroke="#1f6feb"
-                        StrokeThickness="1"
-                        StrokeShape="RoundRectangle 10"
-                        Padding="14,10"
-                        Margin="12,0,12,8">
-                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
-                        <Label Grid.Row="0" Grid.Column="0"
-                               Text="New: look around MUD2 as a guest, without an account."
-                               TextColor="#c9d1d9"
-                               FontSize="{core:ScaledFont 13}" />
-                        <Label Grid.Row="0" Grid.Column="1"
-                               Text="&#x2715;"
-                               TextColor="#8b949e"
-                               FontSize="{core:ScaledFont 16}"
-                               VerticalOptions="Start"
-                               Padding="8,0,0,8"
-                               SemanticProperties.Description="Dismiss">
-                            <Label.GestureRecognizers>
-                                <TapGestureRecognizer Command="{Binding DismissGuestIntroCommand}" />
-                            </Label.GestureRecognizers>
-                        </Label>
-                        <Button Grid.Row="1" Grid.Column="0"
-                                Text="Look around as a guest"
-                                Clicked="OnGuestIntroClicked"
-                                BackgroundColor="Transparent"
-                                TextColor="#58a6ff"
-                                Padding="0"
-                                HeightRequest="36"
-                                HorizontalOptions="Start" />
-                    </Grid>
-                </Border>
-
-            <Grid Grid.Row="3" IsEnabled="{Binding IsNotConnecting}" Opacity="{Binding IdleOpacity}">
-                <CollectionView x:Name="ProfileList"
-                                ItemsSource="{Binding SavedProfiles}"
-                                SelectionMode="Single"
-                                SelectedItem="{Binding SelectedProfile, Mode=TwoWay}"
-                                IsEnabled="{Binding IsNotConnecting}"
-                                IsVisible="{Binding HasProfiles}"
-                                BackgroundColor="Transparent">
-                    <CollectionView.ItemsLayout>
-                        <LinearItemsLayout Orientation="Vertical" ItemSpacing="8" />
-                    </CollectionView.ItemsLayout>
-                    <CollectionView.ItemTemplate>
-                        <DataTemplate x:DataType="core:Profile">
-                            <!-- A card: what it is on the left, Connect and the more-actions menu on the right. The selected
-                                 card gets a blue outline; the platform's grey selection is turned off
-                                 because it left the card's white text on grey. -->
-                            <Grid Padding="12,0" BackgroundColor="Transparent">
-                                <VisualStateManager.VisualStateGroups>
-                                    <VisualStateGroup Name="CommonStates">
-                                        <VisualState Name="Normal" />
-                                        <VisualState Name="Selected">
-                                            <VisualState.Setters>
-                                                <Setter Property="BackgroundColor" Value="Transparent" />
-                                                <Setter TargetName="Card" Property="Border.Stroke" Value="#1f6feb" />
-                                                <Setter TargetName="Card" Property="Border.StrokeThickness" Value="2" />
-                                            </VisualState.Setters>
-                                        </VisualState>
-                                    </VisualStateGroup>
-                                </VisualStateManager.VisualStateGroups>
-                                <Border x:Name="Card"
-                                        BackgroundColor="#161b22"
-                                        Stroke="#30363d"
-                                        StrokeThickness="1"
-                                        StrokeShape="RoundRectangle 10"
-                                        Padding="{OnPlatform Default='14,10', WinUI='12,8'}">
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                        <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
-                                            <Label Text="{Binding Name}"
-                                                   TextColor="White"
-                                                   FontAttributes="Bold"
-                                                   FontSize="{core:ScaledFont 17}"
-                                                   LineBreakMode="TailTruncation" />
-                                            <Label Text="{Binding Host}"
-                                                   TextColor="#8b949e"
-                                                   FontSize="{core:ScaledFont 13}"
-                                                   LineBreakMode="MiddleTruncation" />
-                                            <Label Text="{Binding KindSummary}"
-                                                   TextColor="#58a6ff"
-                                                   FontSize="{core:ScaledFont 12}" />
-                                        </VerticalStackLayout>
-                                        <VerticalStackLayout Grid.Column="1" Spacing="{OnPlatform Default=6, WinUI=4}" VerticalOptions="Center">
-                                            <Button Text="Connect"
-                                                    Clicked="OnConnectClicked"
-                                                    CommandParameter="{Binding .}"
-                                                    BackgroundColor="#1f6feb"
-                                                    TextColor="White"
-                                                    CornerRadius="8"
-                                                    Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
-                                                    HeightRequest="{OnPlatform Default=44, WinUI=-1}"
-                                                    MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
-                                                    WidthRequest="{OnPlatform Default=104, WinUI=-1}"
-                                                    MinimumWidthRequest="{OnPlatform Default=44, WinUI=76}" />
-                                            <!-- Edit, Rename, Duplicate and Delete (OnMoreClicked) -->
-                                            <Button Text="&#x22EF;"
-                                                    Clicked="OnMoreClicked"
-                                                    CommandParameter="{Binding .}"
-                                                    BackgroundColor="#21262d"
-                                                    BorderColor="#3d444d"
-                                                    BorderWidth="1"
-                                                    TextColor="White"
-                                                    FontSize="{core:ScaledFont 18}"
-                                                    CornerRadius="8"
-                                                    HeightRequest="{OnPlatform Default=34, WinUI=-1}"
-                                                    MinimumHeightRequest="{OnPlatform Default=44, WinUI=26}"
-                                                    WidthRequest="{OnPlatform Default=104, WinUI=-1}"
-                                                    MinimumWidthRequest="{OnPlatform Default=44, WinUI=76}"
-                                                    Padding="0"
-                                                    SemanticProperties.Description="More: edit, rename, duplicate, delete" />
-                                        </VerticalStackLayout>
-                                    </Grid>
-                                </Border>
-                            </Grid>
-                        </DataTemplate>
-                    </CollectionView.ItemTemplate>
-                </CollectionView>
-
-                <!-- Narrow, no profiles: the welcome in place of the list -->
-                <pages:WelcomeView x:Name="NarrowWelcome"
-                                   IsVisible="{Binding ShowNarrowWelcome}"
-                                   VerticalOptions="Start" />
-
-                <!-- Wide, no profiles: the welcome is beside the list, which says why it is empty -->
-                <Label Text="No profiles yet."
-                       IsVisible="{Binding ShowWideEmptyNote}"
-                       TextColor="#555555"
-                       HorizontalOptions="Center"
-                       VerticalOptions="Start"
-                       Margin="0,24,0,0" />
-            </Grid>
-
-            <VerticalStackLayout Grid.Row="4" Spacing="4" Padding="12,4">
-                <!-- The highlighted profile's server: its score history, without connecting -->
-                <Button Text="{Binding ScoreHistoryText}"
-                        IsVisible="{Binding HasProfiles}"
-                        IsEnabled="{Binding IsNotConnecting}"
-                        Opacity="{Binding IdleOpacity}"
-                        Clicked="OnScoreHistoryClicked"
-                        BackgroundColor="Transparent"
-                        TextColor="#58a6ff"
-                        BorderColor="#333333"
-                        BorderWidth="1"
-                        CornerRadius="6"
-                        Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
-                        HeightRequest="{OnPlatform Default=40, WinUI=-1}"
-                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
-                        HorizontalOptions="Fill"
-                        SemanticProperties.Description="Score history" />
-                <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
-                                       HorizontalOptions="Center" Spacing="8">
-                    <ActivityIndicator IsRunning="{Binding IsConnecting}" Color="#58a6ff"
-                                       HeightRequest="18" WidthRequest="18" VerticalOptions="Center"/>
-                    <Label Text="{Binding ProgressText}" TextColor="#58a6ff" VerticalOptions="Center"/>
-                </HorizontalStackLayout>
-                <!-- The editor shows save errors itself when it is beside the list -->
-                <Label Text="{Binding StatusText}"
-                       TextColor="#f85149"
-                       IsVisible="{Binding ShowListError}"
-                       HorizontalOptions="Center" />
-            </VerticalStackLayout>
         </Grid>
 
         <BoxView x:Name="Separator"

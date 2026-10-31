@@ -42,6 +42,8 @@ public partial class App : Application
             panelExpanded: true);
 #endif
 #if WINDOWS
+        // The height WinUI picks was too short for the profile page's large logo and its list.
+        window.Height = Math.Min(DefaultWindowHeightDp, ScreenHeightDp() * MaxWindowScreenShare);
         window.HandlerChanged += (s, e) => SetWindowIcon(window);
         // Observed: Window.Title reaches the native window (the taskbar shows it) but MAUI's default
         // title bar drew no text, so the window looked anonymous. This one shows Window.Title, live.
@@ -62,6 +64,17 @@ public partial class App : Application
 
         return window;
     }
+
+#if WINDOWS
+    private const double DefaultWindowHeightDp = 720;
+    private const double MaxWindowScreenShare = 0.9;
+
+    private static double ScreenHeightDp()
+    {
+        var info = DeviceDisplay.Current.MainDisplayInfo;
+        return info.Density > 0 ? info.Height / info.Density : double.PositiveInfinity;
+    }
+#endif
 
     // Profile-mode launches title the window with the profile name so a specific instance is easy
     // to spot in the taskbar / process list; otherwise app + version.
