@@ -361,11 +361,13 @@ public sealed class ConnectViewModel : BaseViewModel
             if (MaxColumns > 0) displayableCols = Math.Max(displayableCols, MaxColumns);
 #endif
             var windowCols = Mucka.Terminal.TerminalColumns.Effective(MaxColumns, displayableCols);
+            // The profile keeps its stored name; what the shell is shown depends on the login kind.
+            var shellLogin = Mucka.Commands.ShellLogin.For(loginName, TelnetLoginEnabled && accountId.Length > 0);
             var conn = await Task.Run(() => new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
                 windowCols,
-                loginName,
+                shellLogin,
                 Host.Trim(),
                 DreamwordCarry)).ConfigureAwait(true);
 

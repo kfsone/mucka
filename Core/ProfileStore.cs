@@ -22,6 +22,11 @@ public static class ProfileStore
                 false => await SettingsStore.GetPlainPasswordAsync(profileName).ConfigureAwait(false),
                 null  => null,
             };
+#elif IOS
+            // The keychain is where the app keeps them; a password= line placed in the profile's
+            // section of mucka.ini by hand is read when the keychain has none.
+            return await SecureStorage.GetAsync($"pwd:{profileName}").ConfigureAwait(false)
+                   ?? await SettingsStore.GetPlainPasswordAsync(profileName).ConfigureAwait(false);
 #else
             return await SecureStorage.GetAsync($"pwd:{profileName}").ConfigureAwait(false);
 #endif

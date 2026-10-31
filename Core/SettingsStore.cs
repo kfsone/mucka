@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.Maui.Storage;
 using Mucka.Settings;
-#if MACCATALYST
+#if UIKIT
 using Mucka.Commands;
 #endif
 
@@ -460,15 +460,8 @@ public static class SettingsStore
         }
     }
 
-#if MACCATALYST
+#if UIKIT
     private const string ProfilePasswordKey = "password";
-
-    /// <summary>The "Store Passwords Securely" choice: true keychain, false plain text in this
-    /// file, null not asked yet (no securepasswords key in [settings]).</summary>
-    public static async Task<bool?> GetSecurePasswordsAsync()
-        => await GetGlobalValueAsync(SecurePasswordsKey).ConfigureAwait(false) is { } v ? ParseOnOff(v) : null;
-
-    public static Task SetSecurePasswordsAsync(bool secure) => SetGlobalFlagAsync(SecurePasswordsKey, secure);
 
     /// <summary>The password kept as plain text in the profile's section; null when there is none.</summary>
     public static async Task<string?> GetPlainPasswordAsync(string profileName)
@@ -481,6 +474,15 @@ public static class SettingsStore
         }
         finally { s_gate.Release(); }
     }
+#endif
+
+#if MACCATALYST
+    /// <summary>The "Store Passwords Securely" choice: true keychain, false plain text in this
+    /// file, null not asked yet (no securepasswords key in [settings]).</summary>
+    public static async Task<bool?> GetSecurePasswordsAsync()
+        => await GetGlobalValueAsync(SecurePasswordsKey).ConfigureAwait(false) is { } v ? ParseOnOff(v) : null;
+
+    public static Task SetSecurePasswordsAsync(bool secure) => SetGlobalFlagAsync(SecurePasswordsKey, secure);
 
     /// <summary>Removes the plain text password of each named profile that has one, saving the file
     /// once, and only when something was removed.</summary>
