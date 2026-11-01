@@ -1316,6 +1316,8 @@ public partial class GamePage : ContentPage
     // Tapping the SCROLLBACK indicator returns to live.
     private void OnScrollbackBarTapped(object? sender, TappedEventArgs e) => Terminal.ScrollToBottom();
 
+    private void OnReplayBarHideTapped(object? sender, TappedEventArgs e) => _vm.HideReplayBar();
+
     // Compact-mode overflow menu: shows a dark-themed popup in the body area.
     private void OnOverflowMenuTapped(object? sender, TappedEventArgs e)
         => OverflowMenuOverlay.IsVisible = true;

@@ -70,9 +70,11 @@ optional) in this order: an absolute path as given; the player's replays folder;
 app's external files folder; and the replays packaged with the app.
 
 `ReplayTransport` stands in for the socket and `ReplayPlayer` schedules the records. The replay bar
-covers the input row for the whole session, the way the SCROLLBACK bar does, and counts as the
-keyboard being owned elsewhere (Invariant #0's exceptions), so a phone's keyboard stays down. Its
-slider sets `ReplayPlayer.Step`:
+covers the input row the way the SCROLLBACK bar does, and the whole replay counts as the keyboard
+being owned elsewhere (Invariant #0's exceptions), so a phone's keyboard stays down. Its close glyph
+hides it for the rest of the replay (`GameViewModel.HideReplayBar`), so a screenshot shows the input
+row a live session has; the replay plays on at the speed it had. Its slider sets
+`ReplayPlayer.Step`:
 
 - far left (`ReplayPlayer.PauseStep`) - paused;
 - `ReplayPlayer.OriginalStep`, where it starts - 1.0x, the original session's own gaps;
@@ -122,3 +124,7 @@ parser a replay feeds, and fails if one does not reach its last line.
 `login-and-spells.muckrep` is records 0-115 of an iPhone-simulator session on mudii.co.uk: the login,
 character select, a few minutes standing in a room, then two spells. 76 seconds at 1.0x. Made with
 `--sub sexy=sweet`.
+
+`screenshots.muckrep` is `login-and-spells.muckrep` up to the walk north, edited for store and README
+screenshots: Crispybob the necromancer and Folly the warlock are added to every player list, and a
+tell from Drizzle and a shout from Folly, both invented, follow Awlie's say. 71 seconds at 1.0x.

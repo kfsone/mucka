@@ -902,16 +902,17 @@
                  the SCROLLBACK bar does while reviewing. The slider is the playback speed: the far
                  left pauses, the far right sends a record every ReplayPlayer.MaxIntervalMs, and it
                  starts at the original timing. Maximum is static so it is set before the Value
-                 binding, which a lower maximum would clamp. -->
+                 binding, which a lower maximum would clamp. The close glyph hides the bar for the
+                 rest of the replay, showing the input row a live session has. -->
             <Border Grid.Column="0" Grid.ColumnSpan="5"
                     x:Name="ReplayBar"
-                    IsVisible="{Binding IsReplay}"
+                    IsVisible="{Binding IsReplayBarVisible}"
                     BackgroundColor="#161b22"
                     Stroke="#3FB950" StrokeThickness="2"
                     Padding="8,0"
                     HorizontalOptions="Fill" VerticalOptions="Fill">
                 <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
                     <Label Grid.Column="0" Text="REPLAY"
                            TextColor="#3FB950" FontSize="{core:ScaledFont 12}"
                            VerticalOptions="Center"
@@ -928,6 +929,14 @@
                            WidthRequest="56" HorizontalTextAlignment="End"
                            VerticalOptions="Center"
                            FontFamily="{OnPlatform WinUI='Cascadia Mono', MacCatalyst='Cascadia Mono', iOS='Cascadia Mono', Default='monospace'}"/>
+                    <Label Grid.Column="3" Text="{x:Static core:Glyph.Close}"
+                           TextColor="#CCCCCC" FontSize="{core:ScaledFont 14}"
+                           Padding="8,0,0,0"
+                           VerticalOptions="Fill" VerticalTextAlignment="Center">
+                        <Label.GestureRecognizers>
+                            <TapGestureRecognizer Tapped="OnReplayBarHideTapped"/>
+                        </Label.GestureRecognizers>
+                    </Label>
                 </Grid>
             </Border>
 

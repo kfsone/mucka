@@ -1,0 +1,81 @@
+# muckrep
+# account ID and password replaced with placeholders
+# login-and-spells.muckrep up to the walk north, edited for screenshots: Crispybob and Folly
+# added to the player lists; the tell from Drizzle and the shout from Folly are invented
+0 rx \r\nPlease enter your account id (starting Z000) now.\r\n
+5 rx Type QUIT to abort login.\r\nAccount ID: 
+168 rx M000101
+169 rx 01\r\nPassword: 
+332 rx \r\n[1;37;40mOK\r\n[f[2JM00010101 logged in on pts/5.\r\n\r\n[0;37;40m[1;37;40m                      [0;37;40m.o[1;37;40m[0;37;40moooooooo[1;30;40mo.[0;37;40m[1;37;40m[0;37;40m[1;37;40m\r\n[0;37;40m[1;37;40m                     o[0;37;40moo[1;30;40mo`    `[0;37;40m[1;37;40mo[0;37;40moo[1;30;40mo[0;37;40m[1;37;40m[0;37;40m[1;37;40m\r\n[0;37;40m[1;37;40m                    o[0;37;40moo[1;30;40mo        [0;37;40m[1;37;40mo[0;37;40moo[1;30;40mo[0;37;40m[1;37;40m[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m _____        ____  ====_       ===[30mo[33m ___________[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m([32mXXXXX[33m)      ([32mXXXX[33m)([32mXXXXX[33m)     |[32mXXX[33m|([32mXXXXXXXXXXX[33m\\[0;37;40m    [1;37;44m[P][0;37;40m[1;37;40m - Play MUD2.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m \\[32mXXX[33m|        |[32mXX[33m|  [37mo[33m/[32mXX[33m/      |[32mXX[33m/[30mo[33m |[32mXX[33m/`````\\[32mXXX[33m\\[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mXXXX[33m\\      |[32mXXX[33m|  |[32mXX[33m|[30m.[33m[37m     .[33m|[32mX[33m|[30mo[33m  |[32mX[33m|       \\[32mXXX[33m|[0;37;40m [1;37;44m[U][0;37;40m[1;37;40m - Help for new users.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mXXXXX[33m\\    |[32mXXXX[33m| |[32mXXX[33m|[30mo.[33m[37m   .o[33m|[32mX[33m|   |[32mX[33m|        |[32mXX[33m|[0;37;40m [1;37;44m[C][0;37;40m[1;37;40m - List options.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mX[33m|\\[32mXXX[33m\\   |[32mX[33m|[32mXX[33m| |[32mXXX[33m|[0;37;40mooooooo[1;33;40m|[32mX[33m|   |[32mX[33m|        |[32mXX[33m|[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mX[33m| \\[32mXXX[33m\\ |[32mX[33m|"|[32mX[33m| |[32mXXX[33m|   [37mo[0;37;40moo[1;30;40mo[0;37;40m[1;37;40m[33m|[32mX[33m|   |[32mX[33m|        |[32mXX[33m|[0;37;40m [1;37;44m[B][0;37;40m[1;37;40m - Bulletin board.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mX[33m|  \\[32mXXX[33m\\|[32mX[33m| |[32mX[33m| |[32mXXX[33m| [0;37;4
+340 rx 0m.[1;37;40mo[0;37;40moo[1;33;40m[30mo'[33m|[32mX[33m|   |[32mX[33m|        |[32mXX[33m|[0;37;40m [1;37;44m[L][0;37;40m[1;37;40m - Library.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mX[33m|   \\[32mXXXXX[33m| |[32mX[33m|  |[32mXX[33m|[0;37;40m.[1;37;40mo[0;37;40moo[1;33;40m[30mo' [33m|[32mX[33m|   |[32mX[33m|       /[32mXXX[33m|[0;37;40m [1;37;44m[M][0;37;40m[1;37;40m - MUD-mail.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mX[33m|    \\[32mXXX[33m|  |[32mX[33m|   \\[32mXX[33m\\_____/[32mXX[33m|   |[32mX[33m|      /[32mXXX[33m|[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m |[32mXX[33m\\    \\[32mXX[33m| _|[32mX[33m|    \\[32mXXXXXXXXXX[33m|  /[32mXX[33m\\____/[32mXXXX[33m/[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m([32mXXXX[33m)    \\| ([32mXXXX[33m)  [0;37;40m.[1;33;40m[37mo[33m`[32mXXXXXX[33m"\\[32mX[33m\\ ([32mXXXXXXXXXXX[33m/[0;37;40m     [1;37;44m[Q][0;37;40m[1;37;40m - Quit.[0;37;40m[1;37;40m\r\n[0;37;40m[1;33;40m ````         ````  [0;37;40m.[1;37;40mo[0;37;40moo[1;30;40mo[0;37;40m[1;33;40m``````[0;37;40m .oo.[1;33;40m```````````[0;37;40m[1;37;40m\r\n[0;37;40m[1;37;40m                    o[0;37;40mooooooooooooooo[1;37;40m\r\n[0;37;40m[1;37;40m                    oo[0;37;40mooooooooooooo[1;30;40mo[0;37;40m[1;37;40m\r\n[Checking mail...]\r\n[You have no mail]\r\nMUD login menu.\r\nOption (H for help): 
+508 rx [1;37;40m
+509 rx ›ÿÿúÿÿ57009120\r\n1\r\n1\r\nm00010101\r\n1\r\nÿÿ[New terminal width is 44]\r\nOption (H for help): 
+509 an terminal width confirmed: 44
+675 rx p\r\n
+675 rx -C
+679 rx MUD version 4E.\r\n
+679 rx Copyright (C) 1991-2026\r\nMulti-User Entertainment Ltd.\r\nLicensed (number 57009120) to Richard Underwood.\r\n\r\n›ÿÿ\r\n+- Please change your password. Type /P at\r\r\nthe "*" prompt. -+\r\r\nYour last game of MUD began on 31-OCT-2026\r\r\nat 01:56:52.\r\r\nMUD last reset on 31-OCT-2026 at 01:39:01.\r\r\nThis reset is number 127719.\r\r\n\r\nThe personae available to you are:\r\r\n(1)     Ollie,\r\r\n(2)     Derpster,\r\r\n
+830 rx (3)     Awlie.\r\r\n
+830 rx By what name shall I call you (Q to quit)?\r\nş§›ÿÿ*ÿÿ
+986 rx Awl
+986 rx ie\r\n
+989 rx It's Hallowe'en, the time of magic!\r\r\nAll your spells cost half their usual\r\r\namount to cast!\r\r\n¯œÿÿœÿÿElizabethan tearoomÿÿ.\r\r\nÿÿÿÿThis cosy, Tudor period room is where all\r\r\nMUD adventures start. Its exposed oak\r\r\nbeams and soft, velvet-covered furniture\r\r\nprovide it with the ideal atmosphere in\r\r\nwhich to relax before venturing out into\r\r\nthat strange, timeless realm. A sense of\r\r\ndecency and decorum prevails, and a\r\r\nfeeling of kinship with those who, like\r\r\nyou, seek their destiny in The Land. When\r\r\nyou are suitably composed, you may enter\r\r\nthat domain by stepping through an opening\r\r\nto the north; however, you are welcome to\r\r\nstay here for as long as you like, sipping\r\r\ntea and watching the world go by. ÿÿ\r\r\n ›œÿÿDrizzle the wobbly mage continues to be\r\r\nthe ultimate pelican crossing (whatever\r\r\nthat means) holding œ›ÿÿa cup of teaÿÿ.ÿÿ\r\r\nPlayers:\r\r\n§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+1150 rx identify\r\nfightbrief\r\nauto fex\r\nscore\r\n
+1150 rx §£œÿÿô››ÿÿşÿÿ117ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 37 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+1258 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+1362 rx §£ÿÿ========\r\r\ntea\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+1465 rx You're already getting object\r\r\nidentification numbers where applicable.\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+1569 rx You're already getting brief descriptions\r\r\nof fights.\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+1649 rx You will now get an automatic FEEXITS\r\r\ncommand performed every time you issue a\r\r\nmovement command.\r\r\nTo cancel it, use UNAUTO FEEXITS.\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+1754 rx §ÿÿname:          Awlie\r\r\nsex:            male\r\r\nstrength:       100\r\r\ndexterity:      100\r\r\nstamina:        ô››ÿÿşÿÿ117ÿÿÿÿ     max:    ô›œÿÿş¥ÿÿ120ÿÿÿÿ\r\r\nmagic:          37\r\r\nscore:  65,580 points   this game:      0\r\r\npoints  value:  13,191 points\r\r\nlevel:  9       warlock\r\r\nweight carried: 200g    max:    100kg\r\r\nobjects carried:        1       max:    12\r\r\ngames played:   116\r\r\nNo. of Tasks completed: 6 - #1 #3 #4 #5 #6\r\r\n#7\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+1858 rx §£ÿÿswampward north\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+1962 rx §£œÿÿô››ÿÿşÿÿ117ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 37 120 65580 N N\r\r\nN N 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+2067 rx §£ÿÿ========\r\r\ntea\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+2250 rx §£œÿÿô››ÿÿşÿÿ117ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 37 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+2251 rx §£ÿÿ========\r\r\ntea\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+11150 rx §£œÿÿô››ÿÿşÿÿ117ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 37 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+11258 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+21150 rx §£œÿÿô››ÿÿşÿÿ118ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 38 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+21258 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+31150 rx §£œÿÿô››ÿÿşÿÿ119ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 39 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+31257 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+34935 rx si
+34936 rx p te
+34936 rx a\r\n
+34937 rx You watch the world go by.\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+35294 rx §£œÿÿô››ÿÿşÿÿ119ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 39 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+35402 rx §£ÿÿ========\r\r\ntea\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+41150 rx §£œÿÿô››ÿÿş¥ÿÿ120ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 40 120 65580 N N N\r\r\nN 86 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+41258 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+51149 rx §£œÿÿô››ÿÿş¥ÿÿ120ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 41 120 65580 N N N\r\r\nN 85 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+51250 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+59439 rx You now feel up to attacking other\r\r\nplayers, should you so desire.\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+59804 rx §£œÿÿô››ÿÿş¥ÿÿ120ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 42 120 65580 N N N\r\r\nN 85 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+59906 rx §£ÿÿ========\r\r\ntea\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+61150 rx §£œÿÿô››ÿÿş¥ÿÿ120ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 42 120 65580 N N N\r\r\nN 85 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+61258 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ
+62684 rx "It
+62684 rx  does look
+62684 rx  k
+62684 rx i
+62684 rx nd 
+62685 rx of 
+62685 rx s
+62685 rx we
+62685 rx et 
+62685 rx o
+62685 rx n th
+62685 rx e
+62685 rx  i
+62838 rx ph
+62839 rx one 
+62839 rx lo
+62839 rx l
+62839 rx \r\n
+62840 rx ¤›ÿÿAwlie the warlock says "¤ÿÿIt does look kind\r\r\nof sweet on the iphone lolÿÿ".ÿÿ\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+63206 rx §£œÿÿô››ÿÿş¥ÿÿ120ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 42 120 65580 N N N\r\r\nN 85 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+63314 rx §£ÿÿ========\r\r\ntea\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+64740 rx ¤›ÿÿDrizzle the wobbly mage tells you "¤ÿÿIt's raining, but only lightlyÿÿ".ÿÿ\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+66540 rx ¤›ÿÿFolly the warlock shouts "¤œÿÿTeatimeÿÿ".ÿÿ\r\r\nœÿÿœÿÿ*ÿÿÿÿ
+71151 rx §£œÿÿô››ÿÿş¥ÿÿ120ÿÿÿÿ ô›œÿÿş¥ÿÿ120ÿÿÿÿ 100 100 100 100 42 120 65580 N N N\r\r\nN 85 F\r\r\nÿÿœÿÿœÿÿ*ÿÿÿÿ
+71258 rx §£ ÿÿ§ÿÿ ›¡ÿÿAwlie the warlockÿÿ\r\r\n ›¡ÿÿCampop the heroineÿÿ\r\r\n ›¡ÿÿCrispybob the necromancerÿÿ\r\r\n ›¡ÿÿDrizzle the wobbly mageÿÿ\r\r\n ›¡ÿÿFolly the warlockÿÿ\r\r\nÿÿÿÿœÿÿœÿÿ*ÿÿÿÿ

@@ -232,6 +232,19 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>True on a replay (docs/replay.md): the replay bar covers the input row.</summary>
     public bool IsReplay => _conn.IsReplay;
 
+    private bool _replayBarHidden;
+
+    /// <summary>The replay bar shows for the whole of a replay until <see cref="HideReplayBar"/>; the
+    /// replay plays on at the speed it had.</summary>
+    public bool IsReplayBarVisible => _conn.IsReplay && !_replayBarHidden;
+
+    /// <summary>Hides the replay bar for the rest of this replay, uncovering the input row.</summary>
+    public void HideReplayBar()
+    {
+        _replayBarHidden = true;
+        OnPropertyChanged(nameof(IsReplayBarVisible));
+    }
+
     /// <summary>The replay's speed step, bound two-way to the slider and snapped to a whole step.</summary>
     public double ReplayStep
     {
