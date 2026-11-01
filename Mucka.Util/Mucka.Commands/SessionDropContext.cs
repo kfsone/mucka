@@ -12,9 +12,8 @@ public enum SessionDropReason
     ///
     /// <para>This exists because timing alone cannot see it. <c>IsResetDrop</c> is a proximity test,
     /// so a qq during the finish-up period lands inside the reset window and would classify as
-    /// <see cref="Reset"/> - which auto-relogs the player straight back into the persona they just
-    /// deliberately left, without even showing the picker. An explicit farewell outranks any timing
-    /// inference, so this is tested first.</para></summary>
+    /// <see cref="Reset"/>. An explicit farewell outranks any timing inference, so this is tested
+    /// first.</para></summary>
     Quit,
     /// <summary>A game reset: the server announced C06 C04 ("auto reset initiated") and dropped us
     /// on the projected reset instant.</summary>

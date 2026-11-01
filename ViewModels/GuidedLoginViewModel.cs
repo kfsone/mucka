@@ -34,7 +34,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
     public bool HasDropContext => _drop is not null;
     public string DropHeadline => _drop?.Headline ?? string.Empty;
 
-    /// <summary>Amber for a reset (routine, you'll be straight back), red for an unexplained drop,
+    /// <summary>Amber for a reset (routine), red for an unexplained drop,
     /// bone-white for a death.</summary>
     public Color DropHeadlineColor => _drop?.Reason switch
     {
@@ -183,6 +183,7 @@ public sealed class GuidedLoginViewModel : BaseViewModel
         GuidedLoginPhase.Connecting => "Connecting...",
         GuidedLoginPhase.NegotiatingShell => "Negotiating terminal...",
         GuidedLoginPhase.QueryingPersonae => "Checking your personae...",
+        GuidedLoginPhase.WaitingForResetToFinish => "Waiting for the reset to finish...",
         GuidedLoginPhase.AwaitingMailChoice => "Mail is waiting for you...",
         GuidedLoginPhase.AwaitingPersonaChoice => "Waiting for you to choose a persona...",
         GuidedLoginPhase.AwaitingCreateConfirmation => "Waiting for you to confirm persona creation...",

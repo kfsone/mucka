@@ -146,9 +146,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // See the reasoning comment on ClassifyDrop: sized against ResetClock's own sub-second lock
     // precision (SuccessTargetSec / NoteAutoResetInitiated both pin the target to well under a
     // second), not against how long a player might plausibly be typing near a reset.
-    private static readonly TimeSpan ResetRelogLeadWindow = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan ResetRelogLagWindow = TimeSpan.FromSeconds(90);
-    private static readonly TimeSpan ResetRelogRetryWindow = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan ResetDropLeadWindow = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ResetDropLagWindow = TimeSpan.FromSeconds(90);
     // With the C06 C04 anchor in hand the target is exact to a fraction of a second, so a
     // reset-driven drop lands on it -- only detection/marshalling lag needs covering, and the
     // lead side collapses to almost nothing.
@@ -1188,10 +1187,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // Classify BEFORE anything below clears the state it reads -- this is the moment the
             // terminal disappears behind the overlay.
             var drop = ClassifyDrop(exitedPersona, tail);
-            // A reset with no identified persona has nothing to relog AS, so it still goes to the
-            // picker -- the headline is unaffected either way.
-            var autoRelogAfterReset = drop.Reason == SessionDropReason.Reset
-                && !string.IsNullOrWhiteSpace(exitedPersona);
             _inGameMode = false;
             StopSlowChatTest("stopped, left the game");
             _sessionAliases.Clear();
@@ -1222,18 +1217,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             // shell dance down a dead socket just times out into a spurious failure dialog.
             if (_guidedLoginEnabled && _conn.IsConnected)
             {
-                // Auto-persona (skip the picker and go straight back in as who we were) is allowed
-                // in exactly two situations: opening a connection, which ConnectPage owns, and a
-                // reset, which is this branch. Every other drop -- quit, permadeath, idle boot,
-                // anything unclassified -- goes to the picker, so the player sees the headline and
-                // chooses deliberately.
-                GuidedLoginReentryRequested?.Invoke(new GuidedLoginOptions(
-                    PreferredPersonaName: autoRelogAfterReset ? exitedPersona : null,
-                    StartAtOptionMenu: true,
-                    ForcePersonaChoice: !autoRelogAfterReset,
-                    AllowCreatePreferredPersona: false,
-                    PlayRetryWindow: autoRelogAfterReset ? ResetRelogRetryWindow : null),
-                    drop);
+                // Operator rule: no automatic relog. Every drop, a reset included, goes to the picker.
+                GuidedLoginReentryRequested?.Invoke(
+                    GuidedLoginOptions.ForReentry(drop.Reason, _conn.LastPersonaSlots), drop);
             }
 
             _personaInvalidated = false;
@@ -1255,7 +1241,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// only add answers, never lose one. Their order is preserved and still matters: permadeath
     /// first, since the C08+C13 wipe is unambiguous and outranks any timing coincidence; and a qq
     /// during the finish-up period lands inside the reset window, so calling that a Reset would
-    /// auto-relog the player straight back into the persona they had just chosen to leave.</para>
+    /// headline the player's own QUIT as a reset.</para>
     ///
     /// <para>There are two lead windows because the fallback reset test has two sources. It prefers
     /// the server's own C06 C04 announcement ("auto reset initiated, you have 120 seconds to finish
@@ -1292,8 +1278,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             && DateTime.UtcNow - new DateTime(announcedTicks, DateTimeKind.Utc) <= AutoResetAnchorLifetime;
 
         var delta = target - DateTime.UtcNow;
-        var lead = announced ? AnchoredResetLeadWindow : ResetRelogLeadWindow;
-        return delta <= lead && delta >= -ResetRelogLagWindow;
+        var lead = announced ? AnchoredResetLeadWindow : ResetDropLeadWindow;
+        return delta <= lead && delta >= -ResetDropLagWindow;
     }
 
     private void ClearRecentLines()

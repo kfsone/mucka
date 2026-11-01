@@ -10,6 +10,7 @@ public enum GuidedLoginPhase
     Connecting,
     NegotiatingShell,
     QueryingPersonae,
+    WaitingForResetToFinish,
     AwaitingMailChoice,
     AwaitingPersonaChoice,
     AwaitingCreateConfirmation,
@@ -25,16 +26,6 @@ public enum GuidedLoginPhase
 /// the profile has no configured persona name (or picking is otherwise required).
 /// <paramref name="MailItems"/> is the number of items the login banner reported waiting, 0 when none.</summary>
 public sealed record PersonaChoice(IReadOnlyList<PersonaSlot> Slots, bool CanCreateNew, int MailItems = 0);
-
-/// <summary>Options for a guided-login pass. The initial connect uses the default mode; relogging
-/// from the shell menu can start by re-prompting the menu and can either force a fresh picker or
-/// prefer one persona for fast relog.</summary>
-public sealed record GuidedLoginOptions(
-    string? PreferredPersonaName = null,
-    bool StartAtOptionMenu = false,
-    bool ForcePersonaChoice = false,
-    bool AllowCreatePreferredPersona = true,
-    TimeSpan? PlayRetryWindow = null);
 
 public enum GuidedLoginOutcome { Succeeded, Failed, Cancelled, ManualAtOptionMenu }
 
@@ -65,8 +56,11 @@ public sealed class GuidedLoginController : IDisposable
 
     private readonly MuckaConnection _conn;
     private readonly GuidedLoginOptions _options;
-    private readonly string? _preferredPersonaName;
     private readonly TimeSpan _playRetryWindow;
+    // Start as the options say; a choice from KnownSlots replaces all three.
+    private string? _preferredPersonaName;
+    private bool _forcePersonaChoice;
+    private bool _allowCreatePreferredPersona;
 
     private readonly List<StyledLine> _buffer = new();
     private readonly object _bufferLock = new();
@@ -112,6 +106,8 @@ public sealed class GuidedLoginController : IDisposable
         _options = options;
         _preferredPersonaName = string.IsNullOrWhiteSpace(options.PreferredPersonaName) ? null : options.PreferredPersonaName.Trim();
         _playRetryWindow = options.PlayRetryWindow ?? DbRetryWindow;
+        _forcePersonaChoice = options.ForcePersonaChoice;
+        _allowCreatePreferredPersona = options.AllowCreatePreferredPersona;
 
         _conn.LineReady += OnLineReady;
         _conn.MailReceived += OnMailReceived;
@@ -185,7 +181,7 @@ public sealed class GuidedLoginController : IDisposable
             if (hadMail)
             {
                 Mucka.Audio.SoundService.PlayServerSound(MailSound);
-                if (_preferredPersonaName is not null && !_options.ForcePersonaChoice)
+                if (_preferredPersonaName is not null && !_forcePersonaChoice)
                 {
                     var dropToMenu = await AskMailAsync(_mailItems, ct).ConfigureAwait(false);
                     if (dropToMenu is null)
@@ -197,10 +193,29 @@ public sealed class GuidedLoginController : IDisposable
                 }
             }
 
+            // Choosing from the list this connection last saw happens at the Option menu, before
+            // anything is sent, so backing out of it needs no "q" (which here would mean QUIT).
+            if (_options.KnownSlots is { Count: > 0 } known)
+            {
+                var early = await AskPersonaAsync(known, ct).ConfigureAwait(false);
+                if (early is null)
+                    return ConsumeDropToMenuRequest() ? ManualAtOptionMenu() : Cancel();
+                _preferredPersonaName = early;
+                _forcePersonaChoice = false;
+                // A name that is not in the list is a create request; a listed one that has gone by
+                // the time the shell answers falls through to the picker rather than being created.
+                _allowCreatePreferredPersona = !known.Any(s => !s.IsUnused
+                    && string.Equals(s.Name, early, StringComparison.OrdinalIgnoreCase));
+                SetPhase(GuidedLoginPhase.WaitingForResetToFinish);
+            }
+            else
+            {
+                SetPhase(GuidedLoginPhase.QueryingPersonae);
+            }
+
             // Query personae directly from the Play prompt. That list already includes the live
             // occupied names plus any "**Unused**" slots, so it is both the authoritative source
             // of selectable names and the free-slot check.
-            SetPhase(GuidedLoginPhase.QueryingPersonae);
             var slots = await SendPlayAndGetSlotsAsync(ct).ConfigureAwait(false);
             if (slots is null)
                 return Fail("Timed out waiting for the persona slot list.");
@@ -426,6 +441,8 @@ public sealed class GuidedLoginController : IDisposable
                 var slots = ShellText.TryParsePersonaSlots(buffer);
                 if (slots is null)
                     AbandonPersonaPrompt();   // at the name prompt, the one place "q" backs out safely
+                else
+                    _conn.LastPersonaSlots = slots;
                 return slots;
             }
 
@@ -454,7 +471,7 @@ public sealed class GuidedLoginController : IDisposable
     private async Task<GuidedLoginResult> ResolvePersonaPromptAsync(IReadOnlyList<PersonaSlot> slots, CancellationToken ct)
     {
         var hasFreeSlot = slots.Any(s => s.IsUnused);
-        var matched = _options.ForcePersonaChoice || _preferredPersonaName is null
+        var matched = _forcePersonaChoice || _preferredPersonaName is null
             ? null
             : slots.FirstOrDefault(s => !s.IsUnused
                 && string.Equals(s.Name, _preferredPersonaName, StringComparison.OrdinalIgnoreCase));
@@ -465,7 +482,7 @@ public sealed class GuidedLoginController : IDisposable
             return await SelectExistingAtPromptAsync(personaToSelect, ct).ConfigureAwait(false);
         }
 
-        if (_preferredPersonaName is not null && !_options.ForcePersonaChoice && _options.AllowCreatePreferredPersona)
+        if (_preferredPersonaName is not null && !_forcePersonaChoice && _allowCreatePreferredPersona)
         {
             if (!hasFreeSlot)
             {
@@ -487,12 +504,7 @@ public sealed class GuidedLoginController : IDisposable
             return await CreatePersonaAsync(_preferredPersonaName, sex.Value, ct).ConfigureAwait(false);
         }
 
-        var lastStarted = await Task.Run(() => PersonaRecency.LastStarted(_conn.DatabasePath, _conn.Host)).ConfigureAwait(false);
-        var ranked = PersonaRecency.OrderMostRecentFirst(slots.Where(s => !s.IsUnused), s => s.Name, lastStarted);
-        SetPhase(GuidedLoginPhase.AwaitingPersonaChoice);
-        _personaDecision = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        PersonaChoiceReady?.Invoke(new PersonaChoice(ranked, hasFreeSlot, _mailItems));
-        var choice = await _personaDecision.Task.ConfigureAwait(false);
+        var choice = await AskPersonaAsync(slots, ct).ConfigureAwait(false);
         if (choice is null)
         {
             if (ConsumeDropToMenuRequest())
@@ -526,6 +538,18 @@ public sealed class GuidedLoginController : IDisposable
             return Cancel();
         }
         return await CreatePersonaAsync(choice, newSex.Value, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Shows the picker for <paramref name="slots"/>, most recently played first; the name
+    /// chosen, or null when the player backed out.</summary>
+    private async Task<string?> AskPersonaAsync(IReadOnlyList<PersonaSlot> slots, CancellationToken ct)
+    {
+        var lastStarted = await Task.Run(() => PersonaRecency.LastStarted(_conn.DatabasePath, _conn.Host), ct).ConfigureAwait(false);
+        var ranked = PersonaRecency.OrderMostRecentFirst(slots.Where(s => !s.IsUnused), s => s.Name, lastStarted);
+        SetPhase(GuidedLoginPhase.AwaitingPersonaChoice);
+        _personaDecision = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PersonaChoiceReady?.Invoke(new PersonaChoice(ranked, slots.Any(s => s.IsUnused), _mailItems));
+        return await _personaDecision.Task.ConfigureAwait(false);
     }
 
     private async Task<GuidedLoginResult> DropToMenuAsync(CancellationToken ct)

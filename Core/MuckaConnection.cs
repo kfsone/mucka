@@ -777,6 +777,11 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// </summary>
     public SessionDropReason LastSessionEndReason { get; private set; } = SessionDropReason.Unknown;
 
+    /// <summary>The persona list the shell last gave a guided login on this connection, for the
+    /// picker to offer after a reset while the shell is still refusing to list it. Null until one has
+    /// been read.</summary>
+    public IReadOnlyList<PersonaSlot>? LastPersonaSlots { get; internal set; }
+
     /// <summary>The dreamword outlives a connection while the world it belongs to does - see
     /// <see cref="DreamwordCarry"/>. Shared across every connection the app makes.</summary>
     private readonly DreamwordCarry _dreamwordCarry;

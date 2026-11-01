@@ -854,12 +854,12 @@ public partial class GamePage : ContentPage
     // Fired when the shell drops us back to the Option menu (quit, permadeath, or a game reset):
     // re-run the persona dance rather than stranding the player at a bare menu prompt.
     private void OnGuidedLoginReentryRequested(
-        Mucka.Core.GuidedLogin.GuidedLoginOptions options,
+        Mucka.Commands.GuidedLoginOptions options,
         Mucka.Commands.SessionDropContext drop)
         => _ = RunGuidedLoginOverlayAsync(options, drop);
 
     private async Task RunGuidedLoginOverlayAsync(
-        Mucka.Core.GuidedLogin.GuidedLoginOptions options,
+        Mucka.Commands.GuidedLoginOptions options,
         Mucka.Commands.SessionDropContext drop)
     {
         // Fire-and-forget from the VM event, so nothing above us observes a faulted task.
@@ -868,7 +868,7 @@ public partial class GamePage : ContentPage
     }
 
     private async Task RunGuidedLoginOverlayCoreAsync(
-        Mucka.Core.GuidedLogin.GuidedLoginOptions options,
+        Mucka.Commands.GuidedLoginOptions options,
         Mucka.Commands.SessionDropContext drop)
     {
         // Both guards run on the UI thread with no await in between, so this is a real latch.
