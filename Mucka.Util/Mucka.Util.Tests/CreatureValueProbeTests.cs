@@ -115,7 +115,7 @@ public class CreatureValueProbeTests : IDisposable
     public void FightStart_SendsAValueProbeForTheNewParticipant()
     {
         EnterCombat("rat17");
-        Assert.True(Settled(_clock, () => Sent().Contains("value rat17\r\n")));
+        Assert.True(Settled(_clock, () => Sent().Contains("\x1b-[value rat17\x1b-]")));
     }
 
     // -- Matrix row: "prompt, echo" / "prompt, reply" - the documented shape --------------------
@@ -411,7 +411,7 @@ public class CreatureValueProbeTests : IDisposable
     public void ALateJoiner_TriggersASecondProbe_OnceTheFirstBatchsWindowCloses()
     {
         EnterCombat("rat17");
-        Assert.True(Settled(_clock, () => Sent().Contains("value rat17\r\n")));
+        Assert.True(Settled(_clock, () => Sent().Contains("\x1b-[value rat17\x1b-]")));
 
         // A second creature joins AFTER the first batch already went out - too late to fold in, so
         // it must not be silently left without a value once known. It stays queued while the first
@@ -435,7 +435,7 @@ public class CreatureValueProbeTests : IDisposable
         Assert.DoesNotContain(Sent(), o => o.Contains("rat18"));   // still open - no closing prompt yet
 
         Prompt();
-        Assert.True(Settled(_clock, () => Sent().Contains("value rat18\r\n")));
+        Assert.True(Settled(_clock, () => Sent().Contains("\x1b-[value rat18\x1b-]")));
     }
 
     /// <summary>

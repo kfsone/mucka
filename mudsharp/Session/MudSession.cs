@@ -1194,7 +1194,7 @@ public sealed class MudSession : IDisposable
             {
                 _sniffInFlight = sniff;
                 _pendingSniff = null;
-                var prefix = System.Text.Encoding.Latin1.GetBytes("value " + sniff + "\r\n");
+                var prefix = ValueCommandBytes("value " + sniff);
                 var combined = new byte[prefix.Length + payload.Length];
                 Buffer.BlockCopy(prefix, 0, combined, 0, prefix.Length);
                 Buffer.BlockCopy(payload, 0, combined, prefix.Length, payload.Length);
@@ -1450,8 +1450,13 @@ public sealed class MudSession : IDisposable
         _creatureProbeTimeoutTimer.Change(_options.CreatureValueProbeTimeout, Timeout.InfiniteTimeSpan);
         _creatureProbeInFlight = names;   // publish last - the Feed thread starts matching against
                                           // this the instant it becomes non-null
-        return System.Text.Encoding.Latin1.GetBytes(command + "\r\n");
+        return ValueCommandBytes(command);
     }
+
+    // `value` as a command interrupt (ESC-[ ... ESC-]): the server runs it without echoing it and
+    // without disturbing the player's own line or its repeat-last-command history.
+    private static byte[] ValueCommandBytes(string command)
+        => System.Text.Encoding.Latin1.GetBytes("\x1b-[" + command + "\x1b-]");
 
     /// <summary>The quiet period elapsed with no player command to ride: send the batch on its own.
     /// (Unlike the inventory probe, this command is never piggybacked onto a player line - `value`
