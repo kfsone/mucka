@@ -37,9 +37,9 @@
 		<!-- App Identifier -->
 		<ApplicationId>org.kfs.mucka</ApplicationId>
 
-		<!-- Versions - ApplicationDisplayVersion is set from $(Version) via Directory.Build.props
-		     (ComputeCustomVersion target, driven by scripts/Get-Version.ps1 and version.json).
-		     ApplicationVersion is the Android versionCode integer; override in CI with the run number. -->
+		<!-- Versions - ApplicationDisplayVersion and ApplicationVersion, the build number, are set
+		     from $(Version) by Directory.Build.props (ComputeCustomVersion target, driven by
+		     scripts/Get-Version.ps1 and version.json). -->
 		<ApplicationVersion>1</ApplicationVersion>
 
 		<!-- To develop, package, and publish an app to the Microsoft Store, see: https://aka.ms/MauiTemplateUnpackaged -->

@@ -19,14 +19,13 @@
   </PropertyGroup>
 
   <!--
-    Version is computed from version.json (stage + baseVersion) + git depth + Conventional Commits.
-    See scripts/Get-Version.ps1 for the algorithm.
-    Stage -> pre-release number range:
-      alpha   :       depth  (0-499)
-      beta    : 500 + depth  (500-999)
-      rc      : 1000+ depth  (1000-9998)
-      release : no pre-release suffix (clean M.m.P)
-    To promote a stage, run the "Promote Stage" workflow_dispatch workflow on main.
+    Version is version.json's version (scripts/Get-Version.ps1), or MUCKA_RELEASE_VERSION, the tag,
+    in CI: M.m.P for a release, M.m.P-rcN for a release candidate.
+    ApplicationVersion, the build number (Android versionCode, iOS and Mac CFBundleVersion), is
+    computed from it as M*1000000 + m*10000 + P*100 + N, with 99 for a release, so the last two
+    digits say which build it is: 0.24.0-rc4 is 240004 and 0.24.0 is 240099. It rises with every
+    tag, as Android needs across versions and App Store Connect needs within one, and a release
+    always outranks its candidates.
   -->
   <!-- _GetAndroidPackageName is where the .NET Android SDK snapshots $(ApplicationDisplayVersion)
        into _AndroidVersionName (-> manifest versionName -> AppInfo.VersionString), so the version
@@ -51,11 +50,22 @@
       <PackageVersion>$(Version)</PackageVersion>
       <!-- MAUI Resizetizer requires ApplicationDisplayVersion to be a plain M.m.P number
            (no pre-release suffix). Strip the pre-release for display; the full semver
-           is still in $(Version) / $(PackageVersion).
-           ApplicationVersion (Android versionCode) is overridden in CI with the run number. -->
+           is still in $(Version) / $(PackageVersion). -->
       <ApplicationDisplayVersion>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^\d+\.\d+\.\d+').Value)</ApplicationDisplayVersion>
+      <_VerMajor>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^(\d+)\.(\d+)\.(\d+).*$', '$1'))</_VerMajor>
+      <_VerMinor>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^(\d+)\.(\d+)\.(\d+).*$', '$2'))</_VerMinor>
+      <_VerPatch>$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^(\d+)\.(\d+)\.(\d+).*$', '$3'))</_VerPatch>
+      <_VerRc>99</_VerRc>
+      <_VerRc Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^\d+\.\d+\.\d+-rc\d+$'))">$([System.Text.RegularExpressions.Regex]::Replace('$(Version)', '^\d+\.\d+\.\d+-rc(\d+)$', '$1'))</_VerRc>
     </PropertyGroup>
-    <Message Text="[mucka] Version: $(Version)" Importance="high" />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^\d+\.\d+\.\d+(-rc\d+)?$'))"
+           Text="[mucka] Version '$(Version)' is neither M.m.P nor M.m.P-rcN, so it has no build number." />
+    <Error Condition="$(_VerMinor) &gt; 99 or $(_VerPatch) &gt; 99 or $(_VerRc) &lt; 1 or $(_VerRc) &gt; 99"
+           Text="[mucka] Version '$(Version)' does not fit the build number: minor and patch go to 99, a candidate from rc1 to rc98." />
+    <PropertyGroup>
+      <ApplicationVersion>$([MSBuild]::Add($([MSBuild]::Add($([MSBuild]::Multiply($(_VerMajor), 1000000)), $([MSBuild]::Multiply($(_VerMinor), 10000)))), $([MSBuild]::Add($([MSBuild]::Multiply($(_VerPatch), 100)), $(_VerRc)))))</ApplicationVersion>
+    </PropertyGroup>
+    <Message Text="[mucka] Version: $(Version), build $(ApplicationVersion)" Importance="high" />
     <!-- MauiGeneratePackageAppxManifest is incremental on file timestamps only - it cannot
          see $(Version) change, so its obj output goes stale on version bumps. That manifest
          is what the AppInfo assembly metadata (and thus AppInfo.VersionString - the Windows
