@@ -1263,30 +1263,27 @@ public partial class GamePage : ContentPage
         return true;
     }
 
-    // Android hardware/gesture back: dismiss the About overlay if open. Otherwise confirm before
-    // leaving - a gesture-nav back swipe is trivially easy to hit by accident, and popping this
-    // page tears down the live session.
+    // Back on every platform (Android gesture, Windows and Mac back button): dismiss the About
+    // overlay if open. Otherwise confirm before leaving - a back click is trivially easy to hit by
+    // accident, and popping this page tears down the live session.
     protected override bool OnBackButtonPressed()
     {
         if (TryCloseAbout()) return true;
-#if ANDROID
-        Dispatcher.Dispatch(async () =>
-        {
-            if (await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
-                await LeaveGameAsync();
-        });
+        Dispatcher.Dispatch(async () => await ConfirmAndLeaveGameAsync());
         return true;   // swallow the back action; pop only on confirmation
-#elif MACCATALYST
-        // The navigation bar's back button ends the session, so it asks first, as the menu row does.
-        Dispatcher.Dispatch(async () =>
-        {
-            if (await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
-                await LeaveGameAsync();
-        });
-        return true;
-#else
-        return base.OnBackButtonPressed();
-#endif
+    }
+
+    /// <summary>Asks before ending the session; a fight in progress is named in the question.
+    /// Staying hands focus straight back to the command box.</summary>
+    private async Task ConfirmAndLeaveGameAsync()
+    {
+        var question = _vm.SidePanel.InCombat
+            ? "You are in combat. Leave the game and disconnect?"
+            : "Leave the game and disconnect?";
+        if (await DisplayAlertAsync("Disconnect", question, "Disconnect", "Stay"))
+            await LeaveGameAsync();
+        else
+            FocusInput();
     }
 
     // Scrollback is an explicit mode: swap the input row for the yellow "SCROLLBACK" indicator,
@@ -1353,9 +1350,7 @@ public partial class GamePage : ContentPage
     private async void OnOverflowDisconnect(object? sender, EventArgs e)
     {
         OverflowMenuOverlay.IsVisible = false;
-        if (!await DisplayAlertAsync("Disconnect", "Leave the game and disconnect?", "Disconnect", "Stay"))
-            return;
-        await LeaveGameAsync();
+        await ConfirmAndLeaveGameAsync();
     }
     private void OnOverflowAbout(object? sender, EventArgs e)
     {
