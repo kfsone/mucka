@@ -5,7 +5,7 @@ implemented; this document describes the shapes only.
 
 ## Current shape
 
-Four tabs. Every setting except the F-key set is global (`GlobalSettingsMigration`).
+Five tabs. Every setting except the F-key set is global (`GlobalSettingsMigration`).
 
 - Settings: Columns, Volume, Stat Update (FES), beep mute (session, permanent, "hear
   it"), Advanced (Debug builds).
@@ -13,7 +13,11 @@ Four tabs. Every setting except the F-key set is global (`GlobalSettingsMigratio
   on Mac, Dreamword Pill Size), Chat colours (theme, four colour rows with own/other faces, example
   lines), Side Panel (Online and its sub-settings, Inventory, Items here, Map / Compass and its
   float).
-- Hotkeys: modifier pills, import, the F-key list, "Save to profile only".
+- Function Keys (the tab the proposals below call Hotkeys): modifier pills, import, the F-key list,
+  "Save to profile only".
+- Navkeys: the checkbox that switches the keys on, and one drop-down per navigation option
+  (`NavKeyMap.Actions`) choosing its key from `NavKeyMap.Choices`; Apply and Save refuse a choice
+  `NavKeyBindings.Problems` reports.
 - Sounds: master row, the group/sound tree.
 
 Defects the layouts below address:

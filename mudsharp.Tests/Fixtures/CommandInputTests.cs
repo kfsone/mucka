@@ -228,6 +228,33 @@ public class CommandInputTests
         Assert.True(input.Hotkeys.IsBoundKey(KeyUp));
     }
 
+    /// <summary>
+    /// A feature the player can switch off must give its key back: a bound key is claimed by Handle,
+    /// so leaving it bound would swallow the keystroke whether or not the feature is on.
+    /// </summary>
+    [Fact]
+    public void Unbind_ReleasesTheKeyToTheControl_AndKeepsOtherModifierBindings()
+    {
+        var (input, _, pump, _) = Build();
+        var ran = 0;
+        input.Hotkeys.Bind('1', InputModifiers.None, "plain", () => ran++);
+        input.Hotkeys.Bind('1', InputModifiers.Control, "ctrl", () => ran++);
+
+        Assert.True(input.Hotkeys.Unbind('1', InputModifiers.None));
+        Assert.True(input.Hotkeys.IsBoundKey('1'));                                   // Ctrl+1 still uses it
+        Assert.False(input.HandleKey('1', InputModifiers.None, isAcceptKey: false));  // typed normally
+        Assert.True(input.Hotkeys.Unbind('1', InputModifiers.Control));
+        Assert.False(input.Hotkeys.IsBoundKey('1'));
+        Assert.False(input.Hotkeys.Unbind('1', InputModifiers.Control));              // already gone
+        pump.RunAll();
+        Assert.Equal(0, ran);
+
+        input.Hotkeys.Bind('1', InputModifiers.None, "plain", () => ran++);           // may be bound again
+        Assert.True(input.HandleKey('1', InputModifiers.None, isAcceptKey: false));
+        pump.RunAll();
+        Assert.Equal(1, ran);
+    }
+
     // ---- Ordering across everything the player does ----------------------------------------------
 
     /// <summary>

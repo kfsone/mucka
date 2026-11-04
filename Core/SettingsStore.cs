@@ -94,7 +94,9 @@ public static class SettingsStore
         MudSharp.Models.ChatTheme? ChatTheme = null,
         MudSharp.Models.ChatFaces? ChatFaces = null,
         bool? ShowCombatRail    = null,
-        bool? ShowCombatStats   = null)
+        bool? ShowCombatStats   = null,
+        bool? NavKeysEnabled    = null,
+        Mucka.Commands.NavKeyBindings? NavKeys = null)
     {
         /// <summary>Overlays the stored (ini) values onto a profile - ini wins when present.</summary>
         public void ApplyTo(Profile profile)
@@ -128,6 +130,8 @@ public static class SettingsStore
             if (ChatFaces    is { } faces)           profile.ChatFaces    = faces;
             if (ShowCombatRail  is bool rail)  profile.ShowCombatRail  = rail;
             if (ShowCombatStats is bool stats) profile.ShowCombatStats = stats;
+            if (NavKeysEnabled  is bool nav)   profile.NavKeysEnabled  = nav;
+            if (NavKeys         is { } navKeys) profile.NavKeys        = navKeys;
         }
     }
 
@@ -212,7 +216,10 @@ public static class SettingsStore
                 ChatTheme:          colors.Theme,
                 ChatFaces:          MudSharp.Models.ChatColorKeys.ReadFaces(ini.Get),
                 ShowCombatRail:     ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatrail")     : null,
-                ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null);
+                ShowCombatStats:    ini.HasSection("settings") ? GetBool(ini, "settings", "showcombatstats")    : null,
+                NavKeysEnabled:     ini.HasSection("settings") ? GetBool(ini, "settings", "navkeys")            : null,
+                NavKeys:            ini.HasSection(Mucka.Commands.NavKeyBindings.Section)
+                                        ? Mucka.Commands.NavKeyBindings.Read(ini.Get) : null);
         }
         finally
         {
@@ -277,6 +284,8 @@ public static class SettingsStore
                 ini.Set("settings", "onlineforgetwindow", settings.OnlineForgetWindow.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "floatonline",        settings.FloatOnline     ? "yes" : "no");
                 ini.Set("settings", "floatcompass",       settings.FloatCompass    ? "yes" : "no");
+                ini.Set("settings", "navkeys",            settings.NavKeysEnabled  ? "yes" : "no");
+                settings.NavKeys.Write(ini.Set);
                 MudSharp.Models.ChatColorKeys.Write(ini.Set, settings.ChatTheme, settings.EmoteColor, settings.SayColor,
                     settings.ShoutColor, settings.TellColor);
                 MudSharp.Models.ChatColorKeys.WriteFaces(ini.Set, settings.ChatFaces);

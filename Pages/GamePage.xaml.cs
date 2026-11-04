@@ -3363,6 +3363,67 @@ public partial class GamePage : ContentPage
                 _vm.InputText = string.Empty;
                 input.RequestClear();
             });
+
+        ApplyNavKeyBindings(input);
+        _vm.NavKeysChanged += () => ApplyNavKeyBindings(input);
+    }
+
+    // Each NavKeyChoice.Name as the box sees the key. With Num Lock off the number pad sends Home, Up,
+    // PageUp, End, Down, PageDown and so on instead, which are not bound here.
+    private static readonly Dictionary<string, Windows.System.VirtualKey> s_navKeyCodes = BuildNavKeyCodes();
+
+    private static Dictionary<string, Windows.System.VirtualKey> BuildNavKeyCodes()
+    {
+        var codes = new Dictionary<string, Windows.System.VirtualKey>
+        {
+            ["PadMultiply"] = Windows.System.VirtualKey.Multiply,
+            ["PadSubtract"] = Windows.System.VirtualKey.Subtract,
+            ["PadAdd"]      = Windows.System.VirtualKey.Add,
+            ["PadPeriod"]   = Windows.System.VirtualKey.Decimal,
+            ["PadDivide"]   = Windows.System.VirtualKey.Divide,
+        };
+        for (var d = 0; d <= 9; d++)
+            codes[$"Pad{d}"] = Windows.System.VirtualKey.NumberPad0 + d;
+        for (var f = 1; f <= 12; f++)
+            codes[$"F{f}"] = Windows.System.VirtualKey.F1 + (f - 1);
+        return codes;
+    }
+
+    /// <summary>Whether the unmodified F-key with this 1-based number has a macro.</summary>
+    private bool FkeyHasValue(int number)
+    {
+        var all = _vm.GetAllFkeys();
+        return number >= 1 && number <= 12 && !string.IsNullOrWhiteSpace(all[number - 1]);
+    }
+
+    private readonly Dictionary<Windows.System.VirtualKey, Mucka.Commands.NavAction> _navKeysBound = [];
+
+    /// <summary>Claims the keys the navigation options are on while the setting is on, and gives every
+    /// other key back to the box: a bound key never reaches the control, so a disabled setting, a key
+    /// no option uses any more, and one that now collides (<see cref="Mucka.Commands.KeyCollision"/>)
+    /// all have to be unbound.</summary>
+    private void ApplyNavKeyBindings(Mucka.Input.CommandInput input)
+    {
+        var wanted = new Dictionary<Windows.System.VirtualKey, Mucka.Commands.NavAction>();
+        if (_vm.NavKeysEnabled)
+            foreach (var (choice, action) in _vm.NavKeys.Claims(FkeyHasValue))
+                if (s_navKeyCodes.TryGetValue(choice.Name, out var key))
+                    wanted[key] = action;
+
+        foreach (var (key, action) in _navKeysBound.ToList())
+        {
+            if (wanted.TryGetValue(key, out var now) && now == action)
+                continue;
+            input.Hotkeys.Unbind((int)key, Mucka.Input.InputModifiers.None);
+            _navKeysBound.Remove(key);
+        }
+        foreach (var (key, action) in wanted)
+        {
+            if (_navKeysBound.ContainsKey(key))
+                continue;
+            input.Hotkeys.Bind((int)key, Mucka.Input.InputModifiers.None, "nav-" + action, () => _vm.SendNavAction(action));
+            _navKeysBound[key] = action;
+        }
     }
 
     /// <summary>

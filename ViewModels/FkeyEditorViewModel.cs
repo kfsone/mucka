@@ -39,6 +39,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private int  _onlineForgetWindow;
     private bool _floatOnline;
     private bool _floatCompass;
+    private bool _navKeysEnabled;
     private readonly SoundGroupEditorItem _bellGroup;
 
     public int ActiveModifier
@@ -64,7 +65,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
                     OnPropertyChanged(nameof(SoundGroupsForView));
                 }
                 OnPropertiesChanged(nameof(IsSettingsTabActive), nameof(IsHotkeysTabActive),
-                        nameof(IsSoundsTabActive), nameof(IsDisplayTabActive));
+                        nameof(IsSoundsTabActive), nameof(IsDisplayTabActive), nameof(IsNavkeysTabActive));
             }
         }
     }
@@ -73,6 +74,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool IsDisplayTabActive  => _activeTab == 1;
     public bool IsHotkeysTabActive  => _activeTab == 2;
     public bool IsSoundsTabActive   => _activeTab == 3;
+    public bool IsNavkeysTabActive  => _activeTab == 4;
 
     // The Sounds tab is the page's heaviest part - a heading row per group, and a row of controls per
     // sound - and it is built when its tab is first opened rather than every time the page is.
@@ -435,6 +437,35 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     /// <summary>Saved default for floating the compass (unpinned from the side panel).</summary>
     public bool FloatCompass { get => _floatCompass; set => Set(ref _floatCompass, value); }
 
+    // -- Navkeys tab ------------------------------------------------------------
+
+    /// <summary>The Navkeys tab's checkbox: the number pad moves.</summary>
+    public bool NavKeysEnabled { get => _navKeysEnabled; set => Set(ref _navKeysEnabled, value); }
+
+    /// <summary>The Navkeys tab's rows, in <see cref="Mucka.Commands.NavKeyMap.Actions"/> order.</summary>
+    public NavKeyEditorItem[] NavKeyRows { get; }
+
+    public ICommand ResetNavKeysCommand { get; }
+
+    private Mucka.Commands.NavKeyBindings CollectNavKeys()
+        => NavKeyRows.Aggregate(Mucka.Commands.NavKeyBindings.Default,
+            (bindings, row) => bindings.With(row.Action, row.KeyName));
+
+    /// <summary>
+    /// Refuses a set of keys that cannot all be claimed: reports why and returns false. Run on Apply and
+    /// Save, so it catches both directions of a clash - a key picked that an F-key macro already holds,
+    /// and a macro typed on an F-key an option holds.
+    /// </summary>
+    private bool NavKeysAreClaimable()
+    {
+        var fkeys = CollectFkeys();
+        var problems = CollectNavKeys().Problems(n => n >= 1 && n <= 12 && !string.IsNullOrWhiteSpace(fkeys[n - 1]));
+        if (problems.Count == 0)
+            return true;
+        SaveFailed?.Invoke("Navkeys: " + string.Join(" ", problems));
+        return false;
+    }
+
     public FkeyEditorItem[] CurrentPageItems => _pages[_activeModifier];
     public bool CanSave { get; }
 
@@ -522,6 +553,14 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _onlineForgetWindow = Math.Clamp(settings.OnlineForgetWindow, 0, 10);
         _floatOnline      = settings.FloatOnline;
         _floatCompass     = settings.FloatCompass;
+        _navKeysEnabled   = settings.NavKeysEnabled;
+        NavKeyRows = Mucka.Commands.NavKeyMap.Actions
+            .Select(info => new NavKeyEditorItem(info, settings.NavKeys.Get(info.Action))).ToArray();
+        ResetNavKeysCommand = new Command(() =>
+        {
+            foreach (var row in NavKeyRows)
+                row.KeyName = row.DefaultKey;
+        });
 
         // Preview the beep at the bell row's volume (which follows the master slider
         // until overridden). _bellGroup is read at invoke time - it doesn't exist yet here.
@@ -598,6 +637,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         });
         ApplyCommand = new Command(() =>
         {
+            if (!NavKeysAreClaimable()) return;
             _onApply(CollectSettings(), CollectFkeys());
             CloseRequested?.Invoke();
         });
@@ -653,6 +693,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         OnlineForgetWindow  = _onlineForgetWindow,
         FloatOnline         = _floatOnline,
         FloatCompass        = _floatCompass,
+        NavKeysEnabled      = _navKeysEnabled,
+        NavKeys             = CollectNavKeys(),
     };
 
     /// <summary>The Sounds tab's tree as an override-only settings blob.</summary>
@@ -682,6 +724,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
 
     private async Task SaveAsync()
     {
+        if (!NavKeysAreClaimable()) return;
         try
         {
             // The saver applies the settings live and persists them (GameViewModel.SaveSettingsAsync).

@@ -115,12 +115,37 @@
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Hotkeys" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Function Keys" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
                             <DataTrigger TargetType="Label" Binding="{Binding IsHotkeysTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
                             </DataTrigger>
                             <DataTrigger TargetType="Label" Binding="{Binding IsHotkeysTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="4"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsNavkeysTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsNavkeysTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Navkeys" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsNavkeysTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsNavkeysTabActive}" Value="False">
                                 <Setter Property="TextColor" Value="#888888"/>
                             </DataTrigger>
                         </Label.Triggers>
@@ -370,6 +395,50 @@
                     </VerticalStackLayout>
                 </ScrollView>
             </Grid>
+
+            <!-- - NAVKEYS TAB - -->
+            <ScrollView IsVisible="{Binding IsNavkeysTabActive}">
+                <VerticalStackLayout Spacing="12" Padding="0,0,0,12">
+                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                        <CheckBox Grid.Column="0"
+                                  IsChecked="{Binding NavKeysEnabled, Mode=TwoWay}"
+                                  Color="#1f6feb"
+                                  VerticalOptions="Center"/>
+                        <Label Grid.Column="1"
+                               Text="Use these keys to move"
+                               TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                               VerticalOptions="Center"/>
+                    </Grid>
+
+                    <VerticalStackLayout Spacing="4" IsEnabled="{Binding NavKeysEnabled}"
+                                         BindableLayout.ItemsSource="{Binding NavKeyRows}">
+                        <BindableLayout.ItemTemplate>
+                            <DataTemplate x:DataType="vm:NavKeyEditorItem">
+                                <Grid ColumnDefinitions="110,200" ColumnSpacing="10">
+                                    <Label Grid.Column="0" Text="{Binding Label}"
+                                           TextColor="#c9d1d9" FontSize="{core:ScaledFont 13}"
+                                           VerticalOptions="Center"/>
+                                    <Picker Grid.Column="1"
+                                            ItemsSource="{x:Static vm:NavKeyEditorItem.KeyDisplays}"
+                                            SelectedIndex="{Binding KeyIndex, Mode=TwoWay}"
+                                            TextColor="White"
+                                            BackgroundColor="#161b22"
+                                            FontSize="{core:ScaledFont 13}"/>
+                                </Grid>
+                            </DataTemplate>
+                        </BindableLayout.ItemTemplate>
+                    </VerticalStackLayout>
+
+                    <Button Text="Reset to Default"
+                            Command="{Binding ResetNavKeysCommand}"
+                            BackgroundColor="#2d333b" TextColor="#cccccc"
+                            FontSize="{core:ScaledFont 12}" HeightRequest="30"
+                            CornerRadius="4" Padding="10,0" HorizontalOptions="Start"/>
+
+                    <Label Text="Pick the key for each option. Scan sends a quick scan, at most once a second unless you have moved since the last one. Letters, digits, Enter, Backspace, Shift and Ctrl cannot be used, nor an F-key that has a macro; the number pad needs Num Lock on. While a pad key does something here, it no longer types its digit."
+                           TextColor="#888888" FontSize="{core:ScaledFont 12}"/>
+                </VerticalStackLayout>
+            </ScrollView>
 
             <!-- - SOUNDS TAB - -->
             <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8" IsVisible="{Binding IsSoundsTabActive}">

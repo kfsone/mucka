@@ -114,6 +114,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private bool _floatOnline;
     // As above, for the compass (SidePanel.IsMapPinned).
     private bool _floatCompass;
+    // The number pad moves. Read by GamePage, which binds the keys only while this is true.
+    private bool _navKeysEnabled = true;
+    private NavKeyBindings _navKeys = NavKeyBindings.Default;
+    private readonly NavScanGate _navScan = new();
     private bool _inGameMode;
     private DateTime _lastSentUtc;
     private DateTime _lastBellUtc = DateTime.MinValue;
@@ -739,6 +743,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         OnlineForgetWindow = SidePanel.ForgetWindowMinutes,
         FloatOnline      = _floatOnline,
         FloatCompass     = _floatCompass,
+        NavKeysEnabled   = _navKeysEnabled,
+        NavKeys          = _navKeys,
     };
 
     public ICommand SendCommand { get; }
@@ -834,6 +840,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
         _floatCompass        = profile.FloatCompass;
+        _navKeysEnabled      = profile.NavKeysEnabled;
+        _navKeys             = profile.NavKeys;
         SoundService.SetVolume(_volume);
         SoundService.SetSoundSettings(_sounds);
         // Pre-warm a few pooled players now (session start) rather than paying the cold-start
@@ -932,6 +940,16 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// <summary>Raised after <see cref="ApplyFkeys"/> has replaced the fkey texts.</summary>
     public event Action? FkeysChanged;
 
+    /// <summary>Whether the number pad moves. The page claims the pad's keys only while this is true.</summary>
+    public bool NavKeysEnabled => _navKeysEnabled;
+
+    /// <summary>What each number-pad key sends; the page claims only the keys with a command.</summary>
+    public NavKeyBindings NavKeys => _navKeys;
+
+    /// <summary>Raised when <see cref="NavKeysEnabled"/> or <see cref="NavKeys"/> changes through the
+    /// settings dialog.</summary>
+    public event Action? NavKeysChanged;
+
     public void ApplyFkeys(string[] fkeys)
     {
         for (var i = 0; i < _allFkeys.Length; i++)
@@ -989,6 +1007,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (!SidePanel.IsMapPinned == _floatCompass)
             SidePanel.IsMapPinned = !settings.FloatCompass;
         _floatCompass = settings.FloatCompass;
+
+        if (_navKeysEnabled != settings.NavKeysEnabled || !_navKeys.IsSameAs(settings.NavKeys))
+        {
+            _navKeysEnabled = settings.NavKeysEnabled;
+            _navKeys = settings.NavKeys;
+            NavKeysChanged?.Invoke();
+        }
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         SetChatColors(settings.ChatTheme, settings.EmoteColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
@@ -1574,9 +1599,33 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         {
             _conn.SendLine(dir);
             _lastSentUtc = DateTime.UtcNow;
+            _navScan.Moved();
         }
         // Always hand typing back to the command box - a compass click must never strand focus
         // on the canvas. (Fires even on an empty hit so any tap on the dial re-focuses input.)
+        RequestFocus?.Invoke();
+    }
+
+    /// <summary>A navigation option's key was pressed. A direction goes out as a line, like a compass
+    /// click, and counts as a move; scan goes out as the quick-scan interrupt, at most once a second
+    /// unless a move was made since the last one (<see cref="NavScanGate"/>).</summary>
+    public void SendNavAction(NavAction action)
+    {
+        FlushPendingInput();   // keep the socket in the order the player caused
+        if (action == NavAction.Scan)
+        {
+            if (_navScan.TryScan())
+            {
+                _conn.SendBytes(NavKeyMap.ScanBytes);
+                _lastSentUtc = DateTime.UtcNow;
+            }
+        }
+        else
+        {
+            _conn.SendLine(NavKeyMap.For(action).Command);
+            _lastSentUtc = DateTime.UtcNow;
+            _navScan.Moved();
+        }
         RequestFocus?.Invoke();
     }
 

@@ -795,6 +795,8 @@ public sealed class ConnectViewModel : BaseViewModel
             FloatCompass = saved?.FloatCompass ?? false,
             ShowCombatRail = saved?.ShowCombatRail ?? false,
             ShowCombatStats = saved?.ShowCombatStats ?? true,
+            NavKeysEnabled = saved?.NavKeysEnabled ?? true,
+            NavKeys = saved?.NavKeys ?? Mucka.Commands.NavKeyBindings.Default,
         };
         // Overlay mucka.ini over the block above, on EVERY connect and not only for a brand-new
         // profile. The ini is the authoritative store; `saved` is a cache read once at app start

@@ -91,6 +91,22 @@ public sealed class HotkeyRouter
     }
 
     /// <summary>
+    /// Removes a binding so the key types normally again, and drops the key code from
+    /// <see cref="IsBoundKey"/> when no other modifier combination still uses it. For a feature the
+    /// player can switch off while the box is live: a bound key is always claimed by <see cref="Handle"/>
+    /// and never reaches the control, so a disabled feature has to be unbound, not merely inert.
+    /// Returns false when nothing was bound there.
+    /// </summary>
+    public bool Unbind(int keyCode, InputModifiers modifiers)
+    {
+        if (!_bindings.Remove(new Hotkey(keyCode, modifiers)))
+            return false;
+        if (!_bindings.Keys.Any(k => k.KeyCode == keyCode))
+            _boundKeyCodes.Remove(keyCode);
+        return true;
+    }
+
+    /// <summary>
     /// Whether this key code participates in ANY binding, ignoring modifiers. False for every letter,
     /// digit and punctuation mark of ordinary typing.
     ///

@@ -77,4 +77,9 @@ public sealed record ClientSettings
     /// <summary>Global default for whether the compass floats (unpinned from the side panel)
     /// rather than living in the side panel. False (pinned) matches the historical behaviour.</summary>
     public bool FloatCompass { get; init; }
+    /// <summary>The number pad moves (<see cref="Mucka.Commands.NavKeyMap"/>); on unless switched off on
+    /// the Navkeys tab. Global.</summary>
+    public bool NavKeysEnabled { get; init; } = true;
+    /// <summary>What each number-pad key sends. Global.</summary>
+    public Mucka.Commands.NavKeyBindings NavKeys { get; init; } = Mucka.Commands.NavKeyBindings.Default;
 }

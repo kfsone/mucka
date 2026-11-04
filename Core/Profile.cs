@@ -173,6 +173,8 @@ public class Profile : INotifyPropertyChanged
         OnlineForgetWindow  = OnlineForgetWindow,
         FloatOnline         = FloatOnline,
         FloatCompass        = FloatCompass,
+        NavKeysEnabled      = NavKeysEnabled,
+        NavKeys             = NavKeys,
     };
 
     /// <summary>True when the fkeys came from a per-profile [fkeys:Name] ini section
@@ -207,6 +209,10 @@ public class Profile : INotifyPropertyChanged
     public bool FloatOnline { get; set; }
     /// <summary>Global default for floating (unpinning) the compass. False = pinned in the side panel.</summary>
     public bool FloatCompass { get; set; }
+    /// <summary>Global: the number pad moves. On when mucka.ini has no say.</summary>
+    public bool NavKeysEnabled { get; set; } = true;
+    /// <summary>Global: what each number-pad key sends.</summary>
+    public Mucka.Commands.NavKeyBindings NavKeys { get; set; } = Mucka.Commands.NavKeyBindings.Default;
 
     private static readonly Dictionary<int, string> s_defaultFkeys = new()
     {
