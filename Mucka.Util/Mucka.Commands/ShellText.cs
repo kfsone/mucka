@@ -18,8 +18,9 @@ public sealed record ExaminePersona(string Name, string Sex, int Score, int Play
 /// selection/creation -> tearoom). No MAUI dependency so this is unit-testable in isolation
 /// (see Mucka.Util.Tests, which takes Mucka.Commands as a project reference).
 ///
-/// The MUD wraps all server text to the negotiated terminal width and pads wrapped lines with a
-/// spurious "\r\0" before the real "\r\n", so every landmark check here is done against text that
+/// Until the client turns local formatting on, the MUD wraps all server text to the negotiated
+/// terminal width and pads wrapped lines with a spurious "\r\0" before the real "\r\n", so every
+/// landmark check here is done against text that
 /// has first been run through <see cref="NormalizeWhitespace"/> (all runs of whitespace/NUL
 /// collapsed to a single space) rather than matched against raw line boundaries.
 /// </summary>

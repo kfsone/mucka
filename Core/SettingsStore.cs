@@ -15,13 +15,12 @@ namespace Mucka.Core;
 /// Layout: every setting is GLOBAL, in [settings]. The one per-profile setting is a profile's own
 /// F-key set, an opt-in copy made by the Hotkeys page's "Save to profile only" checkbox, which
 /// switches the save target to [fkeys:Name]; loads prefer it when present. Older versions also kept
-/// settings per profile ([settings:Name], and columns/antiidle/keepscreenon/defaulthotkeys inside
+/// settings per profile ([settings:Name], and antiidle/keepscreenon/defaulthotkeys inside
 /// [profile:Name]); GlobalSettingsMigration moves those into [settings] on first load and removes
 /// them.
 ///
 ///   [settings]            ; globals - the only save target for settings
 ///   fontsize=15            ; the Game Font size (Display tab)
-///   columns=80
 ///   volume=75
 ///   statupdate=10
 ///   mutebeep=no
@@ -67,7 +66,6 @@ public static class SettingsStore
     /// </summary>
     public sealed record StoredSettings(
         int? FontSize,
-        int? MaxColumns,
         int? Volume,
         int? StatUpdateFrequency,
         bool? MuteBeepPermanently,
@@ -75,7 +73,6 @@ public static class SettingsStore
         string[]? Fkeys,
         bool FkeysPerProfile,
         // Display tab - always read/written to the global [settings] section.
-        int? DefaultMaxColumns  = null,
         int? DreamwordSizeOffset = null,
         bool? ShowOnline        = null,
         bool? ShowInventory     = null,
@@ -102,7 +99,6 @@ public static class SettingsStore
         public void ApplyTo(Profile profile)
         {
             if (FontSize            is int fontSize) profile.FontSize            = fontSize;
-            if (MaxColumns          is int cols)     profile.MaxColumns          = cols;
             if (Volume              is int volume)   profile.Volume              = volume;
             if (StatUpdateFrequency is int fes)      profile.StatUpdateFrequency = fes;
             if (MuteBeepPermanently is bool mute)    profile.MuteBeepPermanently = mute;
@@ -111,7 +107,6 @@ public static class SettingsStore
             if (Fkeys               is not null)     profile.Fkeys               = Fkeys;
             profile.FkeysPerProfile    = FkeysPerProfile;
             // Display tab - always from the global [settings] section.
-            if (DefaultMaxColumns is int dmc)  profile.DefaultMaxColumns = dmc;
             if (DreamwordSizeOffset is int dso) profile.DreamwordSizeOffset = dso;
             if (ShowOnline    is bool so)  profile.ShowOnline    = so;
             if (ShowInventory is bool si)  profile.ShowInventory = si;
@@ -189,7 +184,6 @@ public static class SettingsStore
             var colors = MudSharp.Models.ChatColorKeys.Read(ini.Get);
             return new StoredSettings(
                 FontSize:            settingsSection is null ? null : GetInt(ini, settingsSection, "fontsize"),
-                MaxColumns:          settingsSection is null ? null : GetInt(ini, settingsSection, "columns"),
                 Volume:              settingsSection is null ? null : GetInt(ini, settingsSection, "volume"),
                 StatUpdateFrequency: settingsSection is null ? null : GetInt(ini, settingsSection, "statupdate"),
                 MuteBeepPermanently: settingsSection is null ? null : GetBool(ini, settingsSection, "mutebeep"),
@@ -198,7 +192,6 @@ public static class SettingsStore
                 Fkeys:               fkeys,
                 FkeysPerProfile:     fkeysPerProfile,
                 // Display tab settings always come from the global [settings] section.
-                DefaultMaxColumns:  ini.HasSection("settings") ? GetInt (ini, "settings", "defaultcolumns")     : null,
                 DreamwordSizeOffset: ini.HasSection("settings") ? GetInt(ini, "settings", "dreamwordsizeoffset") : null,
                 ShowOnline:         ini.HasSection("settings") ? GetBool(ini, "settings", "showonline")         : null,
                 ShowInventory:      ini.HasSection("settings") ? GetBool(ini, "settings", "showinventory")      : null,
@@ -261,7 +254,6 @@ public static class SettingsStore
             // mucka.ini is a stored file format, so every number in it is written and read back
             // invariant - the file must not change meaning when it is opened under another locale.
             ini.Set(settingsSection, "fontsize",   settings.FontSize.ToString(CultureInfo.InvariantCulture));
-            ini.Set(settingsSection, "columns",    settings.MaxColumns.ToString(CultureInfo.InvariantCulture));
             ini.Set(settingsSection, "volume",     settings.Volume.ToString(CultureInfo.InvariantCulture));
             ini.Set(settingsSection, "statupdate", settings.StatUpdateFrequency.ToString(CultureInfo.InvariantCulture));
             ini.Set(settingsSection, "mutebeep",   settings.MuteBeepPermanently ? "yes" : "no");
@@ -273,7 +265,6 @@ public static class SettingsStore
             {
                 // Display tab settings always go to the global [settings] section.
                 ini.Set("settings", Mucka.Ui.UiFontScale.IniKey, Mucka.Ui.UiFontScale.Format(settings.UiFontStep));
-                ini.Set("settings", "defaultcolumns",     settings.DefaultMaxColumns.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "dreamwordsizeoffset", settings.DreamwordSizeOffset.ToString(CultureInfo.InvariantCulture));
                 ini.Set("settings", "showonline",         settings.ShowOnline    ? "yes" : "no");
                 ini.Set("settings", "showinventory",      settings.ShowInventory ? "yes" : "no");
@@ -366,6 +357,33 @@ public static class SettingsStore
         {
             s_gate.Release();
         }
+    }
+
+    /// <summary>The global <c>[settings]</c> key that keeps every socket read as a row of its own in the
+    /// wire log, with their arrival times as they were. Off by default: the reads of each prompt-bounded
+    /// stretch of server output are joined into one row as it closes (<c>WireLogWriter.CloseUnit</c>).
+    /// While it is on, the heal at launch is skipped; the runs recorded under it are healed at the first
+    /// launch with it off.</summary>
+    public const string NetTimesKey = "nettimes";
+
+    /// <summary>Whether <see cref="NetTimesKey"/> is on. False when absent or not a yes/no value.</summary>
+    public static async Task<bool> GetNetTimesAsync()
+        => await GetGlobalValueAsync(NetTimesKey).ConfigureAwait(false) is { } value && ParseOnOff(value) == true;
+
+    /// <summary>The global <c>[settings]</c> key that says how eager the client is to back the database
+    /// up before a risky change: <see cref="Mucka.Store.BackupPolicies.Format"/> of a
+    /// <see cref="Mucka.Store.BackupPolicy"/>. Absent means the policy that always does.</summary>
+    public const string BackupPolicyKey = "backups";
+
+    /// <summary>The stored <see cref="Mucka.Store.BackupPolicy"/>.</summary>
+    public static async Task<Mucka.Store.BackupPolicy> GetBackupPolicyAsync()
+        => Mucka.Store.BackupPolicies.Parse(await GetGlobalValueAsync(BackupPolicyKey).ConfigureAwait(false));
+
+    /// <summary>Stores <paramref name="policy"/> and makes it the one in force now.</summary>
+    public static Task SetBackupPolicyAsync(Mucka.Store.BackupPolicy policy)
+    {
+        Mucka.Store.DatabaseBackup.Policy = policy;
+        return SetGlobalValueAsync(BackupPolicyKey, Mucka.Store.BackupPolicies.Format(policy));
     }
 
     /// <summary>The Text size page's answer: the UI step, the Game Font, the chat colour theme when one
@@ -565,17 +583,16 @@ public static class SettingsStore
     }
 
     /// <summary>
-    /// Writes the three connect-page settings that are global: the advertised column count, the
-    /// anti-idle interval and keep-screen-on. Every other key in the file is left alone.
+    /// Writes the two connect-page settings that are global: the anti-idle interval and
+    /// keep-screen-on. Every other key in the file is left alone.
     /// </summary>
-    public static async Task SaveConnectGlobalsAsync(int maxColumns, int antiIdleSeconds, bool keepScreenOn)
+    public static async Task SaveConnectGlobalsAsync(int antiIdleSeconds, bool keepScreenOn)
     {
         await s_gate.WaitAsync().ConfigureAwait(false);
         try
         {
             var path = ResolvePath();
             var ini  = await LoadIniAsync(persist: false).ConfigureAwait(false);
-            ini.Set("settings", "columns",      maxColumns.ToString(CultureInfo.InvariantCulture));
             ini.Set("settings", "antiidle",     antiIdleSeconds.ToString(CultureInfo.InvariantCulture));
             ini.Set("settings", "keepscreenon", keepScreenOn ? "yes" : "no");
             await ini.SaveAsync(path).ConfigureAwait(false);
@@ -604,7 +621,6 @@ public static class SettingsStore
             if (GetBool(ini, section, "rememberpassword") is bool rem)   p.RememberPassword   = rem;
             if (GetBool(ini, section, "telnetlogin")      is bool tel)   p.TelnetLoginEnabled = tel;
             if (ini.Get(section, "loginname") is { Length: > 0 } login)  p.TelnetLoginName    = login;
-            if (GetInt (ini, "settings", "columns")        is int cols)   p.MaxColumns         = cols;
             if (GetInt (ini, "settings", "antiidle")       is int idle)   p.AntiIdleSeconds    = idle;
             if (GetBool(ini, "settings", "keepscreenon")   is bool keep)  p.KeepScreenOn       = keep;
             if (GetBool(ini, "settings", "defaulthotkeys") is bool defs)  p.DefaultHotkeys     = defs;

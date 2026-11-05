@@ -45,8 +45,8 @@ public partial class GuidedLoginPage : ContentPage
         _vm.CreateConfirmationRequested = ShowCreateConfirmationAsync;
         _vm.SplashLinesReady += OnSplashLinesReady;
         var maxFontDip = terminalFontPx > 0 ? terminalFontPx : Terminal.FontSizeDip;
-        _splash = new FittedPane(Terminal, maxFontDip);
-        _tail = new FittedPane(DropTail, maxFontDip);
+        _splash = new FittedPane(Terminal, maxFontDip, fitWidestLine: true);
+        _tail = new FittedPane(DropTail, maxFontDip, fitWidestLine: false);
 
         // Fixed content, known before the page is ever shown -- paint it once here rather than
         // waiting on an event, so the player never sees the overlay without its explanation.
@@ -58,33 +58,42 @@ public partial class GuidedLoginPage : ContentPage
 
     private void OnSplashLinesReady(IReadOnlyList<StyledLine> lines) => _splash.Append(lines);
 
-    /// <summary>A terminal pane drawn at the largest font, up to a maximum, that fits its widest line.</summary>
+    /// <summary>A terminal pane drawn at the largest font, up to a maximum. With
+    /// <c>fitWidestLine</c> that is the largest that fits its widest line, for text the server laid out
+    /// (the splash, which arrives before local formatting is on); without it, the pane wraps its text
+    /// itself, which is all game output now.</summary>
     private sealed class FittedPane
     {
         private readonly Rendering.TerminalView _view;
         private readonly int _maxFontDip;
+        private readonly bool _fitWidestLine;
         private int _columns;
 
-        public FittedPane(Rendering.TerminalView view, int maxFontDip)
+        public FittedPane(Rendering.TerminalView view, int maxFontDip, bool fitWidestLine)
         {
             _view = view;
             _maxFontDip = maxFontDip;
+            _fitWidestLine = fitWidestLine;
             view.SizeChanged += (_, _) => Fit();
             Fit();
         }
 
         public void Append(IReadOnlyList<StyledLine> lines)
         {
-            foreach (var line in lines)
-                _columns = Math.Max(_columns,
-                    Mucka.Terminal.TerminalText.ExpandTabs(Mucka.Terminal.TerminalText.Sanitize(line)).PlainText.Length);
+            if (_fitWidestLine)
+            {
+                foreach (var line in lines)
+                    _columns = Math.Max(_columns,
+                        Mucka.Terminal.TerminalText.ExpandTabs(Mucka.Terminal.TerminalText.Sanitize(line)).PlainText.Length);
+            }
             Fit();
             _view.AppendLines(lines);
         }
 
         private void Fit()
         {
-            var width = _view.Width - Mucka.Combat.CombatRailResize.TerminalGutterDp * 2;
+            var width = _view.Width - Mucka.Combat.CombatRailResize.TerminalGutterDp
+                - Mucka.Combat.CombatRailResize.TerminalScrollbarDp;
             _view.SetFontSize(Mucka.Terminal.TerminalColumns.FittingFontPx(width, _columns, _maxFontDip, PaneMinFontDip));
         }
     }

@@ -39,6 +39,8 @@ public sealed class MigrationScriptsAreFrozenTests
         ("0005_some_kinds.sql",        "08353A1C62D9EFD8A06D9974A1E704B684FAF1DAA510F2DCE44FF56F8DDEE404"),
         ("0006_uids.sql",              "EB3E0F36F61B4041586F66B034BBD70CDECABB762E7099CBAD2D1CCBC974E4A9"),
         ("0007_run_account.sql",       "0CAA5DF6557D32C158DCDA161441B2BE3C542A5DD195140427490202D94155A8"),
+        ("0008_wire_heal_and_trim.sql", "5F22478CCCA580818C0A5C9CAA4C1A7A97B4540E9104ED0A513381E2C6A37CF5"),
+        ("0009_wire_run_index.sql",    "A87CFAC6F77A08D636183CAFDF1FD7731554145CD4057CD8AC9BC7F7A4478457"),
     ];
 
     private static string HashOf(string contents)
@@ -129,6 +131,29 @@ public sealed class MigrationScriptsAreFrozenTests
                               .ToArray();
 
         Assert.Equal(onDisk, MigrationScripts.AllNames.OrderBy(n => n, StringComparer.Ordinal).ToArray());
+    }
+
+    // A script listed as only adding takes no backup, so what it may contain is a whitelist of
+    // creations of what is not there yet - not a list of verbs to avoid.
+    [Fact]
+    public void AScriptListedAsOnlyAdding_ContainsNothingButCreationsOfWhatIsNotThereYet()
+    {
+        Assert.NotEmpty(MigrationScripts.AdditiveNames);
+        var allowed = new Regex(@"^CREATE\s+(UNIQUE\s+)?(INDEX|TABLE)\s+IF\s+NOT\s+EXISTS\s",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        foreach (var name in MigrationScripts.AdditiveNames)
+        {
+            var script = MigrationScripts.All.Single(s => s.Name == name);
+            var withoutComments = string.Join('\n', script.Contents.Split('\n')
+                .Where(line => !line.TrimStart().StartsWith("--", StringComparison.Ordinal)));
+            var statements = withoutComments.Split(';')
+                .Select(s => s.Trim())
+                .Where(s => s.Length > 0)
+                .ToList();
+            Assert.NotEmpty(statements);
+            foreach (var statement in statements)
+                Assert.True(allowed.IsMatch(statement), $"{name}: '{statement}' is not a creation of an index or table that is not there yet");
+        }
     }
 
     /// <summary>

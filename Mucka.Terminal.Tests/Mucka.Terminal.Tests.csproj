@@ -29,6 +29,8 @@
          is measured against real traffic rather than hand-built lines. -->
     <None Include="..\mudsharp.Tests\Fixtures\Data\wyvern-poison-death.c1" Link="Fixtures\Data\wyvern-poison-death.c1"
           CopyToOutputDirectory="PreserveNewest" />
+    <!-- Room descriptions as MUD2 itself wrapped them, at three terminal widths. -->
+    <None Include="Data\server-wrapped-paragraphs.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

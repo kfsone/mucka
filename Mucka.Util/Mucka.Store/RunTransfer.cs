@@ -112,8 +112,10 @@ public static class RunTransfer
         try
         {
             RequireJournalWeKnow(scratch);
-            using var source = MuckaDb.Open(scratch);
-            using var destination = MuckaDb.Open(destinationPath);
+            // Neither is the live file: the source is a temp copy of the export, and the destination is
+            // the copy DatabaseImport swaps in, which keeps the live file as the backup.
+            using var source = MuckaDb.Open(scratch, backUpBeforeUpgrade: false);
+            using var destination = MuckaDb.Open(destinationPath, backUpBeforeUpgrade: false);
             return Merge(source, destination);
         }
         finally

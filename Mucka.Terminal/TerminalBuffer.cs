@@ -12,7 +12,7 @@ namespace Mucka.Terminal;
 /// each deciding for itself where a line ends.
 ///
 /// Lines are stored as raw <em>logical</em> lines. Wrapping is a render-time concern
-/// (the renderer wraps to the negotiated column count); the buffer never wraps.
+/// (the renderer wraps to the pane's column count); the buffer never wraps.
 ///
 /// A clear-screen (form feed in the stream) does not delete anything. It commits a
 /// <see cref="ClearRule"/> and moves <see cref="LiveStart"/> past it: the live screen shows only

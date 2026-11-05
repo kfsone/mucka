@@ -21,7 +21,7 @@ namespace Mucka.Rendering;
 /// A clear-screen from the server empties the live view but not history: the snapshot holds the
 /// lines above it, with a drawn rule where the clear was (see <see cref="TerminalBuffer.ClearRule"/>).
 /// <see cref="Clear"/> is the client's own wipe and takes history with it.
-/// Lines are naive-hard-wrapped at a fixed column count. Selection and copy are handled here.
+/// Lines are word-wrapped by <see cref="LineWrapper"/> at the column count, on every paint. Selection and copy are handled here.
 /// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA1001:Types that own disposable fields should be disposable",
     Justification = "The paints and fonts live as long as the view does, and nothing disposes a MAUI view; a Dispose here would never be called.")]
@@ -96,8 +96,21 @@ public sealed class TerminalView : SKCanvasView
         Touch += OnTouch;
     }
 
-    /// <summary>Wrap column count (the negotiated EffCols). 0 = wrap to whatever fits the canvas.</summary>
-    public int Columns { get; set; }
+    private int _columns;
+
+    /// <summary>Wrap column count (the pane's PaneColumns), capped at what the canvas fits. 0 = wrap
+    /// to whatever fits the canvas. A change repaints, because everything on screen is wrapped
+    /// again. UI thread only.</summary>
+    public int Columns
+    {
+        get => _columns;
+        set
+        {
+            if (_columns == value) return;
+            _columns = value;
+            InvalidateSurface();
+        }
+    }
 
     /// <summary>True while the user is reviewing frozen scrollback.</summary>
     public bool IsHistoryMode => _historyMode;
@@ -480,8 +493,9 @@ public sealed class TerminalView : SKCanvasView
         if (cellW <= 0f || cellH <= 0f) return;
 
         float leftPad = LeftPadDip * scale;
-        int colsFit = Math.Max(1, (int)((pxW - leftPad) / cellW));
-        int n = Columns > 0 ? Columns : colsFit;
+        float scrollbarPx = (float)Mucka.Combat.CombatRailResize.TerminalScrollbarDp * scale;
+        int colsFit = Math.Max(1, (int)((pxW - leftPad - scrollbarPx) / cellW));
+        int n = Columns > 0 ? Math.Min(Columns, colsFit) : colsFit;
 
         var continues = new List<bool>();
         var rows = BuildVisualRows(n, continues, out int liveFirstRow);
@@ -647,7 +661,7 @@ public sealed class TerminalView : SKCanvasView
     private void DrawLiveScrollbar(SKCanvas canvas, int pxW, int pxH, float scale, int contentRows, int viewportRows)
     {
         if (contentRows <= viewportRows || viewportRows <= 0) return;
-        float barW = 3f * scale;
+        float barW = (float)Mucka.Combat.CombatRailResize.TerminalScrollbarDp * scale;
         float x = pxW - barW;
         _fillPaint.Color = new SKColor(0x33, 0x33, 0x33, 0x80);
         canvas.DrawRect(x, 0, barW, pxH, _fillPaint);
@@ -661,7 +675,7 @@ public sealed class TerminalView : SKCanvasView
         SKCanvas canvas, int pxW, int pxH, float scale, int contentRows, int viewportRows, int offset, int maxOffset)
     {
         if (contentRows <= viewportRows) return;
-        float barW = 4f * scale;
+        float barW = (float)Mucka.Combat.CombatRailResize.TerminalScrollbarDp * scale;
         float x = pxW - barW;
         _fillPaint.Color = new SKColor(0x33, 0x33, 0x33, 0xB0);
         canvas.DrawRect(x, 0, barW, pxH, _fillPaint);

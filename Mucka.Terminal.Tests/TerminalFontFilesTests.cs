@@ -58,6 +58,15 @@ public class TerminalFontFilesTests
     }
 
     [Fact]
+    public void TheColumnCountsCellWidth_IsTheRegularFacesAdvance()
+    {
+        var regular = Read("CascadiaMono.ttf");
+        var cell = Assert.Single(regular.Advances, a => a != 0);
+
+        Assert.Equal(TerminalColumns.CharWidthPerFontPx, (double)cell / regular.UnitsPerEm, 12);
+    }
+
+    [Fact]
     public void TheItalicFace_IsEmbeddedUnderTheNameTheRendererLoads()
     {
         var csproj = File.ReadAllText(Path.Combine(FontsDir(), "..", "..", "Mucka.csproj"));

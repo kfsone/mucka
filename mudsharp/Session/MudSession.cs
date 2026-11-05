@@ -376,11 +376,9 @@ public sealed class MudSession : IDisposable
     public event Action<bool>? InCombatChanged;
     /// <summary>Fires for every classified combat line while (or just as) InCombat.</summary>
     public event Action<CombatEvent>? CombatEventOccurred;
-    /// <summary>
-    /// Server confirmed the terminal width (ESC-&lt;n&gt;W response or "[New terminal width is N]" annotation).
-    /// Payload is the confirmed column count.
-    /// </summary>
-    public event Action<int>? TerminalWidthConfirmed;
+    /// <summary>The server answered <c>/F+</c> with "[Local formatting is now on]": it no longer wraps
+    /// the text it sends.</summary>
+    public event Action? LocalFormattingConfirmed;
     /// <summary>
     /// A FES/FEW/FEI probe interrupt was just transmitted (routine heartbeat or stale
     /// re-probe). Its response ends in a prompt redraw, so consumers that key off
@@ -429,6 +427,9 @@ public sealed class MudSession : IDisposable
 
     /// <summary>Forwarded verbatim from <see cref="MudStreamParser.FrameClosed"/>.</summary>
     public event Action? FrameClosed;
+
+    /// <summary>Forwarded verbatim from <see cref="MudStreamParser.PromptClosed"/>.</summary>
+    public event Action? PromptClosed;
 
     // -- Public state -----------------------------------------------------------
     /// <summary>The current merged stats snapshot (see <c>MergeStats</c>) - always up to date
@@ -757,6 +758,7 @@ public sealed class MudSession : IDisposable
         };
         _parser.WorldResetLanded  += OnWorldResetLanded;
         _parser.FrameClosed       += () => FrameClosed?.Invoke();
+        _parser.PromptClosed      += () => PromptClosed?.Invoke();
         _parser.PresenceNameSeen  += OnPresenceName;
         _parser.StatusEffectChanged += _effects.Apply;
         // The two coded blind lines, each in the frame it lands: the combat tracker's
@@ -843,7 +845,7 @@ public sealed class MudSession : IDisposable
             FexListComplete?.Invoke();
         };
         _parser.ExitLineReady    += (dir, dest) => ExitLineReady?.Invoke(dir, dest);
-        _parser.TerminalWidthConfirmed += w => TerminalWidthConfirmed?.Invoke(w);
+        _parser.LocalFormattingConfirmed += () => LocalFormattingConfirmed?.Invoke();
     }
 
     private void MergeStats(GameStatsSnapshot partial)

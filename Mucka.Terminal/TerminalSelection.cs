@@ -12,8 +12,8 @@ namespace Mucka.Terminal;
 /// ended; where <see cref="LineWrapper"/> split one logical line across several rows because the
 /// pane is narrow, the pieces are joined with nothing. A wrap is a property of the window, not of
 /// the text, and it has no business in the clipboard - a path or a URL the client printed pastes as
-/// one string. Lines the server wrapped itself arrive as separate logical lines and keep their
-/// breaks, which is what makes MUD output paste as the game laid it out.</para>
+/// one string. A paragraph the server sent as one line copies as one line; text a server
+/// wrapped itself (an old recording) arrives as separate logical lines and keeps those breaks.</para>
 ///
 /// <para>A <see cref="TerminalBuffer.ClearRule"/> row contributes no text, so a selection across a
 /// clear-screen pastes a blank line where the rule was drawn.</para>

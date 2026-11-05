@@ -12,7 +12,6 @@ public partial class GamePage
     {
         if (_iosPageHooked) TearDownIosPage();
         _iosPageHooked = true;
-        Terminal.SizeChanged += OnIosTerminalSizeChanged;
         DockedWhoList.SizeChanged += OnIosWhoListSizeChanged;
         FloatingWhoList.SizeChanged += OnIosWhoListSizeChanged;
         SetUpMacInput();
@@ -24,7 +23,6 @@ public partial class GamePage
     private void TearDownIosPage()
     {
         _iosPageHooked = false;
-        Terminal.SizeChanged -= OnIosTerminalSizeChanged;
         DockedWhoList.SizeChanged -= OnIosWhoListSizeChanged;
         FloatingWhoList.SizeChanged -= OnIosWhoListSizeChanged;
         _vm.PropertyChanged -= OnIosSendMenuStateChanged;
@@ -63,8 +61,6 @@ public partial class GamePage
         if (e.PropertyName is nameof(Mucka.ViewModels.GameViewModel.ChatMode) or nameof(Mucka.ViewModels.GameViewModel.FkeysVisible))
             SetIosSendMenu();
     }
-
-    private void OnIosTerminalSizeChanged(object? sender, EventArgs e) => RecalculateColumns(Width);
 
     // The online list was observed empty on the iPhone simulator while the wire log held the
     // server's FEW replies. Each list sits in a ScrollView sized by its content (at most its MaximumHeightRequest); the

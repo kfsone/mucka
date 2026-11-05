@@ -65,7 +65,8 @@ public sealed class DatabaseImportTests : IDisposable
 
     private string[] Leftovers() => Directory.GetFiles(_directory)
         .Select(Path.GetFileName).Cast<string>()
-        .Where(n => n.StartsWith("mucka.db", StringComparison.Ordinal) && n != MuckaDb.DefaultFileName)
+        .Where(n => n.StartsWith("mucka.db", StringComparison.Ordinal) && n != MuckaDb.DefaultFileName
+                    && !n.EndsWith(DatabaseLock.Suffix, StringComparison.Ordinal))
         .ToArray();
 
     [Fact]
@@ -81,6 +82,7 @@ public sealed class DatabaseImportTests : IDisposable
         Assert.Equal(1, Count(Old, "SELECT COUNT(*) FROM mucka_runs"));
         Assert.Contains("mucka.old.db", outcome.Message);
         Assert.Empty(Leftovers());
+        Assert.True(DatabaseBackup.HoldsBackup(Live));
     }
 
     [Fact]
@@ -96,6 +98,28 @@ public sealed class DatabaseImportTests : IDisposable
     }
 
     [Fact]
+    public void AnOlderLiveFile_IsBackedUpByTheSwapAlone_NotAgainForTheCopyThatIsMigrated()
+    {
+        // The live file as a release before the journal left it: the baseline's tables, nothing
+        // journaled, so migrating the working copy is an upgrade.
+        using (var live = new SqliteConnection(new SqliteConnectionStringBuilder
+                   { DataSource = Live, Pooling = false }.ToString()))
+        {
+            live.Open();
+            Exec(live, MigrationScripts.All[0].Contents);
+        }
+        MakeExport("theirs", 2_000);
+
+        var outcome = DatabaseImport.Run(Live, PathOf("export.db"));
+
+        Assert.True(outcome.Ok, outcome.Message);
+        Assert.Equal(1, Count(Live, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'SchemaVersions'"));
+        Assert.Equal(0, Count(Old, "SELECT COUNT(*) FROM sqlite_master WHERE name = 'SchemaVersions'"));
+        Assert.True(DatabaseBackup.HoldsBackup(Live));
+        Assert.False(DatabaseBackup.HoldsBackup(Live + ".new"));
+    }
+
+    [Fact]
     public void NoDatabaseYet_IsCreatedFromTheExport()
     {
         MakeExport("theirs", 2_000);
@@ -105,6 +129,7 @@ public sealed class DatabaseImportTests : IDisposable
         Assert.True(outcome.Ok, outcome.Message);
         Assert.Equal(1, Count(Live, "SELECT COUNT(*) FROM mucka_runs"));
         Assert.False(File.Exists(Old));
+        Assert.False(DatabaseBackup.HoldsBackup(Live));
     }
 
     [Fact]
@@ -129,6 +154,7 @@ public sealed class DatabaseImportTests : IDisposable
         Assert.Equal(1, Count(Live, "SELECT COUNT(*) FROM mucka_runs"));
         Assert.Equal("the backup", File.ReadAllText(Old));
         Assert.Empty(Leftovers());
+        Assert.False(DatabaseBackup.HoldsBackup(Live));
     }
 
     [Fact]

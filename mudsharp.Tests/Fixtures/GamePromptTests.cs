@@ -256,6 +256,49 @@ public class GamePromptTests
         Assert.Equal(1, h.FrameClosedCount);  // still one
     }
 
+    /// <summary>The wire log's unit boundary is the prompt container closing, shown or not: unlike
+    /// <see cref="MudSharp.Protocol.MudStreamParser.FrameClosed"/> it also fires for the naked prompt
+    /// that ends a heartbeat, because that response is a unit of reads too.</summary>
+    [Fact]
+    public void PromptClosed_FiresForAShownPrompt_AndForAHeartbeatThatClosesNoFrame()
+    {
+        var h = InGameMode();
+        h.Feed(WithPrompt("You arrive in the tearoom.\n"));
+        Assert.Equal(1, h.PromptClosedCount);
+        Assert.Equal(1, h.FrameClosedCount);
+
+        h.Feed(WirePromptPreamble);
+        Assert.Equal(2, h.PromptClosedCount);
+        Assert.Equal(1, h.FrameClosedCount);
+    }
+
+    /// <summary>The wire log closes a unit on every <see cref="MudSharp.Protocol.MudStreamParser.PromptClosed"/>
+    /// and does not ask whether the parser is in game mode, so it must never be raised outside it: a C01
+    /// container before game mode is entered, and one after the session has ended, close nothing.</summary>
+    [Fact]
+    public void PromptClosed_NeverFiresOutsideGameMode()
+    {
+        var h = new ParserHarness();
+        var closedInGameMode = new List<bool>();
+        h.Parser.PromptClosed += () => closedInGameMode.Add(h.Parser.InGameMode);
+
+        h.Feed(0x9C, 0xFF, 0xFF);
+        h.Feed("*");
+        h.Feed(0xFF, 0xFF);
+        Assert.False(h.Parser.InGameMode);
+        Assert.Empty(closedInGameMode);
+
+        h.Feed(0x9D, 0x9C, 0xFF, 0xFF);
+        h.Feed(WithPrompt("You arrive in the tearoom.\n"));
+        h.Feed("Option (H for help)");
+        Assert.False(h.Parser.InGameMode);
+        h.Feed(0x9C, 0xFF, 0xFF);
+        h.Feed("*");
+        h.Feed(0xFF, 0xFF);
+
+        Assert.Equal([true], closedInGameMode);
+    }
+
     /// <summary>
     /// The boundary falls AFTER every line of the frame it closes, which is what lets a consumer
     /// process a frame's endings and its awards before being told the frame ended.

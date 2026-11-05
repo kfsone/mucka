@@ -7,12 +7,6 @@ internal sealed class AnsiSgrState
 {
     public TextStyle CurrentStyle { get; private set; } = TextStyle.Default;
 
-    /// <summary>
-    /// Invoked when the server confirms the terminal width via ESC-&lt;n&gt;W.
-    /// Payload is the confirmed width value.
-    /// </summary>
-    internal Action<int>? WidthConfirmed;
-
     /// <summary>Invoked on the server's ESC-C (clear screen).</summary>
     internal Action? ClearScreen;
 
@@ -73,11 +67,10 @@ internal sealed class AnsiSgrState
                     _paramBuf.Append((char)b);
                     return ParserState.EscapeDashWidth;
                 }
-                // 'W' = server confirms the new terminal width.
+                // 'W' = the server's answer to /T, which recordings made before the client stopped
+                // sending it still carry: the annotation text after it is swallowed.
                 if (b == (byte)'W')
                 {
-                    if (int.TryParse(_paramBuf.ToString(), out int w))
-                        WidthConfirmed?.Invoke(w);
                     _paramBuf.Clear();
                     return ParserState.EscapeDashAnnotation;
                 }

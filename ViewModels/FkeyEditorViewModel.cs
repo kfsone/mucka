@@ -17,8 +17,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private int _activeModifier;
     private int _activeTab = 1;
     private double _fontSize;
-    private double _columns;
-    private bool   _columnsIsAuto;  // true when original MaxColumns was 0 and user hasn't touched the control
     private double _volume;
     private double _statUpdateFrequency;
     private bool _muteBeepSession;
@@ -28,7 +26,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private bool _soundsEnabled;
     // -- Display tab (always global) -------------------------------------------
     private int _uiFontStep;
-    private double _displayColumns;
     private double _displayDreamwordOffset;
     private bool   _showOnline;
     private bool   _showInventory;
@@ -65,7 +62,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
                     OnPropertyChanged(nameof(SoundGroupsForView));
                 }
                 OnPropertiesChanged(nameof(IsSettingsTabActive), nameof(IsHotkeysTabActive),
-                        nameof(IsSoundsTabActive), nameof(IsDisplayTabActive), nameof(IsNavkeysTabActive));
+                        nameof(IsSoundsTabActive), nameof(IsDisplayTabActive), nameof(IsNavkeysTabActive),
+                        nameof(IsDataTabActive));
             }
         }
     }
@@ -75,6 +73,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool IsHotkeysTabActive  => _activeTab == 2;
     public bool IsSoundsTabActive   => _activeTab == 3;
     public bool IsNavkeysTabActive  => _activeTab == 4;
+    public bool IsDataTabActive     => _activeTab == 5;
 
     // The Sounds tab is the page's heaviest part - a heading row per group, and a row of controls per
     // sound - and it is built when its tab is first opened rather than every time the page is.
@@ -105,21 +104,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         Justification = "Bound from XAML ({Binding FontSizeMaximum}); a binding cannot resolve a static member.")]
     public double FontSizeMaximum => Mucka.Ui.FontSetup.MaxGameFontPx;
 
-    public double Columns
-    {
-        get => _columns;
-        set
-        {
-            var was = _columnsIsAuto;
-            _columnsIsAuto = false;
-            if (!SetAndNotify(ref _columns,
-                    Math.Clamp(Math.Round(value), Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max),
-                    [nameof(ColumnsDisplay), nameof(ColumnsLabel)])
-                && was)
-                OnPropertyChanged(nameof(ColumnsLabel));   // the count is unchanged but no longer auto
-        }
-    }
-
     public double Volume
     {
         get => _volume;
@@ -145,12 +129,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public int    FontSizeDisplay            => (int)Math.Round(_fontSize);
     /// <summary>The Game Font as the Text size page names it: "Default", or its offset.</summary>
     public string FontSizeName => Mucka.Ui.FontSetup.GameFontName(FontSizeDisplay);
-    public int    ColumnsDisplay             => (int)Math.Round(_columns);
-    /// <summary>The columns row's text: "auto (44)" on an auto profile, the count the terminal is
-    /// using in the brackets; the chosen maximum otherwise.</summary>
-    public string ColumnsLabel => _columnsIsAuto
-        ? $"auto ({ColumnsDisplay.ToString(CultureInfo.CurrentCulture)})"
-        : ColumnsDisplay.ToString(CultureInfo.CurrentCulture);
     public int    VolumeDisplay              => (int)Math.Round(_volume);
     public string StatUpdateFrequencyDisplay => _statUpdateFrequency <= 0 ? "Off" : $"{(int)Math.Round(_statUpdateFrequency)}s";
 
@@ -228,6 +206,45 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public bool StorePasswordsSecurely { get => false; set { } }
 #endif
 
+    // -- Data tab: Local Data backups (global, applied as soon as it is chosen, not part of Save) --------------
+    private Mucka.Store.BackupPolicy _backupPolicy = Mucka.Store.BackupPolicies.Default;
+
+    public bool BackupStartup { get => _backupPolicy == Mucka.Store.BackupPolicy.Startup; set => ChooseBackup(Mucka.Store.BackupPolicy.Startup, value); }
+    public bool BackupHourly  { get => _backupPolicy == Mucka.Store.BackupPolicy.Hourly;  set => ChooseBackup(Mucka.Store.BackupPolicy.Hourly, value); }
+    public bool BackupDaily   { get => _backupPolicy == Mucka.Store.BackupPolicy.Daily;   set => ChooseBackup(Mucka.Store.BackupPolicy.Daily, value); }
+    public bool BackupWeekly  { get => _backupPolicy == Mucka.Store.BackupPolicy.Weekly;  set => ChooseBackup(Mucka.Store.BackupPolicy.Weekly, value); }
+    public bool BackupNever   { get => _backupPolicy == Mucka.Store.BackupPolicy.Never;   set => ChooseBackup(Mucka.Store.BackupPolicy.Never, value); }
+
+    private void ChooseBackup(Mucka.Store.BackupPolicy policy, bool selected)
+    {
+        // A radio button reports its own un-checking too; only the one being chosen is a choice.
+        if (!selected || _backupPolicy == policy) return;
+        _backupPolicy = policy;
+        OnPropertiesChanged(nameof(BackupStartup), nameof(BackupHourly), nameof(BackupDaily),
+            nameof(BackupWeekly), nameof(BackupNever));
+        // Each choice is stored after the one before it, or two quick clicks could leave the earlier one
+        // as the stored and applied value while the other radio button is the one showing.
+        var stored = _backupPolicyStored.ContinueWith(_ => SettingsStore.SetBackupPolicyAsync(policy),
+            TaskScheduler.Default).Unwrap();
+        _backupPolicyStored = stored.ContinueWith(_ => { }, TaskScheduler.Default);
+        _ = stored.ContinueWith(t => CrashLog.Write("BackupPolicyChoice", t.Exception!.GetBaseException()),
+            TaskContinuationOptions.OnlyOnFaulted);
+    }
+
+    private Task _backupPolicyStored = Task.CompletedTask;
+
+    private async Task LoadBackupPolicyAsync()
+    {
+        var policy = await SettingsStore.GetBackupPolicyAsync().ConfigureAwait(false);
+        await MainThread.InvokeOnMainThreadAsync(() =>
+        {
+            // Assigned to the field: showing the stored choice must not store it again.
+            _backupPolicy = policy;
+            OnPropertiesChanged(nameof(BackupStartup), nameof(BackupHourly), nameof(BackupDaily),
+                nameof(BackupWeekly), nameof(BackupNever));
+        });
+    }
+
     /// <summary>Gates the Debug-only "log reset diagnostics" row (XAML has no #if, so bind visibility here).</summary>
     [SuppressMessage("Performance", "CA1822:Mark members as static",
         Justification = "Bound from XAML ({Binding IsTtrDiagAvailable}); a binding cannot resolve a static member.")]
@@ -295,16 +312,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     [SuppressMessage("Performance", "CA1822:Mark members as static",
         Justification = "Bound from XAML ({Binding UiFontStepMaximum}); a binding cannot resolve a static member.")]
     public double UiFontStepMaximum => Mucka.Ui.UiFontScale.Max;
-
-    public double DisplayColumns
-    {
-        get => _displayColumns;
-        set => SetAndNotify(ref _displayColumns, Math.Clamp(Math.Round(value), 0, 160),
-            [nameof(DisplayColumnsDisplay)]);
-    }
-    // The reader's culture, on purpose: these three are Label readouts and nothing parses them back.
-    public string DisplayColumnsDisplay =>
-        _displayColumns <= 0 ? "auto" : ((int)Math.Round(_displayColumns)).ToString(CultureInfo.CurrentCulture);
 
     // Chat colours - the four C09 colour rows and their own/other faces, for everyone's lines alike.
     public ChatColorEditorItem EmoteColor { get; }
@@ -477,12 +484,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     public ICommand PlayBeepCommand { get; }
     public ICommand ResetSoundsCommand { get; }
     public ICommand ResetChatColorsCommand { get; }
-    public ICommand IncrColumnsCommand { get; }
-    public ICommand DecrColumnsCommand { get; }
     public ICommand IncrStatFreqCommand { get; }
     public ICommand DecrStatFreqCommand { get; }
-    public ICommand IncrDisplayColumnsCommand { get; }
-    public ICommand DecrDisplayColumnsCommand { get; }
     public ICommand IncrDisplayDreamwordOffsetCommand { get; }
     public ICommand DecrDisplayDreamwordOffsetCommand { get; }
     public ICommand IncrMaxOnlineCommand { get; }
@@ -498,9 +501,11 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         string[] allFkeys,
         ClientSettings settings,
         Action<ClientSettings, string[]> onApply,
-        Func<ClientSettings, string[], Task>? onSave,
-        int effectiveColumns = 0)
+        Func<ClientSettings, string[], Task>? onSave)
     {
+        _ = LoadBackupPolicyAsync().ContinueWith(
+            t => CrashLog.Write("LoadBackupPolicy", t.Exception!.GetBaseException()),
+            TaskContinuationOptions.OnlyOnFaulted);
 #if MACCATALYST
         _ = LoadStorePasswordsSecurelyAsync().ContinueWith(
             t => CrashLog.Write("LoadStorePasswordsSecurely", t.Exception!.GetBaseException()),
@@ -512,11 +517,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         CanSave   = onSave != null;
 
         _fontSize = settings.FontSize > 0 ? Mucka.Ui.FontSetup.ClampGameFont(settings.FontSize) : GameViewModel.DefaultFontSizePx;
-        _columnsIsAuto = settings.MaxColumns <= 0;
-        // Auto starts from the columns the terminal is using, so +/- steps from what is on screen.
-        _columns  = Math.Clamp(
-            _columnsIsAuto ? Mucka.Terminal.TerminalColumns.Effective(0, effectiveColumns) : settings.MaxColumns,
-            Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max);
         _volume   = Math.Clamp(settings.Volume, 0, 100);
         _statUpdateFrequency = settings.StatUpdateFrequency <= 0
             ? 0 : Math.Clamp(Math.Round(settings.StatUpdateFrequency / 5.0) * 5, 5, 30);
@@ -527,7 +527,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         _soundsEnabled         = settings.Sounds.MasterEnabled;
         // Display tab
         _uiFontStep            = Mucka.Ui.UiFontScale.Clamp(settings.UiFontStep);
-        _displayColumns        = Math.Clamp(settings.DefaultMaxColumns, 0, 160);
         _chatThemeIndex = Math.Max(0, ChatTheme.All.ToList().IndexOf(settings.ChatTheme));
         var chatPalette = ChatColorizer.ResolvePalette(SelectedChatTheme, settings.EmoteColor, settings.SayColor,
             settings.ShoutColor, settings.TellColor, settings.ChatFaces);
@@ -649,12 +648,8 @@ public sealed class FkeyEditorViewModel : BaseViewModel
             CloseRequested?.Invoke();
         });
 
-        IncrColumnsCommand  = new Command(() => Columns  += 1);
-        DecrColumnsCommand  = new Command(() => Columns  -= 1);
         IncrStatFreqCommand = new Command(() => StatUpdateFrequency += 5);
         DecrStatFreqCommand = new Command(() => StatUpdateFrequency -= 5);
-        IncrDisplayColumnsCommand          = new Command(() => DisplayColumns          += 1);
-        DecrDisplayColumnsCommand          = new Command(() => DisplayColumns          -= 1);
         IncrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  += 1);
         DecrDisplayDreamwordOffsetCommand  = new Command(() => DisplayDreamwordOffset  -= 1);
         IncrMaxOnlineCommand               = new Command(() => MaxOnlineDisplay = Math.Clamp(_maxOnlineDisplay + 1, 0, 999));
@@ -667,7 +662,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private ClientSettings CollectSettings() => new()
     {
         FontSize            = FontSizeDisplay,
-        MaxColumns          = _columnsIsAuto ? 0 : ColumnsDisplay,
         Volume              = VolumeDisplay,
         StatUpdateFrequency = (int)Math.Round(_statUpdateFrequency),
         MuteBeepSession     = _muteBeepSession,
@@ -676,7 +670,6 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         FkeysPerProfile     = _fkeysToProfileOnly,
         Sounds              = CollectSounds(),
         UiFontStep          = _uiFontStep,
-        DefaultMaxColumns   = (int)Math.Round(_displayColumns),
         DreamwordSizeOffset = (int)Math.Round(_displayDreamwordOffset),
         EmoteColor        = EmoteColor.Hex6,
         SayColor            = SayColor.Hex6,

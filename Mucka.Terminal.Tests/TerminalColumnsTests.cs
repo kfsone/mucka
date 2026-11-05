@@ -3,32 +3,25 @@ using Mucka.Terminal;
 namespace Mucka.Terminal.Tests;
 
 /// <summary>
-/// <see cref="TerminalColumns"/>: the width the server is told. The case that mattered is auto (a
-/// maximum of 0): a phone login told the server 20 columns at connect, because 0 was clamped rather
-/// than measured, and 44 only once the game page had laid out.
+/// <see cref="TerminalColumns"/>: the width the pane wraps at. The case that mattered is a width not
+/// measured yet: a phone login used 20 columns at connect, because 0 was clamped rather than
+/// replaced, and 44 only once the game page had laid out.
 /// </summary>
 public class TerminalColumnsTests
 {
     [Fact]
-    public void Auto_IsEveryColumnThatFits()
-        => Assert.Equal(44, TerminalColumns.Effective(0, 44));
+    public void Effective_IsEveryColumnThatFits()
+        => Assert.Equal(44, TerminalColumns.Effective(44));
 
     [Fact]
-    public void Auto_WithNoWidthYet_IsTheUnmeasuredDefault_NotTheMinimum()
-        => Assert.Equal(TerminalColumns.Unmeasured, TerminalColumns.Effective(0, 0));
+    public void WithNoWidthYet_IsTheUnmeasuredDefault_NotTheMinimum()
+        => Assert.Equal(TerminalColumns.Unmeasured, TerminalColumns.Effective(0));
 
     [Theory]
-    [InlineData(80, 44, 44)]    // a maximum wider than the screen is cut to what fits
-    [InlineData(40, 44, 40)]    // a narrower one is kept
-    [InlineData(80, 0, 80)]     // no width yet: the maximum stands
-    public void AMaximum_IsNeverMoreThanFits(int max, int displayable, int expected)
-        => Assert.Equal(expected, TerminalColumns.Effective(max, displayable));
-
-    [Theory]
-    [InlineData(0, 5, TerminalColumns.Min)]
-    [InlineData(0, 500, TerminalColumns.Max)]
-    public void TheResult_StaysInsideTheLimits(int max, int displayable, int expected)
-        => Assert.Equal(expected, TerminalColumns.Effective(max, displayable));
+    [InlineData(5, TerminalColumns.Min)]
+    [InlineData(500, 500)]
+    public void TheResult_IsNeverBelowTheMinimum_AndNeverCappedAbove(int displayable, int expected)
+        => Assert.Equal(expected, TerminalColumns.Effective(displayable));
 
     [Fact]
     public void Displayable_IsWholeCellsOfTheFont()

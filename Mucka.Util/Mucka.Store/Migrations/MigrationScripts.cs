@@ -47,7 +47,22 @@ internal static class MigrationScripts
         Load("0005_some_kinds.sql"),
         Load("0006_uids.sql"),
         Load("0007_run_account.sql"),
+        Load("0008_wire_heal_and_trim.sql"),
+        Load("0009_wire_run_index.sql"),
     ];
+
+    /// <summary>The scripts that only add: each statement creates an index or table that is not there
+    /// yet, and nothing in the file is removed, rewritten or renamed. An upgrade whose pending scripts
+    /// are all in this set takes no backup (<see cref="MuckaDb.ApplySchema(Microsoft.Data.Sqlite.SqliteConnection, MaintenanceTracker, bool, string)"/>);
+    /// one with any other script backs up first. A script is in the set by being listed here, and a
+    /// guard test refuses a listed script that contains anything but a creation.</summary>
+    private static readonly HashSet<string> Additive = ["0009_wire_run_index.sql"];
+
+    /// <summary>True when <paramref name="scriptName"/> is listed as only adding.</summary>
+    internal static bool IsAdditive(string scriptName) => Additive.Contains(scriptName);
+
+    /// <summary>The listed names, for the guard test.</summary>
+    internal static IReadOnlyCollection<string> AdditiveNames => Additive;
 
     /// <summary>Script names, for the guard tests.</summary>
     internal static IReadOnlyList<string> AllNames { get; } = [.. All.Select(s => s.Name)];

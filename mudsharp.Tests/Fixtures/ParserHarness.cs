@@ -24,6 +24,8 @@ internal sealed class ParserHarness
     /// <see cref="ScoringOrder"/> as "frame", because where the boundary falls RELATIVE to the score
     /// lines is the entire reason the signal exists.</summary>
     public int FrameClosedCount { get; private set; }
+    /// <summary>How many prompt containers closed, shown or not - see MudStreamParser.PromptClosed.</summary>
+    public int PromptClosedCount { get; private set; }
     public int PersonaWipedCount { get; private set; }
     public List<byte[]> Outgoing { get; } = new();
     public int GameModeEnteredCount { get; private set; }
@@ -53,7 +55,6 @@ internal sealed class ParserHarness
     public List<string> CreatureTexts { get; } = new();
     public List<string> LongDescLines { get; } = new();
     public List<(string Dir, string Dest)> ExitLines { get; } = new();
-    public List<int> ConfirmedWidths { get; } = new();
 
     public ParserHarness()
     {
@@ -63,6 +64,7 @@ internal sealed class ParserHarness
         Parser.ScoreSaved         += s => { ScoreSaves.Add(s); ScoringOrder.Add(s.Delta is int d ? d.ToString("+0;-0", CultureInfo.InvariantCulture) : "="); };
         Parser.TaskCompleted      += t => { TaskCompletions.Add(t); ScoringOrder.Add("task"); };
         Parser.FrameClosed        += () => { FrameClosedCount++; ScoringOrder.Add("frame"); };
+        Parser.PromptClosed       += () => PromptClosedCount++;
         Parser.GameModeEntered    += () => { if (GameModeEnteredAtLineIndex < 0) GameModeEnteredAtLineIndex = Lines.Count; GameModeEnteredCount++; };
         Parser.GameModeExited     += () => GameModeExitedCount++;
         Parser.OutgoingBytes      += b => Outgoing.Add(b);
@@ -87,7 +89,6 @@ internal sealed class ParserHarness
         Parser.CreatureTextReady  += text => CreatureTexts.Add(text);
         Parser.LongDescLineReady  += text => LongDescLines.Add(text);
         Parser.ExitLineReady      += (dir, dest) => ExitLines.Add((dir, dest));
-        Parser.TerminalWidthConfirmed += w => ConfirmedWidths.Add(w);
     }
 
     public void Feed(params byte[] data) => Parser.Feed(data);
@@ -125,7 +126,6 @@ internal sealed class ParserHarness
         CreatureTexts.Clear();
         LongDescLines.Clear();
         ExitLines.Clear();
-        ConfirmedWidths.Clear();
     }
 
     /// <summary>Bytes helper: concatenate multiple byte arrays.</summary>

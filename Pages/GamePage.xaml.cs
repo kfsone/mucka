@@ -230,7 +230,7 @@ public partial class GamePage : ContentPage
     // remarks). Never included in PreferredWindowWidthDp/UpdateWindowMinimumWidth's own floor:
     // those compute the LEFT panel + terminal minimum only, so the combat panel's own show/hide
     // never feeds back into "what is the smallest this window may be" -
-    // UpdateWindowMinimumWidth/ResizeWindowToFitColumns each reserve the rail's width separately,
+    // UpdateWindowMinimumWidth reserves the rail's width separately,
     // on top of that floor, only when it is currently shown.
     //
     // These constants, PreferredWindowWidthDp itself, and the resize delta arithmetic all live in
@@ -459,7 +459,7 @@ public partial class GamePage : ContentPage
         _vm.AnnotationReady     += OnAnnotationReady;
 
         Terminal.SetFontSize(_vm.FontSize);
-        Terminal.Columns = _vm.EffCols;
+        Terminal.Columns = _vm.PaneColumns;
         Terminal.ChatPalette = _vm.ChatPalette;
 
         _antiIdleTimer = Dispatcher.CreateTimer();
@@ -485,7 +485,7 @@ public partial class GamePage : ContentPage
         try
         {
             _vm.OpenRawConsoleRequested += OnOpenRawConsoleRequested;
-            // Enforce minimum window width based on the configured terminal columns, and
+            // Enforce the minimum window width the side panel needs, and
             // (same handler) drive the Combat Rail's trim, glow and rules on glow-level changes.
             _vm.SidePanel.PropertyChanged += OnSidePanelPropertyChanged;
             CombatPanelGlow.HandlerChanged += OnCombatPanelGlowHandlerChanged;
@@ -522,12 +522,11 @@ public partial class GamePage : ContentPage
             // resizes itself" - the FIRST layout still has to account for a state that started
             // true; every resize after this point remains driven by an explicit toggle.
             //
-            // ResizeWindowForCombatPanel's baseline does not consult EffCols: auto columns have no
-            // slack to measure, and fixed columns measure against the configured MaxColumns+2, not
-            // the negotiated column count. Both MaxColumns and SidePanel.IsPanelExpanded are set
-            // synchronously in GameViewModel's constructor, with no dependency on a layout pass
-            // having run yet, so this seed-at-startup call computes the same delta here as it
-            // would once OnSizeAllocated has fired.
+            // ResizeWindowForCombatPanel's baseline does not consult EffCols: the terminal has no
+            // slack to measure. SidePanel.IsPanelExpanded is set synchronously in GameViewModel's
+            // constructor, with no dependency on a layout pass having run yet, so this
+            // seed-at-startup call computes the same delta here as it would once OnSizeAllocated
+            // has fired.
             //
             // SEEDING, not toggling: adopt what the window already carries rather than adding to
             // it. SetPreferredInitialWindowSize above has normally already sized this window and
@@ -541,7 +540,7 @@ public partial class GamePage : ContentPage
             // the columns plus the rail need - seeding infers a delta but deliberately never
             // resizes. UpdateWindowMinimumWidth reserves the rail in its own force-grow floor, so
             // running it here is what guarantees the invariant the rail depends on: while the rail
-            // is shown the window is never narrower than the configured columns plus the rail.
+            // is shown the window is never narrower than the side panel's floor plus the rail.
             // A window already wide enough is left exactly as the player had it.
             UpdateWindowMinimumWidth();
         }
@@ -793,33 +792,47 @@ public partial class GamePage : ContentPage
         RecalculateColumns(width);
     }
 
-    // Recompute the negotiated column count from the current page width and keep the terminal's
-    // wrap width in sync. Funnelled here so both the layout pass (OnSizeAllocated) and an
-    // orientation flip (OnMainDisplayInfoChanged) drive the same recalculation - NotifyWindowSize
-    // is a no-op when the effective column count is unchanged, so calling it twice is harmless.
-    private void RecalculateColumns(double width)
+    // The maintenance overlay took the pointer and has gone: the command box takes the keyboard back.
+    // An editor the player is typing in keeps it (Invariant #0's exceptions).
+    private void OnMaintenanceDismissed(object? sender, EventArgs e)
     {
-        if (width <= 0) return;
+#if DESKTOP
+        if (KeyboardOwnedElsewhere) return;
+#endif
+        FocusInput();
+    }
+
+    // The pane's own layout pass, which follows the page's and moves when a side panel opens or
+    // closes without the page changing size.
+    private void OnTerminalPaneSizeChanged(object? sender, EventArgs e) => RecalculateColumns(Width);
+
+    // Recompute the terminal's wrap width from its pane and the tier columns from the page. Funnelled
+    // here so the layout pass (OnSizeAllocated), the pane's own size change, a font change and an
+    // orientation flip (OnMainDisplayInfoChanged) drive the same recalculation; both view-model
+    // calls leave what depends on the column counts alone when a count is unchanged, so calling
+    // twice is harmless.
+    private void RecalculateColumns(double pageWidth)
+    {
+        if (pageWidth <= 0) return;
 #if MACCATALYST
         if (MacResizeSettling) return;
 #endif
-#if UIKIT
-        // Columns come from the terminal's own pane, which the side panel narrows; the page's width
-        // overstates it. The pane has no width until it has been laid out, and its SizeChanged counts
-        // again when it has. Observed on an iPad mini in portrait counting the page meanwhile: the
-        // server was told /T87, then /T86 a moment later.
+        // The wrap's columns come from the terminal's own pane, which the side panels narrow; the
+        // page's width overstates it. The pane has no width until it has been laid out, and its
+        // SizeChanged counts again when it has. Observed on an iPad mini in portrait counting the
+        // page meanwhile: 87 columns, then 86 a moment later.
         if (Terminal.Width <= 0) return;
-        width = Terminal.Width - CombatRailResize.TerminalGutterDp;
+        var textWidth = Terminal.Width - CombatRailResize.TerminalGutterDp - CombatRailResize.TerminalScrollbarDp;
+        Terminal.Columns = _vm.SetPaneColumns((int)Math.Floor(textWidth / CharWidthDp));
+
+        // The status bar, the input row and the function keys tier by a width of their own: the
+        // page's, except on UIKIT, where it is the pane's.
+#if UIKIT
+        var layoutWidth = Terminal.Width - CombatRailResize.TerminalGutterDp;
+#else
+        var layoutWidth = pageWidth;
 #endif
-        var displayableCols = (int)Math.Floor(width / CharWidthDp);
-#if MACCATALYST
-        // A fixed column count is the player's choice, not a ceiling to fall under: the window's
-        // minimum width keeps the pane wide enough, so a narrower measurement is a transient.
-        if (_vm.MaxColumns > 0)
-            displayableCols = Math.Max(displayableCols, _vm.MaxColumns);
-#endif
-        _vm.NotifyWindowSize(width, displayableCols);
-        Terminal.Columns = _vm.EffCols;
+        _vm.NotifyWindowSize(layoutWidth, (int)Math.Floor(layoutWidth / CharWidthDp));
     }
 
     // A rotation on Android reconfigures the activity in place (see MainActivity's
@@ -838,8 +851,7 @@ public partial class GamePage : ContentPage
             _vm.GetAllFkeys(),
             _vm.CurrentSettings,
             _vm.ApplyClientSettings,
-            onSave,
-            _vm.EffCols)
+            onSave)
         {
             ActiveTab = initialTab
         };
@@ -1194,8 +1206,6 @@ public partial class GamePage : ContentPage
     // $f<n> annotation: drop the "// ..." note above the live prompt, restoring the prompt below it.
     private void OnAnnotationReady(StyledLine line) => Terminal.InjectAnnotation(line);
 
-    // Reacts to settings applied from the config dialog: font size changes re-style the
-    // terminal; column changes re-fit the window (Windows) and re-wrap the view. The window
 #if DESKTOP
     /// <summary>How much wider the side panel is than authored at the live UI font step.</summary>
     private static double SidePanelScale => Mucka.Ui.UiFontScale.PanelScale(UiFontScaleState.Current.Step);
@@ -1212,13 +1222,14 @@ public partial class GamePage : ContentPage
 #endif
     }
 
-    // re-fit hangs off MaxColumns only: ApplyClientSettings raises it (unconditionally) after
-    // FontSize, so one resize sees both new values instead of resizing twice.
+    // Reacts to settings applied from the config dialog: a font size change re-styles the terminal
+    // and measures its pane again.
     private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(GameViewModel.FontSize))
         {
             Terminal.SetFontSize(_vm.FontSize);
+            RecalculateColumns(Width);
         }
         else if (e.PropertyName == nameof(GameViewModel.WindowTitle))
         {
@@ -1229,14 +1240,6 @@ public partial class GamePage : ContentPage
             // Recolours every chat span the pane holds; the view repaints itself.
             if (MainThread.IsMainThread) Terminal.ChatPalette = _vm.ChatPalette;
             else MainThread.BeginInvokeOnMainThread(() => Terminal.ChatPalette = _vm.ChatPalette);
-        }
-        else if (e.PropertyName == nameof(GameViewModel.MaxColumns))
-        {
-            Terminal.Columns = _vm.EffCols;
-#if WINDOWS
-            UpdateWindowMinimumWidth();
-            ResizeWindowToFitColumns();
-#endif
         }
 #if WINDOWS
         // NOTE: there is deliberately NO branch here for GameViewModel.InputText.
@@ -1575,17 +1578,16 @@ public partial class GamePage : ContentPage
         var panelExpanded = _vm.SidePanel.IsPanelExpanded;
         var dpi    = GetDpiForWindow(_hwnd);
         // _minWindowWidthDp itself stays the pure terminal+left-panel floor - it is read elsewhere
-        // (WM_GETMINMAXINFO, SetPreferredInitialWindowSize, ResizeWindowToFitColumns) as exactly
+        // (WM_GETMINMAXINFO, SetPreferredInitialWindowSize) as exactly
         // that, deliberately excluding the rail, and it has no "rail shown" flavour to switch to since
         // it is a single shared field. The rail reservation below is applied only to this method's
         // own local force-grow decision.
-        _minWindowWidthDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns);
+        _minWindowWidthDp = CombatRailResize.FloorWindowWidthDp(panelExpanded, SidePanelScale);
 
         // Resize now if the window is already narrower than the new minimum. If the rail is
         // currently shown, its 338dp must be reserved on top of that floor here too - otherwise this
         // force-grow (e.g. reached when the left panel expands, per OnSidePanelPropertyChanged) would
-        // grow the window to only just fit the terminal, eating the rail's space exactly like
-        // ResizeWindowToFitColumns did before its own fix below.
+        // grow the window to only just fit the terminal, eating the rail's space out of the columns.
         var appWindow = nativeWindow.AppWindow;
         var floorPx = MinWindowWidthPx(dpi);
         var resyncedDeltaDp = _railDeltaAppliedDp;
@@ -1606,12 +1608,11 @@ public partial class GamePage : ContentPage
     }
 
     /// <summary>
-    /// Sizes the window so the terminal view fits the configured column count plus the side panel
+    /// Sizes the window so the terminal view fits the default column count plus the side panel
     /// when expanded, and the Combat Rail when the connecting profile has it shown, instead of
     /// inheriting WinUI's oversized default window width. Height is left untouched.
     ///
-    /// <para>The arithmetic - which column basis a fixed vs auto column setting implies, and the
-    /// rail's reservation on top - lives in <see cref="CombatRailResize.ComputeInitialWidth"/>. This
+    /// <para>The arithmetic - the column basis, and the rail's reservation on top - lives in <see cref="CombatRailResize.ComputeInitialWidth"/>. This
     /// method is the thin caller: gather the live window/DPI/column state, apply the one side effect,
     /// and adopt the delta a later hide will subtract.</para>
     ///
@@ -1637,7 +1638,7 @@ public partial class GamePage : ContentPage
         var dpi = GetDpiForWindow(_hwnd);
         var railShown = _vm.SidePanel.IsCombatPanelVisible;
         var initial = CombatRailResize.ComputeInitialWidth(
-            MinWindowWidthPx(dpi), dpi, _vm.MaxColumns, CharWidthDp,
+            MinWindowWidthPx(dpi), dpi, CharWidthDp,
             _vm.SidePanel.IsPanelExpanded, railShown, RailPanelWidthDp, SidePanelScale);
 
         _railWidthApplied = railShown;
@@ -1645,51 +1646,6 @@ public partial class GamePage : ContentPage
 
         var appWindow = nativeWindow.AppWindow;
         appWindow.Resize(new Windows.Graphics.SizeInt32(initial.TargetWidthPx, appWindow.Size.Height));
-    }
-
-    /// <summary>
-    /// Snaps the window width to fit the configured column count (+2 breathing columns, the
-    /// same margin as the launch default) after a settings change to columns or font size -
-    /// without this the view stays clamped to whatever the old window width could display.
-    /// Height is left untouched. Reserves and resyncs the Combat Rail's width if it is currently
-    /// shown - see the reservation comment inside for why a plain column-count snap would otherwise
-    /// eat the rail's space out of the terminal.
-    /// </summary>
-    private void ResizeWindowToFitColumns()
-    {
-        if (_hwnd == IntPtr.Zero) return;
-        var nativeWindow = Window?.Handler?.PlatformView as Microsoft.UI.Xaml.Window;
-        if (nativeWindow is null) return;
-
-        var panelExpanded = _vm.SidePanel.IsPanelExpanded;
-        var contentDp = PreferredWindowWidthDp(CharWidthDp, panelExpanded, _vm.MaxColumns + 2.0);
-        var dpi       = GetDpiForWindow(_hwnd);
-        var targetPx  = (int)Math.Ceiling(contentDp * dpi / 96.0);
-        var minPx     = MinWindowWidthPx(dpi);
-        if (targetPx < minPx) targetPx = minPx;
-
-        // PreferredWindowWidthDp deliberately never includes the rail (see its own remarks), so this
-        // settings-driven snap needs its own explicit reservation - otherwise a column-count change
-        // made while the rail happens to be shown overrides the window straight down to the
-        // terminal+left-panel size, taking the rail's 338dp out of the terminal instead of out of
-        // nothing. Added AFTER the floor clamp above so the final width is always
-        // max(natural, floor) + rail, never floor alone with the rail squeezed inside it. This is a
-        // snap, not the slack-aware resize ResizeWindowForCombatPanel does on its own toggle - once
-        // it runs, the rail's currently-applied width really is exactly its full reservation with
-        // zero slack (the snap does not consider or preserve any prior slack, by design - see this
-        // method's own summary), so ReserveRailWidth's resynced delta replaces whatever partial
-        // amount a PRIOR toggle's slack absorption computed; leaving it stale would make a later hide
-        // subtract the wrong quantity and leave orphaned or missing width behind.
-        if (_railWidthApplied)
-        {
-            var reserved = CombatRailResize.ReserveRailWidth(targetPx, dpi, RailPanelWidthDp);
-            targetPx = reserved.TargetWidthPx;
-            _railDeltaAppliedDp = reserved.AppliedDeltaDp;
-        }
-
-        var appWindow = nativeWindow.AppWindow;
-        if (appWindow.Size.Width != targetPx)
-            appWindow.Resize(new Windows.Graphics.SizeInt32(targetPx, appWindow.Size.Height));
     }
 
     /// <summary>Removes the Win32 window subclass registered by SetupWindowMinimumSize.</summary>
@@ -1705,8 +1661,8 @@ public partial class GamePage : ContentPage
 
     /// <summary>
     /// Win32 subclass procedure: intercepts WM_GETMINMAXINFO to prevent the user from
-    /// resizing the window narrower than the configured terminal width (plus side panel
-    /// when it is open, and plus the Combat Rail while it is shown - see
+    /// resizing the window narrower than <see cref="_minWindowWidthDp"/> (the side panel when it is
+    /// open), plus the Combat Rail while it is shown - see
     /// <see cref="CombatRailResize.MinTrackWidthPx"/> for why the rail belongs in the floor a drag
     /// is held to but not in <see cref="_minWindowWidthDp"/> itself).
     ///
@@ -3546,7 +3502,7 @@ public partial class GamePage : ContentPage
     /// the left panel's width changing as a side effect. This is the ONLY place
     /// the window resizes for a combat-panel reason; it never resizes on combat start/end.
     ///
-    /// <para>The auto-vs-fixed-columns slack reasoning, the manual-resize-survives-the-toggle
+    /// <para>The manual-resize-survives-the-toggle
     /// reasoning, the floor clamp, and the DPI-safe dp-stored delta all live in
     /// <see cref="CombatRailResize.ComputeToggle"/> now (<c>Mucka.Combat</c>, unit-tested against
     /// acceptance examples in <c>CombatRailResizeTests</c>) - this method is a thin
@@ -3581,21 +3537,21 @@ public partial class GamePage : ContentPage
         {
             _railDeltaAppliedDp = showing
                 ? CombatRailResize.SeedAppliedDeltaDp(
-                    appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
+                    appWindow.Size.Width, dpi, panelExpanded,
                     RailPanelWidthDp, SidePanelScale)
                 : 0.0;
             _railWidthApplied = showing;
             return;
         }
 
-        // All the arithmetic - the T3 auto/fixed regimes, the T4 delta-preservation on hide, and the
+        // All the arithmetic - the T3 reservation, the T4 delta-preservation on hide, and the
         // floor clamp (which deliberately forgets whatever width it could not remove, e.g. hiding on
         // an already-maximised or otherwise floor-pinned window, rather than trying to claw it back
         // on a later resize) - lives in CombatRailResize.ComputeToggle, unit-tested against the
         // user's own acceptance examples. This method is the thin caller: gather the live inputs,
         // apply the one real side effect (Resize), remember the new delta.
         var result = CombatRailResize.ComputeToggle(
-            showing, appWindow.Size.Width, dpi, _vm.MaxColumns, CharWidthDp, panelExpanded,
+            showing, appWindow.Size.Width, dpi, panelExpanded,
             _railDeltaAppliedDp, RailPanelWidthDp, SidePanelScale);
         var targetWidth = result.TargetWidthPx;
         _railDeltaAppliedDp = result.NewAppliedDeltaDp;

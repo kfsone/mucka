@@ -459,6 +459,7 @@
         <Grid Grid.Row="0">
             <render:TerminalView Grid.Column="0"
                                  x:Name="Terminal"
+                                 SizeChanged="OnTerminalPaneSizeChanged"
                                  BackgroundColor="#0C0C0C"
                                  HorizontalOptions="Fill"
                                  VerticalOptions="Fill"/>
@@ -1940,5 +1941,8 @@
                 </VerticalStackLayout>
             </Border>
         </Grid>
+
+        <!-- Over everything while the database is being worked on. Takes the pointer, not the keyboard. -->
+        <pages:MaintenanceOverlay Grid.Row="0" Grid.RowSpan="3" Dismissed="OnMaintenanceDismissed"/>
     </Grid>
 </ContentPage>

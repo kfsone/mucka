@@ -91,14 +91,12 @@ public class AnsiSgrTests
     }
 
     [Fact]
-    public void TerminalWidth_EscDashNW_FiresConfirmedEvent()
+    public void TerminalWidth_EscDashNW_SuppressesAllDisplayOutput()
     {
         // ESC-80W = server confirming terminal width 80.
-        // Should fire TerminalWidthConfirmed(80) and suppress all display output.
+        // Nothing is shown.
         var h = new ParserHarness();
         h.Feed("\x1B-80W[New terminal width is 80]\r\n");
-        Assert.Single(h.ConfirmedWidths);
-        Assert.Equal(80, h.ConfirmedWidths[0]);
         Assert.Empty(h.Lines);
     }
 
@@ -109,7 +107,6 @@ public class AnsiSgrTests
         // appear as a display line. Anything after the annotation \n resumes normally.
         var h = new ParserHarness();
         h.Feed("\x1B-80W[New terminal width is 80]\r\nsome text\n");
-        Assert.Single(h.ConfirmedWidths);
         Assert.Single(h.Lines);
         Assert.Equal("some text", h.Lines[0].PlainText);
     }
@@ -119,7 +116,6 @@ public class AnsiSgrTests
     {
         var h = new ParserHarness();
         h.Feed(0x1B, (byte)'-', (byte)'8', (byte)'0', (byte)'W', 0x9B, 0xFF, 0xFF, (byte)'x', (byte)'\n');
-        Assert.Single(h.ConfirmedWidths);
         var line = Assert.Single(h.Lines);
         Assert.Equal("x", line.PlainText);
     }
@@ -165,14 +161,12 @@ public class AnsiSgrTests
     }
 
     [Fact]
-    public void TerminalWidth_TextLine_FiresConfirmedEvent()
+    public void TerminalWidth_TextLine_IsSwallowed()
     {
         // Plain "[New terminal width is N]" line (mud-mode, no ESC- prefix):
-        // should fire TerminalWidthConfirmed(N) and suppress LineReady.
+        // suppresses LineReady.
         var h = new ParserHarness();
         h.Feed("[New terminal width is 80]\r\n");
-        Assert.Single(h.ConfirmedWidths);
-        Assert.Equal(80, h.ConfirmedWidths[0]);
         Assert.Empty(h.Lines);
     }
 
@@ -186,7 +180,6 @@ public class AnsiSgrTests
         h.Feed("\x9D\x9C\xFF\xFF");
         h.ClearCounters();
         h.Feed("[New terminal width is 80]\r\n");
-        Assert.Empty(h.ConfirmedWidths);
         Assert.Single(h.Lines);
     }
 
@@ -199,6 +192,5 @@ public class AnsiSgrTests
         h.Feed("\x1B-Xhello\n");
         Assert.Single(h.Lines);
         Assert.Equal("hello", h.Lines[0].PlainText);
-        Assert.Empty(h.ConfirmedWidths);
     }
 }

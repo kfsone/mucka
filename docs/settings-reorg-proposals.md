@@ -1,11 +1,12 @@
 # Settings editor reorganisation proposals
 
 Three layouts for the Settings editor (`FkeyEditorPage.xaml`, `FkeyEditorViewModel`). None is
-implemented; this document describes the shapes only.
+implemented; this document describes the shapes only. The Columns and Default Column Width fields it
+names no longer exist: the pane wraps at its own width (`docs/line-wrapping.md`).
 
 ## Current shape
 
-Five tabs. Every setting except the F-key set is global (`GlobalSettingsMigration`).
+Six tabs, the Data tab being the backup choice alone. Every setting except the F-key set is global (`GlobalSettingsMigration`).
 
 - Settings: Columns, Volume, Stat Update (FES), beep mute (session, permanent, "hear
   it"), Advanced (Debug builds).

@@ -9,8 +9,6 @@ public sealed record ClientSettings
 {
     /// <summary>Terminal font size in pixels (9-24).</summary>
     public int FontSize { get; init; }
-    /// <summary>Maximum terminal columns advertised to the server (40-160).</summary>
-    public int MaxColumns { get; init; }
     /// <summary>Sound volume, 0-100.</summary>
     public int Volume { get; init; }
     /// <summary>FES stats-update heartbeat interval in seconds; 0 disables it.</summary>
@@ -38,8 +36,6 @@ public sealed record ClientSettings
     /// <summary>UI font size step for the chrome (<see cref="Mucka.Ui.UiFontScale"/>), from its Min to its Max with
     /// 0 Normal. The live value is <see cref="UiFontScaleState.Step"/>.</summary>
     public int UiFontStep { get; init; }
-    /// <summary>Global default maximum terminal columns; 0 = auto-size.</summary>
-    public int DefaultMaxColumns { get; init; }
     /// <summary>Dreamword pill font size adjustment relative to the base size. Range -2 to +4.</summary>
     public int DreamwordSizeOffset { get; init; }
     /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line - who did the

@@ -151,7 +151,7 @@ public sealed class GuidedLoginController : IDisposable
                 // then capture everything up to the FIRST "Option" prompt as the splash/banner for the
                 // tiny-font preview. MudLoginHandler already sent login/account/password and the
                 // client-mode entry on that first "Option" prompt; it reappears a second time once the
-                // server has echoed back the confirmed terminal width -- that second occurrence is when
+                // server has answered the client-mode entry -- that second occurrence is when
                 // the shell is actually idle and ready for our own commands.
                 var sawFirstOption = await NegotiateBannerAsync(ct).ConfigureAwait(false);
                 if (_loginRejected)

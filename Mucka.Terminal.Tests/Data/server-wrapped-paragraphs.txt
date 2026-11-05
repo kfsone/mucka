@@ -1,0 +1,491 @@
+# Server-wrapped paragraphs recorded from MUD2 at the terminal widths named by each "W" line.
+# Every row ends in "|", which is not part of the row: it keeps a trailing space visible.
+# A paragraph is the rows between blank lines; MUD2 ended each wrapped row at a space it dropped.
+
+W 90
+A bleak vision rises in your mind: in a misty graveyard, in a hidden vault; Cat the|
+wizard, sleeping on the shores of hell. You have found a small, silver cross, battered|
+and misshapen as by some enormous heat, yet still bearing deformed, gothic lettering. |
+
+W 100
+A bleak vision rises in your mind: in a misty graveyard, in a hidden vault; Cat the wizard,|
+sleeping on the shores of hell. You have found a small, silver cross, battered and misshapen as by|
+some enormous heat, yet still bearing deformed, gothic lettering. |
+
+W 80
+A bright red, rubber bouncy-ball has come to rest here. A fire is burning|
+merrily in its grate; the flickering flames are joy to behold as you warm your|
+hands from the glowing coals. The fire3 contains a piece of obsidian. A|
+picture postcard lies here, bearing a view of a delightful garden. You notice|
+a classy, cut-glass dish, glistening within your reach. The dish contains a|
+banana, an orange, a peach and an apricot. |
+
+W 90
+A bright red, rubber bouncy-ball has come to rest here. A fire is burning merrily in its|
+grate; the flickering flames are joy to behold as you warm your hands from the glowing|
+coals. The fire3 contains a piece of obsidian. A picture postcard lies here, bearing a|
+view of a delightful garden. You notice a classy, cut-glass dish, glistening within your|
+reach. The dish contains a banana, an orange, a peach and an apricot. |
+
+W 100
+A bright red, rubber bouncy-ball has come to rest here. A fire is burning merrily in its grate;|
+the flickering flames are joy to behold as you warm your hands from the glowing coals. The fire3|
+contains a piece of obsidian. A picture postcard lies here, bearing a view of a delightful garden.|
+You notice a classy, cut-glass dish, glistening within your reach. The dish contains a banana, an|
+orange, a peach and an apricot. |
+
+W 90
+A bright red, rubber bouncy-ball has come to rest here. A fire is burning merrily in its|
+grate; the flickering flames are joy to behold as you warm your hands from the glowing|
+coals. The fire3 contains a piece of obsidian. A picture postcard lies here, bearing a|
+view of a delightful garden. You notice a classy, cut-glass dish, glistening within your|
+reach. The dish contains a peach, an orange, a banana and an apricot. |
+
+W 100
+A bright red, rubber bouncy-ball has come to rest here. A fire is burning merrily in its grate;|
+the flickering flames are joy to behold as you warm your hands from the glowing coals. The fire3|
+contains a piece of obsidian. A picture postcard lies here, bearing a view of a delightful garden.|
+You notice a classy, cut-glass dish, glistening within your reach. The dish contains a peach, an|
+orange, a banana and an apricot. |
+
+W 80
+A bright red, rubber bouncy-ball has come to rest here. There is a fire|
+burning merrily in the fireplace, its cheerful glare spreading a delightful|
+air of homeliness. The fire3 contains a piece of obsidian. A picture postcard|
+lies here, bearing a view of a delightful garden. You notice a classy,|
+cut-glass dish, glistening within your reach. The dish contains a banana, an|
+orange, a peach and an apricot. |
+
+W 90
+A bright red, rubber bouncy-ball has come to rest here. There is a fire burning merrily|
+in the fireplace, its cheerful glare spreading a delightful air of homeliness. The fire3|
+contains a piece of obsidian. A picture postcard lies here, bearing a view of a|
+delightful garden. You notice a classy, cut-glass dish, glistening within your reach.|
+The dish contains a banana, an orange, a peach and an apricot. |
+
+W 100
+A bright red, rubber bouncy-ball has come to rest here. There is a fire burning merrily in the|
+fireplace, its cheerful glare spreading a delightful air of homeliness. The fire3 contains a piece|
+of obsidian. A picture postcard lies here, bearing a view of a delightful garden. You notice a|
+classy, cut-glass dish, glistening within your reach. The dish contains a banana, an orange, a|
+peach and an apricot. |
+
+W 90
+A bright red, rubber bouncy-ball has come to rest here. There is a fire burning merrily|
+in the fireplace, its cheerful glare spreading a delightful air of homeliness. The fire3|
+contains a piece of obsidian. A picture postcard lies here, bearing a view of a|
+delightful garden. You notice a classy, cut-glass dish, glistening within your reach.|
+The dish contains a peach, an orange, a banana and an apricot. |
+
+W 100
+A bright red, rubber bouncy-ball has come to rest here. There is a fire burning merrily in the|
+fireplace, its cheerful glare spreading a delightful air of homeliness. The fire3 contains a piece|
+of obsidian. A picture postcard lies here, bearing a view of a delightful garden. You notice a|
+classy, cut-glass dish, glistening within your reach. The dish contains a peach, an orange, a|
+banana and an apricot. |
+
+W 90
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you|
+warm your hands from the glowing coals. A picture postcard lies here, bearing a view of|
+a delightful garden. You notice a classy, cut-glass dish, glistening within your reach.|
+The dish contains a peach, an orange, a banana and an apricot. |
+
+W 100
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you warm your|
+hands from the glowing coals. A picture postcard lies here, bearing a view of a delightful garden.|
+You notice a classy, cut-glass dish, glistening within your reach. The dish contains a peach, an|
+orange, a banana and an apricot. |
+
+W 80
+A fire is burning merrily in its grate; the flickering flames are joy to|
+behold as you warm your hands from the glowing coals. The fire3 contains a|
+piece of obsidian. A picture postcard lies here, bearing a view of a|
+delightful garden. |
+
+W 90
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you|
+warm your hands from the glowing coals. The fire3 contains a piece of obsidian. A|
+picture postcard lies here, bearing a view of a delightful garden. |
+
+W 100
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you warm your|
+hands from the glowing coals. The fire3 contains a piece of obsidian. A picture postcard lies|
+here, bearing a view of a delightful garden. |
+
+W 80
+A fire is burning merrily in its grate; the flickering flames are joy to|
+behold as you warm your hands from the glowing coals. The fire3 contains a|
+piece of obsidian. A picture postcard lies here, bearing a view of a|
+delightful garden. You notice a classy, cut-glass dish, glistening within your|
+reach. The dish contains a banana, an orange, a peach and an apricot. |
+
+W 90
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you|
+warm your hands from the glowing coals. The fire3 contains a piece of obsidian. A|
+picture postcard lies here, bearing a view of a delightful garden. You notice a classy,|
+cut-glass dish, glistening within your reach. The dish contains a banana, an orange, a|
+peach and an apricot. |
+
+W 90
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you|
+warm your hands from the glowing coals. The fire3 contains a piece of obsidian. A|
+picture postcard lies here, bearing a view of a delightful garden. You notice a classy,|
+cut-glass dish, glistening within your reach. The dish contains a peach, an orange, a|
+banana and an apricot. |
+
+W 100
+A fire is burning merrily in its grate; the flickering flames are joy to behold as you warm your|
+hands from the glowing coals. The fire3 contains a piece of obsidian. A picture postcard lies|
+here, bearing a view of a delightful garden. You notice a classy, cut-glass dish, glistening|
+within your reach. The dish contains a peach, an orange, a banana and an apricot. |
+
+W 90
+A headstone lies on its side nearby, bearing an unreadable name. A horrifying zombie|
+(zombie9) stands in your way! You have found a small, silver cross, battered and|
+misshapen as by some enormous heat, yet still bearing deformed, gothic lettering. |
+
+W 100
+A headstone lies on its side nearby, bearing an unreadable name. A horrifying zombie (zombie9)|
+stands in your way! You have found a small, silver cross, battered and misshapen as by some|
+enormous heat, yet still bearing deformed, gothic lettering. |
+
+W 90
+A headstone lies on its side nearby, bearing an unreadable name. You have found a small,|
+silver cross, battered and misshapen as by some enormous heat, yet still bearing|
+deformed, gothic lettering. |
+
+W 100
+A headstone lies on its side nearby, bearing an unreadable name. You have found a small, silver|
+cross, battered and misshapen as by some enormous heat, yet still bearing deformed, gothic|
+lettering. |
+
+W 90
+A large, evil, black rat (rat0) bares its razor-sharp incisors at you. An evil, black|
+rat (rat1) bares its razor-sharp incisors at you. An evil, black rat (rat2) bares its|
+razor-sharp incisors at you. An evil, black rat (rat3) bares its razor-sharp incisors at|
+you. The door is open. On the ground there is a large stick. |
+
+W 100
+A large, evil, black rat (rat0) bares its razor-sharp incisors at you. An evil, black rat (rat1)|
+bares its razor-sharp incisors at you. An evil, black rat (rat2) bares its razor-sharp incisors at|
+you. An evil, black rat (rat3) bares its razor-sharp incisors at you. The door is open. On the|
+ground there is a large stick. |
+
+W 90
+A marble slab on the ground has been moved aside, revealing a set of narrow steps|
+leading downwards. You have found a small, silver cross, battered and misshapen as by|
+some enormous heat, yet still bearing deformed, gothic lettering. |
+
+W 100
+A marble slab on the ground has been moved aside, revealing a set of narrow steps leading|
+downwards. You have found a small, silver cross, battered and misshapen as by some enormous heat,|
+yet still bearing deformed, gothic lettering. |
+
+W 90
+A narrow ledge here is the only safe place to tread, as a bubbling pit of fiery tar and|
+sulphur is on either side. The only exit is to the west, into a passage still heated by|
+the flames from the pit. Breathing is difficult, but you can still get enough oxygen,|
+albeit with discomfort. |
+
+W 100
+A narrow ledge here is the only safe place to tread, as a bubbling pit of fiery tar and sulphur is|
+on either side. The only exit is to the west, into a passage still heated by the flames from the|
+pit. Breathing is difficult, but you can still get enough oxygen, albeit with discomfort. |
+
+W 90
+A rusty key can be seen here. A fire is burning merrily in its grate; the flickering|
+flames are joy to behold as you warm your hands from the glowing coals. The fire3|
+contains a piece of obsidian. A picture postcard lies here, bearing a view of a|
+delightful garden. You notice a classy, cut-glass dish, glistening within your reach.|
+The dish contains a peach, an orange, a banana and an apricot. |
+
+W 100
+A rusty key can be seen here. A fire is burning merrily in its grate; the flickering flames are|
+joy to behold as you warm your hands from the glowing coals. The fire3 contains a piece of|
+obsidian. A picture postcard lies here, bearing a view of a delightful garden. You notice a|
+classy, cut-glass dish, glistening within your reach. The dish contains a peach, an orange, a|
+banana and an apricot. |
+
+W 80
+You find yourself standing in a section of dense forest, which continues to|
+the west and southeast. Through the trees to the east can be seen the tower of|
+what looks to be a belfry, and south is heath. Northwards is a strange, ornate|
+wall, curiously enlivened by all manner of stylised eastern symbols. Steaming|
+here is a healthy sharn, deposited by some ox. A sturdy ox lumbers past|
+nearby. |
+
+W 80
+This hut is obviously the home of a woodsman. There are various pieces of rude|
+wooden furniture scattered about. On the walls are stuffed fish and birds,|
+they appear old and are fixed firmly to the wall as if the owner has treasured|
+them for a long time. |
+
+W 80
+This spacious avenue, lined with beech trees, was once clearly a showpiece of|
+man in control of nature. Today, however, it has an atmosphere of faded|
+grandeur. Most of the trees are in a late stage of decay, and sprawl badly.|
+Below you, to the southwest, is a statue set in a fountain. Above you,|
+beautiful in its classical proportions, towers a building of yellowish stone,|
+and a nympheum lies to the northeast. It is raining. A rusting halberd has|
+been dropped here. |
+
+W 80
+You are standing on a shallow mound, which has been cut through by a now|
+rusting railway line, in an east-west direction to the north. To the south is|
+a mausoleum in overgrown grounds, the remnants of a surrounding fence no|
+longer preventing entry. East and west are forests, and southwest is a dale at|
+the bottom of a long, steep slope. A horrifying zombie (zombie1) stands in|
+your way! |
+
+W 80
+You are landed by some vicious rocks out at sea. A strong current flows past|
+at alarming speed round the tattered, half-submerged wreckage of a galleon|
+stuck forlornly on them. You can cross to the deck of the ship by going|
+northwards, but its front half is underwater. To the east in the distance can|
+be seen a beach and cliff. Quite a way to the south there looks to be a small|
+island, dominated by a huge archway which stands astride it. |
+
+W 80
+You are standing on a sandy part of a beach, at the bottom of a thundering|
+waterfall which smashes into the rocks from the cliff above. To the north is a|
+rockier part of the beach, but otherwise the area is cut off by the sea apart|
+from some slippery rocks to the south. To the west, in the sea, can be seen|
+the wreckage of a galleon, torn against some vicious rocks. It is raining. An|
+old, woodsman's axe has been left within reach. A wicked-looking dagger has|
+been dropped here. There is a sack here, closed. The sack0 contains something.|
+An expertly-tooled key has been dropped over to one side. A sailable coracle,|
+large enough for one, has been beached here. A violin bow has been put here. |
+
+W 80
+You are standing by a river, flowing from the east to the west, where it|
+disappears under a mountain. Foothills of the mountain are to the northwest,|
+covered in forest which extends to the north of your current position, and|
+become an orchard to the northeast. In all southerly directions are pastures|
+of soft, deep-green grass. It is raining. |
+
+W 80
+A fire is burning merrily in its grate; the flickering flames are joy to|
+behold as you warm your hands from the glowing coals. The fire contains a|
+piece of obsidian. A picture postcard lies here, bearing a view of a|
+delightful garden. |
+
+W 80
+You are in a once-lovely, but now somewhat overgrown, knot garden. The|
+enclosure is surrounded by a hedge neglected for so long that it has grown out|
+of all proportion to its original surrounds, though its once-neat|
+
+W 80
+This is a river, flowing from the southeast to the west. On the south bank lie|
+exclusively pastures, and on the north, forest. The forest directly to the|
+north seems to be an orchard of some kind, and through its trees can be seen a|
+building. Beating its wings above you is an incensed dragonfly! |
+
+W 80
+You are stood in a charming little garden in the middle of a cloister. Though|
+it has been neglected for too long, a sense of blissful serenity and ineffable|
+joy comes over you as you drink in the quiet and rhythmic harmony of the|
+stonework around you. Still, there are disadvantages to monastic dwelling, you|
+decide, as you prepare to wend your way elsewhere. A single, red rose grows|
+here. |
+
+W 80
+You are wading across a partly-submerged ford which links the two banks of a|
+fast-flowing river. To the west, the ford continues; east, it reaches dry land|
+at the bottom of a sun-kissed hillside. |
+
+W 80
+leads to a sitting room. A beautifully-proportioned stone staircase leads|
+upwards, and there seem to be further rooms to the east. The way out is south,|
+through a splendid oak doorway. Lying here is a curious but pleasing abstract|
+painting. |
+
+W 80
+You are wandering around amongst some soft pine trees. All about you are more,|
+some densely packed and others allowing passage through. A rusty key can be|
+seen here. An onyx lion has been placed here; upon its base is the legend:|
+
+W 90
+A sailable coracle, large enough for one, has been left here. The coracle contains an|
+acorn, an amulet and a sapphire0. A murderous longsword glints ahead of you. There is a|
+sack here. The sack0 contains something. A red and white toadstool has been dropped|
+here. |
+
+W 90
+You find yourself at the bottom of a belfry stood in a forest clearing. Outside, to the|
+east the way is blocked by a huge hedge, and to the north is an ornate wall, decorated|
+in colourful, oriental friezes. Elsewhere is more forest. The tower of the belfry rises|
+high above you, but you can't climb the walls. A conductor's baton lies on the floor.|
+Standing on the floor is an oriental ornament of a dragon. |
+
+W 90
+A bedspread, finely embroidered in the trapunto style, lies here. A fine example of a|
+marquetry commode is here. The commode contains a slipper, a nightcap, a tureen, a|
+tazza, a chessboard and a bonnet. A painting here depicts a cowled figure in a darkened|
+crypt. A whatnot, carved in rosewood, is standing here. Before you is a portrait of a|
+bunch of arthritic-looking scribes locked in a dusty scriptorium. Some elevating|
+sentiments are on it. A woodsman's old axe has been left within reach. There is a sack|
+here. The sack0 contains something. |
+
+W 90
+You are stood in the nave of a ruined church. The vertical thrust of the massive stone|
+pillars, which used to support a roof, inspires a sense of awe in you. To the west is|
+the once-imposing entrance to this place, its stonework now crumbling. To the east,|
+across the transept, you can see the remains of a high altar, and a doorway to the|
+southwest leads to the cloisters. Northwest is an elaborately carved font, and to the|
+northeast and southeast, on both sides of the transept, are two side chapels. |
+
+W 90
+An evil, black rat (rat15) bares its razor-sharp incisors at you. An evil, black rat|
+(rat7) bares its razor-sharp incisors at you. An evil, black rat (rat14) bares its|
+razor-sharp incisors at you. An evil, black rat (rat4) bares its razor-sharp incisors at|
+you. An evil, black rat (rat11) bares its razor-sharp incisors at you. An evil, black|
+rat (rat6) bares its razor-sharp incisors at you. An evil, black rat (rat13) bares its|
+razor-sharp incisors at you. The door is open. A polished piece of carved anthracite has|
+been left here. |
+
+W 90
+You are in a corridor which runs from the north to the south, with exits to the|
+northwest and southwest into bedrooms. At the northeastern corner it turns sharply at|
+ninety degrees, and continues eastwards to encompass a tower. |
+
+W 90
+You are in the midst of an evil wood, surrounded by gnarled oaks of ancient origin. The|
+forest continues all around you, in a darkness which seems unnatural, although to the|
+south and southwest it appears too thick to move through... A vampire materialises|
+before you... The vampire is wearing a ring4, and is carrying an unlit brand7 and a|
+dagger0. |
+
+W 90
+A violin bow has been put here. You spot a smallish, yet heavy-looking tapestry,|
+depicting scenes from famous goblin battles. There is a rolled-up carpet here. A sprig|
+of mistletoe lies here. By your feet lies a studded leather gauntlet. A musty old carpet|
+bag is here, opened. There is a golden statue here with green eyes. |
+
+W 90
+Around you is a delightful pasture. To the south is a fast flowing stream. Further north|
+and east you can see a woodman's hut and to the north is gorse scrub. Northwestwards you|
+can see a strange, forbidding cottage, which you can enter via its french windows. It is|
+raining. A bright red, rubber bouncy-ball has come to rest here. |
+
+W 90
+You are stood on a narrow track on the side of a hill. To the northeast you can make out|
+the outline of a solid stone barn, and to the west you espy an expanse of water. The way|
+north, up the hill, is blocked by an old landslide. |
+
+W 90
+Before you is an amazing sight, a huge natural cavern rising high above you and of|
+enormous area. Words cannot do justice to the feeling of awe and astonishment which|
+overcomes you when presented with this imposing spectacle. The only easy exit is to the|
+east into an enlarged passageway, although you could probably climb up a section of the|
+wall if you so desired (descending it safely, however, is another matter!). It is|
+raining. |
+
+W 90
+This is a large room used as a home by an ogre. The floor is littered with the bones of|
+the dead, licked clean by the monster. A dark passage exits to the north, and there is a|
+small opening to the south. The smell in the room is reminiscent of animals, and of the|
+grave... A fabulously beautiful diamond-cluster ring is here! A suspicious-looking|
+individual lurks nearby. The thief is carrying a shovel0. The ogre is here, very large|
+and very angry! The ogre is carrying a club. |
+
+W 90
+You are standing at the very peak of the south mountain. A glorious view is to be beheld|
+all around. To the northeast is a mountain, on the opposite side of a road from some|
+building. To the north is a third mountain much larger than either of the other two, and|
+far more majestic. South lie pastures, and southeast is an evil-looking wood, hard up|
+against the side of a river, in which can be seen a small island. West, over a wall just|
+visible through the clouds, is a strange, anachronistic world, centred around a house.|
+Flying by is a firefly (firefly1). Flying by is a firefly (firefly0). There is a|
+long-disused warning beacon here. |
+
+W 90
+This cupboard appears to be bereft of any shelving. There are bloodied scratches on the|
+wall, but nothing which seems to explain them. A ladder fixed here leads to the top of|
+the cupboard. |
+
+W 100
+This is the southeastern tomb of the mausoleum, and has not been used for burial purposes. The|
+unplastered walls and uneven floor give a sense of starkness which makes the uneasy mind wary,|
+lest some uncanny spirit has made the deathly room its abode. The southeast tomb is open. A|
+delicate china vase, with fine jade detail, rests here. |
+
+W 100
+You are standing on a dusty road with rising ground both to the north and south. Though|
+dilapidated and disused, the route north of where you stand, with a building at the far end, looks|
+as if it once formed a grand driveway. To the south, the road twists up the hill where, at the|
+summit, an ancient walled monastery dominates the scene. Open fields lie to the west, and east is|
+a flat area of lawn. A horrifying zombie (zombie6) stands in your way! |
+
+W 100
+You are forcing your way along an underground stream, which flows from the north to the south, and|
+disappears beneath a wide, but low, sheet of rock at the southern end. It is joined by a trickle|
+of water to the east, which is at the base of a shaft of some kind as light comes from above. The|
+water is fast-flowing, fairly deep, and very cold. There is a large stick on the ground. There is|
+a large stick on the ground. A rusty key can be seen here. |
+
+W 100
+The south wall of this room appears to have been extensively used as a urinal, with a trench along|
+the bottom leading to a drain in the middle. The south wall is fronted by some half dozen holes in|
+the ground, which have long since been blocked up by assorted pieces of debris. The fact that|
+there is little in the way of noxious smells here would indicate that the room has remained unused|
+for many years. An exit to the west leads to the public bar and to the east lies the lounge bar of|
+this inn. Standing within reach is a beer glass. A shiny, new-looking penny dated 1817 has been|
+placed here. |
+
+W 100
+You are walking across a rough heath, which continues to the east, west and southwest. South is|
+the base of a large mountain, the peak of which is partly obscured by the clouds which flank it|
+some way up. North from here is mainly forest, although in the distance to the northwest is an|
+enormous mountain, more majestic than the other. A horrifying zombie (zombie1) stands in your way! |
+
+W 100
+From the ragged state of the ground here, overrun with weeds and with bare soil showing in places,|
+this area was probably once a chicken coop, although there is little sign of the fencing which|
+must once have enclosed it. To the south is an unnaturally flat lawn, and north, stretching into|
+the distance, you can make out a grand-looking garden. It is raining. |
+
+W 100
+You are standing in the foothills of a tall mountain, which rises away to the southwest. North is|
+a badly-paved road, which runs east-west, and east is a briar patch. There are more foothills to|
+the west, and to the south are forested slopes of the mountain. |
+
+W 100
+This east-west passageway has exits to the north, northwest and northeast. A set of wooden steps|
+leads upwards into a tower, while the corridor turns south ninety degrees at its ends. A|
+well-proportioned stone staircase leads down to the ingresso. The doorway to the north looks like|
+a bathroom. A whatnot, carved in rosewood, is standing here. The door is locked shut. |
+
+W 100
+This fairly expansive room, cobwebbed and strewn with shards of broken glass, looks as if it was|
+intended to be used to store a good many bottles of wine. Marks on the floor show where once stood|
+large racks and huge casks, which have now been removed, probably for use as firewood by local|
+peasants or passing bandits. The only obvious exit is to the west, where a flight of steps leads|
+upwards to a bar area. A large vat stands to one side. The vat of malmsey contains malmsey. |
+
+W 100
+Around you is a delightful pasture. To the south is a fast flowing stream. Further north and east|
+you can see a woodman's hut and to the north is gorse scrub. Northwestwards you can see a strange,|
+forbidding cottage, which you can enter via its french windows. An animated skeleton (skeleton1)|
+bars your way. The skeleton1 is carrying a pebble0. |
+
+W 100
+You are in a well-kept garden. There is an unexpectedly sweet smell here and you notice lots of|
+flowers. To the east across a path there is more garden. A magnificent geranium blossoms here.|
+Cultivated here is a curious herb. |
+
+W 100
+You press hard against the wall to prevent yourself from falling down these surprisingly difficult|
+and steep steps. At their upper end, they open up onto the eastern section of an attic, whereas at|
+their lower end, to the west, they join a narrow, north-south passage. |
+
+W 100
+You are in dense forest, sloping from the south downwards to the north. A slightly stooped old man|
+is standing here. The man is wearing a watch and a ring0, and is carrying 2 stoppered vials. A|
+large stick lies on the ground. |
+
+W 100
+You are wandering around in some dense forest on the west bank of a fast-flowing river. To the|
+north, the river is crossed by a ford, and to the south it runs beside a meadow, beyond which you|
+can see what looks like a belvedere of some kind. At that point the river splits, and curves round|
+to the southwest of where you stand. West, the forest seems to be primarily of fruit trees, and|
+northwest through the greenery you can see what looks like a well. |

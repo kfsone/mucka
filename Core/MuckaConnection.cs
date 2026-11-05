@@ -277,12 +277,35 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// a client that will not start.</para></summary>
     public async Task LoadFightHistoryAsync(CancellationToken cancellationToken = default)
     {
+        // A store that did not open has no database to read, and each open below would retry the schema
+        // upgrade and the backup it failed on.
+        if (_store.IsFaulted)
+            return;
         await Task.Run(() =>
         {
             AccountBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write);
             PersonaSessionBackfill.Run(_store.Path, _store.SessionId, CrashLog.Write);
         }, cancellationToken).ConfigureAwait(false);
         await _fightHistory.LoadAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Compacts the database - see <see cref="MuckaStore.Optimize"/>. Off the UI thread, and it
+    /// pauses the store's writer for as long as it runs. Held under <see cref="DatabaseLock"/>, which it
+    /// waits for. Null, and nothing done, while a trim or another pass holds
+    /// <see cref="WireMaintenance.Gate"/>; while this runs they wait for it.</summary>
+    public MuckaStore.OptimizeResult? OptimizeDatabase()
+    {
+        using var held = DatabaseLock.Acquire(_store.Path, Maintenance.Current, canGiveUp: false);
+        if (!Monitor.TryEnter(WireMaintenance.Gate))
+            return null;
+        try
+        {
+            return _store.Optimize();
+        }
+        finally
+        {
+            Monitor.Exit(WireMaintenance.Gate);
+        }
     }
 
     /// <summary>The accumulated per-creature incoming-damage record, for the rail's "how hard does
@@ -303,7 +326,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// the one-time legacy import - warming first would aggregate a table the old swings had not been
     /// moved into yet.</summary>
     public Task LoadSwingDamageAsync(CancellationToken cancellationToken = default)
-        => _swingLedger.WarmDamageIndexAsync(cancellationToken);
+        => _store.IsFaulted ? Task.CompletedTask : _swingLedger.WarmDamageIndexAsync(cancellationToken);
 
     /// <summary>The rows the server is told.</summary>
     public const int ShellRows = 21;
@@ -311,7 +334,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     private int _windowRows = ShellRows;
     private readonly ResetNumberWatcher _resetNumberWatcher = new();
 
-    /// <summary>The columns the server is told (NAWS and <c>/T</c>).</summary>
+    /// <summary>The columns the pane wraps at, and the window size the transport advertises (NAWS).</summary>
     public int WindowColumns => _windowCols;
 
     /// <param name="host">The server this connection is for. Taken here rather than at
@@ -322,10 +345,11 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// (<see cref="Mucka.Terminal.TerminalColumns.Effective"/>): the login is wrapped at it.</param>
     public MuckaConnection(string? accountId = null, string? password = null,
         int windowCols = Mucka.Terminal.TerminalColumns.Unmeasured,
-        string loginName = "mud", string host = "unknown", DreamwordCarry? dreamwordCarry = null)
+        string loginName = "mud", string host = "unknown", DreamwordCarry? dreamwordCarry = null,
+        bool netTimes = false)
     {
         _dreamwordCarry = dreamwordCarry ?? new DreamwordCarry();
-        _windowCols = Math.Clamp(windowCols, Mucka.Terminal.TerminalColumns.Min, Mucka.Terminal.TerminalColumns.Max);
+        _windowCols = Math.Max(windowCols, Mucka.Terminal.TerminalColumns.Min);
         Login = (accountId, password);
         // A replay is watched, not played: what it shows goes to a store of its own that is deleted
         // with the connection, so none of it reaches the player's history (docs/replay.md).
@@ -335,15 +359,20 @@ public sealed class MuckaConnection : IAsyncDisposable
             SweepStaleReplayStores();
             _replayDatabase = Path.Combine(Path.GetTempPath(), $"{ReplayStorePrefix}{Guid.NewGuid():N}.db");
         }
+        // A replay's store is thrown away with it, so nothing there is worth joining. With the
+        // "nettimes" setting on, every read is kept as its own row and left for the heal at a later
+        // launch (SettingsStore.NetTimesKey).
+        var coalesceWire = !netTimes && !IsReplay;
         _store = new MuckaStore(
             _replayDatabase ?? MuckaPaths.GetDatabasePath(),
             string.IsNullOrWhiteSpace(host) ? "unknown" : host.Trim(),
             typeof(MuckaConnection).Assembly.GetName().Version?.ToString(),
             ReportStoreFailure,
-            accountId);
+            accountId,
+            wireHealedAtStart: coalesceWire);
         _wireLog = IsReplay
-            ? new WireLogWriter(_store)
-            : new WireLogWriter(_store) { AnnotationMirror = message => CrashLog.Info("an", message) };
+            ? new WireLogWriter(_store) { CoalesceUnits = coalesceWire }
+            : new WireLogWriter(_store) { CoalesceUnits = coalesceWire, AnnotationMirror = message => CrashLog.Info("an", message) };
         _clog = new ClogWriter(_store);
         _fightHistory = new FightHistoryStore(_store, CrashLog.Write);
         _swingLedger = new SwingLedger(_store, CrashLog.Write);
@@ -470,22 +499,6 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Sends the terminal-width MUD shell command: ESC-[ /T{cols} ESC-]
-    /// Used to notify the server of a column-count change mid-session.
-    /// </summary>
-    public void SendTerminalWidth(int cols)
-    {
-        byte[] prefix = { 0x1B, 0x2D, 0x5B };
-        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{cols}");
-        byte[] suffix = { 0x1B, 0x2D, 0x5D };
-        var seq = new byte[prefix.Length + colCmd.Length + suffix.Length];
-        Buffer.BlockCopy(prefix, 0, seq, 0, prefix.Length);
-        Buffer.BlockCopy(colCmd, 0, seq, prefix.Length, colCmd.Length);
-        Buffer.BlockCopy(suffix, 0, seq, prefix.Length + colCmd.Length, suffix.Length);
-        _session.Send(seq);
-    }
-
-    /// <summary>
     /// Update the FES stats-update heartbeat interval. Zero disables the heartbeat.
     /// Takes effect immediately if already in game mode.
     /// </summary>
@@ -533,57 +546,14 @@ public sealed class MuckaConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// Send the NAWS window-size update followed by the client-mode entry interrupt:
-    ///   ESC-[ ESC^F ESC-T ESC-N /T{cols} ESC-]
-    /// This enters best-client mode, selects normal mode (so cols are honoured), and
-    /// tells the MUD shell the effective terminal width - all without a trailing newline.
+    /// The client-mode entry interrupt, sent once at the Option menu (<see cref="ClientModeEntry.Bytes"/>).
+    /// Local formatting stops the server wrapping; <see cref="Mucka.Terminal.LineWrapper"/> wraps at
+    /// whatever width the pane has.
     /// </summary>
     internal void SendClientModeEntry()
     {
         _session.SetWindowSize(_windowCols, ShellRows);
-
-        byte[] prefix = {
-            // "command" here means user input, a command interrupt allows us to
-            // embed something that won't be echoed.
-            0x1B, 0x2D, 0x5B,   // ESC-[  = begin command interrupt
-            0x1B, 0x06,         // ESC^F  = C1 mode, server selects compatability level
-            0x1B, 0x2D, 0x4E    // ESC-N  = normal mode (server honours our column count)
-        };
-        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
-        byte[] suffix = { 0x1B, 0x2D, 0x5D };
-
-        var seq = new byte[prefix.Length + colCmd.Length + suffix.Length];
-        Buffer.BlockCopy(prefix, 0, seq, 0, prefix.Length);
-        Buffer.BlockCopy(colCmd, 0, seq, prefix.Length, colCmd.Length);
-        Buffer.BlockCopy(suffix, 0, seq, prefix.Length + colCmd.Length, suffix.Length);
-        _session.Send(seq);
-    }
-
-    /// <summary>
-    /// Re-advertise the terminal width to the MUD shell mid-session - e.g. after a device
-    /// rotation changes the usable column count. The server word-wraps game text on the /T
-    /// value (set at client-mode entry), NOT on the telnet NAWS subnegotiation, so a resize
-    /// that only updates NAWS leaves freshly-sent text wrapped at the old width. Wraps
-    /// /T{cols} in a command interrupt (ESC-[ ... ESC-]) so no newline is injected. No-op
-    /// unless we are in game mode - /T is only meaningful once the in-game shell is active.
-    /// Call after <see cref="SetWindowSize"/> so _windowCols already holds the new value.
-    /// May be called from any thread.
-    /// </summary>
-    public void SendTerminalWidth()
-    {
-        if (!_session.InGameMode)
-            return;
-
-        // ESC-[  = begin command interrupt . /T{n} = MUD shell width command . ESC-] = end
-        byte[] prefix = { 0x1B, 0x2D, 0x5B };
-        byte[] colCmd = Encoding.ASCII.GetBytes($"/T{_windowCols}");
-        byte[] suffix = { 0x1B, 0x2D, 0x5D };
-
-        var widthSeq = new byte[prefix.Length + colCmd.Length + suffix.Length];
-        Buffer.BlockCopy(prefix, 0, widthSeq, 0, prefix.Length);
-        Buffer.BlockCopy(colCmd, 0, widthSeq, prefix.Length, colCmd.Length);
-        Buffer.BlockCopy(suffix, 0, widthSeq, prefix.Length + colCmd.Length, suffix.Length);
-        _session.Send(widthSeq);
+        _session.Send(ClientModeEntry.Bytes.ToArray());
     }
 
     public async ValueTask DisposeAsync()
@@ -852,7 +822,7 @@ public sealed class MuckaConnection : IAsyncDisposable
     /// same connection, and a stale epoch is worse than none - it would date rows to a world that no
     /// longer exists.</para>
     ///
-    /// <para>The server wraps the sentence at the negotiated width, so it is read by
+    /// <para>The sentence can arrive wrapped, in a session that never turned local formatting on, so it is read by
     /// <see cref="ResetNumberWatcher"/>, which joins the rows back up.</para>
     /// </summary>
     private void NoteBannerLine(string text)
@@ -891,7 +861,10 @@ public sealed class MuckaConnection : IAsyncDisposable
         // the "Not updating persona." line that accompanies it.
         _session.PersonaWiped += _sessionEnd.NotePersonaWiped;
         _session.FrameClosed      += () => FrameClosed?.Invoke();
-        _session.LineReady          += l => { _sessionEnd.NoteLine(l.PlainText); NoteBannerLine(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
+        // The parser opens a prompt container only in game mode, so this is never raised outside it
+        // (GamePromptTests.PromptClosed_NeverFiresOutsideGameMode).
+        _session.PromptClosed     += _wireLog.CloseUnit;
+        _session.LineReady         += l => { _sessionEnd.NoteLine(l.PlainText); NoteBannerLine(l.PlainText); _clog.OnLineReady(l); LineReady?.Invoke(l); };
         _session.StatsUpdated       += s => { _clog.OnStatsUpdated(s); _fightRecorder.OnStatsUpdated(s); _swingLedger.OnStatsUpdated(s); StatsUpdated?.Invoke(s); };
         _session.StatusEffectsChanged += s => { _clog.OnStatusEffectsChanged(s); _fightRecorder.OnStatusEffectsChanged(s); _swingLedger.OnStatusEffectsChanged(s); StatusEffectsChanged?.Invoke(s); };
         _session.InCombatChanged     += OnSessionInCombatChanged;
@@ -903,8 +876,8 @@ public sealed class MuckaConnection : IAsyncDisposable
             CombatEventOccurred?.Invoke(e);
         };
         _session.BellReceived       += () => BellReceived?.Invoke();
-        _session.GameModeEntered    += () => { BeginPersonaSession(); GameModeEntered?.Invoke(); };
-        _session.GameModeExited     += () => { EndPersonaSession(); GameModeExited?.Invoke(); };
+        _session.GameModeEntered    += () => { _wireLog.AbandonUnit(); BeginPersonaSession(); GameModeEntered?.Invoke(); };
+        _session.GameModeExited     += () => { _wireLog.AbandonUnit(); EndPersonaSession(); GameModeExited?.Invoke(); };
         _session.CharacterIdentified += n =>
         {
             NamePersonaSession(n);
@@ -938,6 +911,7 @@ public sealed class MuckaConnection : IAsyncDisposable
             DreamwordChanged?.Invoke(w);
         };
         _session.SoundRequested     += s => SoundRequested?.Invoke(s);
+        _session.LocalFormattingConfirmed += () => _wireLog.Annotate("local formatting confirmed: on");
         _session.TellReceived       += name => TellReceived?.Invoke(name);
         _session.MailReceived       += sender => MailReceived?.Invoke(sender);
         _session.FewPlayerReady     += (n, c) => FewPlayerReady?.Invoke(n, c);
@@ -962,7 +936,6 @@ public sealed class MuckaConnection : IAsyncDisposable
             _clog.OnCreatureValueResolved(name, value);
             CreatureValueResolved?.Invoke(name, value);
         };
-        _session.TerminalWidthConfirmed += OnTerminalWidthConfirmed;
         // The clog header records which reset each encounter sat in; asked for at encounter start
         // rather than pushed, so it gets the clock's best current lock. See
         // ClogWriter.ResetEstimateProvider.
@@ -990,11 +963,4 @@ public sealed class MuckaConnection : IAsyncDisposable
             $"win=[{o.WindowLoSecFromNow:F2},{o.WindowHiSecFromNow:F2})s +/-{o.UncertaintySec:F2}s");
     }
 
-    private void OnTerminalWidthConfirmed(int confirmedWidth)
-    {
-        if (confirmedWidth != _windowCols)
-            System.Diagnostics.Debug.WriteLine(
-                $"[MuckaConnection] Terminal width mismatch: requested {_windowCols}, confirmed {confirmedWidth}");
-        _wireLog.Annotate($"terminal width confirmed: {confirmedWidth}");
-    }
 }

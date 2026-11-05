@@ -57,13 +57,11 @@ public class GlobalSettingsMigrationTests
 
             [profile:A]
             host=h
-            columns=100
             antiidle=60
             keepscreenon=yes
             defaulthotkeys=no
             """);
         Assert.True(GlobalSettingsMigration.Apply(ini));
-        Assert.Equal("100", ini.Get("settings", "columns"));
         Assert.Equal("60", ini.Get("settings", "antiidle"));
         Assert.Equal("yes", ini.Get("settings", "keepscreenon"));
         Assert.Equal("no", ini.Get("settings", "defaulthotkeys"));
@@ -171,7 +169,7 @@ public class GlobalSettingsMigrationTests
             1=A
 
             [profile:A]
-            columns=100
+            antiidle=60
             [settings:A]
             volume=10
             """);

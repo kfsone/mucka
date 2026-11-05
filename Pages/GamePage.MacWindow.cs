@@ -22,17 +22,12 @@ public partial class GamePage
         if (_macWindowHooked) TearDownMacWindow();
         _macWindowHooked = true;
         _vm.SidePanel.PropertyChanged += OnMacWindowSidePanelChanged;
-        _vm.PropertyChanged += OnMacWindowVmChanged;
-        // The pane is laid out after the page's own size is allocated, and moves when the panel does.
-        Terminal.SizeChanged += OnMacTerminalSizeChanged;
         if (Window is { } owner)
         {
             _macSizeWindow = owner;
             owner.SizeChanged += OnMacWindowSizeChanged;
         }
-        // A fixed column count sizes the window to fit, as the Windows build does at launch; auto
-        // keeps whatever width the player has the window at.
-        FitMacWindow(snapToColumns: _vm.MaxColumns > 0);
+        FitMacWindow();
         SetUpMacCombatPanel();
         SetUpMacScroll();
         SetUpMacSelect();
@@ -50,14 +45,6 @@ public partial class GamePage
             FitMacWindow();
         }
     }
-
-    private void OnMacWindowVmChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName == nameof(GameViewModel.MaxColumns))
-            FitMacWindow(snapToColumns: true);
-    }
-
-    private void OnMacTerminalSizeChanged(object? sender, EventArgs e) => RecalculateColumns(Width);
 
     // The window has reached what was asked for; from here its real width is the truth.
     private void OnMacWindowSizeChanged(object? sender, EventArgs e)
@@ -77,8 +64,6 @@ public partial class GamePage
         if (_macSizeWindow is { } w) w.SizeChanged -= OnMacWindowSizeChanged;
         _macSizeWindow = null;
         _vm.SidePanel.PropertyChanged -= OnMacWindowSidePanelChanged;
-        _vm.PropertyChanged -= OnMacWindowVmChanged;
-        Terminal.SizeChanged -= OnMacTerminalSizeChanged;
         _vm.SidePanel.CombatStatsChanged -= OnMacCombatStatsChanged;
         _vm.SidePanel.PropertyChanged -= OnMacCombatVisibilityChanged;
     }
@@ -115,40 +100,29 @@ public partial class GamePage
     /// <summary>The widest the window may be asked to become: the screen it is on.</summary>
     private static double MacScreenWidth => UIKit.UIScreen.MainScreen.Bounds.Width;
 
-    /// <summary>Sets the minimum width to what the columns and the panel need, and widens the window
-    /// when it is narrower than that. <paramref name="snapToColumns"/> also takes it to the width
-    /// that fits the columns plus the same two breathing columns the Windows build uses.</summary>
-    private void FitMacWindow(bool snapToColumns = false)
+    /// <summary>Sets the minimum width to what the panel needs, and widens the window when it is
+    /// narrower than that.</summary>
+    private void FitMacWindow()
     {
         if (Window is not { } window) return;
-        var panel = _vm.SidePanel.IsPanelExpanded;
-        var floor = PreferredWindowWidthDp(CharWidthDp, panel, _vm.MaxColumns);
+        var floor = CombatRailResize.FloorWindowWidthDp(_vm.SidePanel.IsPanelExpanded, SidePanelScale);
         ApplyMacMinimum(window);
 
         var rail = _macRailApplied ? RailPanelWidthDp : 0.0;
-        var target = floor;
-        if (snapToColumns)
-        {
-            target = (_vm.MaxColumns > 0
-                ? PreferredWindowWidthDp(CharWidthDp, panel, _vm.MaxColumns + 2.0)
-                : PreferredWindowWidthDp(CharWidthDp, panel)) + rail;
-        }
-        target = Math.Min(Math.Max(target, floor + rail), MacScreenWidth);
-        if (snapToColumns || CurrentMacWidth(window) < floor + rail)
+        var target = Math.Min(floor + rail, MacScreenWidth);
+        if (CurrentMacWidth(window) < floor + rail)
             SetMacWidth(window, target);
     }
 
-    /// <summary>The narrowest the window may be: the terminal's columns and the panel, plus the rail
-    /// while it is applied. Lowered BEFORE a hide shrinks the window - the system holds the window at
+    /// <summary>The narrowest the window may be: the panel, plus the rail while it is applied. Lowered BEFORE a hide shrinks the window - the system holds the window at
     /// its minimum, so shrinking first leaves it stuck at the old, wider one.</summary>
     private void ApplyMacMinimum(Window window)
-        => window.MinimumWidth = PreferredWindowWidthDp(
-               CharWidthDp, _vm.SidePanel.IsPanelExpanded, _vm.MaxColumns)
+        => window.MinimumWidth = CombatRailResize.FloorWindowWidthDp(_vm.SidePanel.IsPanelExpanded, SidePanelScale)
            + (_macRailApplied ? RailPanelWidthDp : 0.0);
 
     // While the window and the layout disagree about the width, the column count is not measured:
     // the pane narrows the moment the rail is shown and the window catches up a moment later, and
-    // measuring in between told the server 86 columns and then 90 again.
+    // measuring in between wrapped the text at 86 columns and then 90 again.
     private bool _macResizeSettling;
     private int _macSettleToken;
 
@@ -223,12 +197,9 @@ public partial class GamePage
     {
         if (Window is not { } window || showing == _macRailApplied) return;
         BeginMacResizeSettle();
-        // In auto columns the count in use stands in for the setting: the server takes at most 160, so
-        // a window wider than that has room to spare, and the rail should sit in it.
-        var columns = _vm.MaxColumns > 0 ? _vm.MaxColumns : _vm.EffCols;
         var current = CurrentMacWidth(window);
         var result = CombatRailResize.ComputeToggle(
-            showing, (int)Math.Round(current), 96, columns, CharWidthDp,
+            showing, (int)Math.Round(current), 96,
             _vm.SidePanel.IsPanelExpanded, _macRailDeltaDp, RailPanelWidthDp, SidePanelScale);
         _macRailDeltaDp = result.NewAppliedDeltaDp;
         _macRailApplied = showing;

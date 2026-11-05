@@ -90,8 +90,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private string _dreamword = string.Empty;
     private bool _isConnected = true;
     private bool _fkeysVisible;
-    private int _maxColumns;
     private int _effCols = 80;
+    private int _paneCols = 80;
     private double _widthDp;
     private int _antiIdleSeconds;
     private bool _keepScreenOn;
@@ -108,7 +108,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     // its own/other verdict on every continuation line (StyledLine.ContinuesChat), not just the first.
     // Self-heals to default on the next non-continuation line, so it need not be reset on disconnect.
     private ChatColorizer.Carry _chatCarry;
-    private int _defaultMaxColumns;
     // The saved "Float online by default" global. Tracked separately from the live pin state
     // (SidePanel.IsOnlinePinned) so the setting only drags the live state when the two are in sync.
     private bool _floatOnline;
@@ -263,8 +262,13 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>The replay bar's speed text: <c>paused</c>, <c>1.0x</c>, <c>max</c>.</summary>
     public string ReplaySpeedLabel => ReplayPlayer.Label((int)ReplayStep);
-    public int MaxColumns => _maxColumns;
+    /// <summary>The columns the page's width gives the status bar, the input row and the function
+    /// keys, which they size their tiers by. Not the wrap width: that is <see cref="PaneColumns"/>.</summary>
     public int EffCols => _effCols;
+
+    /// <summary>The columns of the terminal pane's text area, which the wrap and the window size the
+    /// transport advertises follow; set by <see cref="SetPaneColumns"/>.</summary>
+    public int PaneColumns => _paneCols;
     public bool KeepScreenOn => _keepScreenOn;
     public int FontSize => _fontSize;
     public const double CharWidthPerFontPx = Mucka.Terminal.TerminalColumns.CharWidthPerFontPx;
@@ -415,7 +419,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public bool   WeatherVisible => _weather is not (' ' or '\0' or (char)0);
     public bool   AnyRightStatVisible => WeatherVisible || TtrVisible;
 
-    /// <summary>Effective columns: min(160, MaxColumns, displayable chars). Updated by GamePage on resize.</summary>
+    /// <summary>True when the pane's columns (<see cref="EffCols"/>, set by GamePage on resize) are too few
+    /// for the full stats bar.</summary>
     public bool IsCompactStats    => _effCols < 76 || _statsBarCrowded;
     public bool IsNotCompactStats => !IsCompactStats;
 
@@ -716,7 +721,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     public ClientSettings CurrentSettings => new()
     {
         FontSize            = _fontSize,
-        MaxColumns          = _maxColumns,
         Volume              = _volume,
         StatUpdateFrequency = _statUpdateFrequency,
         MuteBeepSession     = _muteBeepSession,
@@ -726,7 +730,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         Sounds              = _sounds.Clone(),
         // Display tab globals (stored on the profile struct at load time).
         UiFontStep          = UiFontScaleState.Current.Step,
-        DefaultMaxColumns   = _defaultMaxColumns,
         DreamwordSizeOffset = _dreamwordSizeOffset,
         EmoteColor        = _emoteColor,
         SayColor            = _sayColor,
@@ -819,10 +822,10 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ScoreGraph = new ScoreGraphViewModel(
             () => _conn.DatabasePath, () => _conn.MuckaRunId, () => _profileHost,
             () => _currentChar, () => RequestFocus?.Invoke());
-        _maxColumns = Math.Clamp(profile.MaxColumns, 0, 160);  // 0 = auto
-        // What the server was told at login, so the page's first measurement finds nothing to change
-        // when the two agree (TerminalColumns).
+        // What the window size was set to at login, so the page's first measurement finds nothing to
+        // change when the two agree (TerminalColumns).
         _effCols = _conn.WindowColumns;
+        _paneCols = _effCols;
         _antiIdleSeconds = Math.Clamp(profile.AntiIdleSeconds, 0, 3600);
         _keepScreenOn = profile.KeepScreenOn;
         _lastSentUtc = DateTime.UtcNow;
@@ -837,7 +840,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _sounds              = profile.Sounds;
         _dreamwordSizeOffset = Math.Clamp(profile.DreamwordSizeOffset, -2, 4);
         SetChatColors(profile.ChatTheme, profile.EmoteColor, profile.SayColor, profile.ShoutColor, profile.TellColor, profile.ChatFaces);
-        _defaultMaxColumns   = profile.DefaultMaxColumns;
         _floatOnline         = profile.FloatOnline;
         _floatCompass        = profile.FloatCompass;
         _navKeysEnabled      = profile.NavKeysEnabled;
@@ -973,7 +975,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         ApplyFontSize(settings.FontSize);
         UiFontScaleState.Current.Step = settings.UiFontStep;
         ApplyVolume(settings.Volume);
-        ApplyMaxColumns(settings.MaxColumns);
         ApplyStatUpdateFrequency(settings.StatUpdateFrequency);
         _muteBeepPermanently = settings.MuteBeepPermanently;
         _muteBeepSession     = settings.MuteBeepSession || settings.MuteBeepPermanently;
@@ -1017,7 +1018,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
         _dreamwordSizeOffset = Math.Clamp(settings.DreamwordSizeOffset, -2, 4);
         SetChatColors(settings.ChatTheme, settings.EmoteColor, settings.SayColor, settings.ShoutColor, settings.TellColor, settings.ChatFaces);
-        _defaultMaxColumns   = settings.DefaultMaxColumns;
         OnPropertyChanged(nameof(DreamwordFontSize));
     }
 
@@ -1807,6 +1807,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "EXPORT", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("EXPORT ", StringComparison.OrdinalIgnoreCase))
                 ExportDatabase(name.Length > 6 ? name[7..] : string.Empty);
+            else if (string.Equals(name, "TRIMDB", StringComparison.OrdinalIgnoreCase)
+                || name.StartsWith("TRIMDB ", StringComparison.OrdinalIgnoreCase))
+                TrimDatabase(name.Length > 6 ? name[7..] : string.Empty);
 #if DESKTOP
             else if (string.Equals(name, "MAKEREPLAY", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("MAKEREPLAY ", StringComparison.OrdinalIgnoreCase))
@@ -1967,6 +1970,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
         AddSystemLine("  $import2 [path]       import finished MuckaII runs (default ~/.muckaii/muckaii.db)", 14);
         AddSystemLine("  $import2 unclosed 2,4 also import those runs, which have no recorded end", 14);
+        AddSystemLine("  $trimdb trim [days]   move probe traffic of runs older than days (default 30) to the trimmed table", 14);
+        AddSystemLine("  $trimdb unwrap [days] join lines the server wrapped in runs older than days (default 30); run before trim", 14);
+        AddSystemLine("  $trimdb expire [days] delete trimmed rows (and unwrap originals) older than days for good", 14);
+        AddSystemLine("  $trimdb revert        put every trimmed row back", 14);
+        AddSystemLine("  $trimdb optimize      compact mucka.db (a second Mucka on it stops recording for the rest of its session)", 14);
         AddSystemLine("  $EXPORT [path]        write a snapshot of mucka.db (default ~/.mucka/mucka-export.db)", 14);
         AddSystemLine("                        merge it elsewhere by starting Mucka with: mucka -import <file>", 14);
 #if MACCATALYST
@@ -2142,6 +2150,77 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         });
     }
 
+    /// <summary>$trimdb trim|unwrap|expire|revert|optimize - see <see cref="Mucka.Combat.WireTrim"/> and
+    /// <see cref="Mucka.Store.MuckaStore.Optimize"/>. Off the UI thread, one database job at a time.</summary>
+    private void TrimDatabase(string argument)
+    {
+        var parsed = Mucka.Commands.TrimDbCommandArgs.Parse(argument, Mucka.Combat.WireTrim.DefaultDays, out var error);
+        if (parsed is not { } args)
+        {
+            AddSystemLine($"[trimdb] {error}; usage: $trimdb trim|unwrap|expire [days] | revert | optimize", 9);
+            return;
+        }
+        if (_conn.IsReplay)
+        {
+            AddSystemLine("[trimdb] a replay has a database of its own, which is thrown away with it", 9);
+            return;
+        }
+        var database = _conn.DatabasePath;
+        var days = args.Days;
+
+        switch (args.Verb)
+        {
+            case Mucka.Commands.TrimDbVerb.Trim:
+                RunDatabaseJob("trimdb", $"trimming probe traffic from runs that ended {days} or more days ago ...", () =>
+                {
+                    var r = Mucka.Combat.WireTrim.Trim(database, days, DateTimeOffset.UtcNow);
+                    var message = $"{r.RunsTrimmed} of {r.RunsExamined} runs trimmed: {r.RowsMoved:N0} rows, "
+                        + $"{r.BytesMoved:N0} bytes, moved to the trimmed table";
+                    if (r.RunsRefused > 0)
+                        message += $"; {r.RunsRefused} runs left alone because their lines would have changed";
+                    return (message + "; $trimdb revert puts them back", true);
+                }, maintenance: "Trimming probe traffic from the wire log");
+                break;
+            case Mucka.Commands.TrimDbVerb.Unwrap:
+                RunDatabaseJob("trimdb", $"joining server-wrapped lines in runs that ended {days} or more days ago ...", () =>
+                {
+                    var r = Mucka.Combat.WireTrim.Unwrap(database, days, DateTimeOffset.UtcNow);
+                    var message = $"{r.RunsUnwrapped} of {r.RunsExamined} runs unwrapped: {r.RowsChanged:N0} rows changed";
+                    if (r.RunsRefused > 0)
+                        message += $"; {r.RunsRefused} runs left alone because their lines would have come out wrong or a trim has been over them";
+                    return (message + "; $trimdb revert puts the original bytes back", true);
+                }, maintenance: "Joining the lines the server wrapped");
+                break;
+            case Mucka.Commands.TrimDbVerb.Expire:
+                RunDatabaseJob("trimdb", $"deleting trimmed rows older than {days} days ...", () =>
+                {
+                    var removed = Mucka.Combat.WireTrim.Expire(database, days, DateTimeOffset.UtcNow);
+                    var (rows, bytes) = Mucka.Combat.WireTrim.Waiting(database);
+                    return ($"{removed:N0} rows deleted for good; {rows:N0} rows ({bytes:N0} bytes) still waiting in the "
+                        + "trimmed table", true);
+                }, maintenance: "Deleting old trimmed rows");
+                break;
+            case Mucka.Commands.TrimDbVerb.Revert:
+                RunDatabaseJob("trimdb", "putting trimmed rows back ...", () =>
+                {
+                    var (restored, skipped) = Mucka.Combat.WireTrim.Revert(database);
+                    var message = $"{restored:N0} rows put back";
+                    if (skipped > 0)
+                        message += $"; {skipped:N0} could not go back because another row has their id, and stay in the trimmed table";
+                    return (message, true);
+                }, maintenance: "Putting trimmed rows back");
+                break;
+            default:
+                RunDatabaseJob("trimdb", "compacting mucka.db; this log is paused until it finishes, and a second Mucka on the file will stop recording ...", () =>
+                {
+                    if (_conn.OptimizeDatabase() is not { } r)
+                        return ("another pass over the wire log is running; try again when that is done", false);
+                    return ($"{r.BytesBefore / (1024 * 1024):N0} MB -> {r.BytesAfter / (1024 * 1024):N0} MB", true);
+                }, maintenance: "Compacting the database");
+                break;
+        }
+    }
+
     /// <summary>$EXPORT [path] - see <see cref="Mucka.Store.RunTransfer.Export"/>. The merge half is
     /// <c>mucka -import</c> (<see cref="Mucka.Store.DatabaseImport"/>), which needs the database
     /// closed and so cannot be a command in a running client.</summary>
@@ -2223,11 +2302,12 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>Runs <paramref name="work"/> off the UI thread, one database job at a time, and reports
     /// its message (or its exception) as a system line tagged <c>[label]</c>.</summary>
-    private void RunDatabaseJob(string label, string startMessage, Func<(string Message, bool Ok)> work)
+    private void RunDatabaseJob(string label, string startMessage, Func<(string Message, bool Ok)> work,
+        string? maintenance = null)
     {
         if (Interlocked.Exchange(ref _importing, 1) != 0)
         {
-            AddSystemLine($"[{label}] another import or export is already running", 9);
+            AddSystemLine($"[{label}] another database job is already running", 9);
             return;
         }
 
@@ -2238,6 +2318,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             byte color = 14;
             try
             {
+                // The maintenance overlay for as long as the work takes, when it is the kind that
+                // keeps the log from serving the window.
+                using var job = maintenance is null ? null : Mucka.Store.Maintenance.Begin(maintenance);
                 var (text, ok) = work();
                 message = $"[{label}] {text}";
                 if (!ok) color = 9;
@@ -2634,8 +2717,9 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         delta >= 0 ? $"+{delta}" : $"{delta}";
 
     /// <summary>
-    /// Called by GamePage on each SizeAllocated. Updates effective columns and notifies
-    /// the server of the new terminal width if it changed.
+    /// Called by GamePage whenever it measures: on a page size allocation, a pane size change, a font
+    /// change or a rotation. Updates the columns the status bar, the input row and the function
+    /// keys tier by.
     ///
     /// <para>The notification list must name every public property whose getter reaches
     /// <c>_effCols</c>, directly or through another member, and nothing else;
@@ -2643,13 +2727,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     /// </summary>
     public void NotifyWindowSize(double widthDp, int displayableCols)
     {
-#if MACCATALYST
-        // A fixed column count is the player's choice, not a ceiling to fall under: the window's
-        // minimum width keeps the pane wide enough, so a narrower measurement is a transient.
-        if (_maxColumns > 0)
-            displayableCols = Math.Max(displayableCols, _maxColumns);
-#endif
-        var clamped       = Mucka.Terminal.TerminalColumns.Effective(_maxColumns, displayableCols);
+        var clamped       = Mucka.Terminal.TerminalColumns.Effective(displayableCols);
         var effColChanged = clamped != _effCols;
         // The page's first measurement re-lays out everything that depends on the width even when
         // the count is the one the connection started with. Observed without it on Windows: with the
@@ -2657,13 +2735,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         var firstMeasure  = _widthDp <= 0;
         _widthDp = widthDp;
         if (effColChanged)
-        {
             _effCols = clamped;
-            _conn.SetWindowSize(_effCols, MuckaConnection.ShellRows);
-            // NAWS alone doesn't re-wrap MUD2 output - the server wraps on the /T width set at
-            // client-mode entry. Re-issue it so text sent after a resize wraps at the new width.
-            _conn.SendTerminalWidth();
-        }
         if (effColChanged || firstMeasure)
         {
             OnPropertyChanged(nameof(EffCols));
@@ -2701,6 +2773,22 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Sets the columns of the terminal pane's text area, which the pane wraps at, and the window
+    /// size the transport advertises when it changed. The server is not told: the pane wraps the
+    /// text itself. Returns the count the pane should wrap at.
+    /// </summary>
+    public int SetPaneColumns(int displayableCols)
+    {
+        var clamped = Mucka.Terminal.TerminalColumns.Effective(displayableCols);
+        if (clamped != _paneCols)
+        {
+            _paneCols = clamped;
+            _conn.SetWindowSize(_paneCols, MuckaConnection.ShellRows);
+        }
+        return _paneCols;
+    }
+
     /// <summary>Updates the FES heartbeat interval. Zero disables the heartbeat.</summary>
     public void ApplyStatUpdateFrequency(int secs)
     {
@@ -2710,8 +2798,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     /// <summary>
-    /// Applies a new terminal font size and recomputes the column layout for the new
-    /// glyph width. GamePage reacts to the FontSize change (terminal + window resize).
+    /// Applies a new terminal font size. GamePage reacts to the FontSize change: it re-styles the
+    /// terminal and measures its pane again for the new glyph width, which only the page can do.
     /// </summary>
     public void ApplyFontSize(int px)
     {
@@ -2719,8 +2807,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         if (px == _fontSize) return;
         _fontSize = px;
         OnPropertiesChanged(nameof(FontSize), nameof(CharWidthDp));
-        if (_widthDp > 0)
-            NotifyWindowSize(_widthDp, (int)Math.Floor(_widthDp / CharWidthDp));
     }
 
     /// <summary>Applies a new sound volume to subsequently played sounds.</summary>
@@ -2729,23 +2815,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         _volume = Math.Clamp(volume, 0, 100);
         SoundService.SetVolume(_volume);
         OnPropertyChanged(nameof(Volume));
-    }
-
-    /// <summary>
-    /// Applies a new maximum column count, sends the /T escape sequence to the server,
-    /// and recalculates the effective column layout.
-    /// </summary>
-    public void ApplyMaxColumns(int cols)
-    {
-        cols = Math.Clamp(cols, 0, 160);  // 0 = auto
-        _maxColumns = cols;
-        // In auto mode don't send an explicit NAWS width; NotifyWindowSize will send the
-        // real value once the window is measured. In explicit mode send immediately.
-        if (cols > 0)
-            _conn.SendTerminalWidth(cols);
-        OnPropertyChanged(nameof(MaxColumns));
-        if (_widthDp > 0)
-            NotifyWindowSize(_widthDp, (int)(_widthDp / CharWidthDp));
     }
 
     public void Annotate(string message) => _conn.Annotate(message);
@@ -2758,7 +2827,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     }
 
     /// <summary>Loads the per-fight history and warms the per-swing damage cache, both off the UI
-    /// thread. Sequential rather than concurrent: they read the same database file at the moment the
+    /// thread. Sequential rather than concurrent: they use the same database file at the moment the
     /// app is already busiest, and neither is urgent - the rail's history column is blank until the
     /// first fight either way.</summary>
     private async Task LoadCombatHistoryAsync()

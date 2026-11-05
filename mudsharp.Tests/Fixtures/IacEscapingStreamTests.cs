@@ -63,7 +63,7 @@ public class IacEscapingStreamTests
         h.Feed(ReadAll(reply.ToArray(), 4096));
         h.Parser.ShowPrompt();
 
-        Assert.Equal(new[] { 90 }, h.ConfirmedWidths);
+        Assert.DoesNotContain(h.Lines, l => l.PlainText.Contains("New terminal width"));
         Assert.Contains(h.Lines, l => l.PlainText.Contains("Option (H for help):"));
     }
 }

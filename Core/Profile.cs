@@ -94,8 +94,6 @@ public class Profile : INotifyPropertyChanged
     /// <summary>Persona name to auto-select (or offer to create, if a slot is free) when
     /// GuidedLogin is enabled. Empty = let the user choose interactively during connect.</summary>
     public string GuidedLoginPersona { get; set; } = string.Empty;
-    /// <summary>Maximum terminal columns to advertise via NAWS. 0 = auto-size to window (default).</summary>
-    public int MaxColumns { get; set; }
     /// <summary>Seconds of player inactivity before sending a blank keep-alive command. 0 = disabled.</summary>
     public int AntiIdleSeconds { get; set; }
     /// <summary>Keep the screen/display awake while connected to the game.
@@ -148,7 +146,6 @@ public class Profile : INotifyPropertyChanged
     public ClientSettings ToClientSettings(int uiFontStep) => new()
     {
         FontSize            = FontSize,
-        MaxColumns          = MaxColumns,
         Volume              = Volume,
         StatUpdateFrequency = StatUpdateFrequency,
         MuteBeepPermanently = MuteBeepPermanently,
@@ -156,7 +153,6 @@ public class Profile : INotifyPropertyChanged
         FkeysPerProfile     = FkeysPerProfile,
         Sounds              = Sounds.Clone(),
         UiFontStep          = uiFontStep,
-        DefaultMaxColumns   = DefaultMaxColumns,
         DreamwordSizeOffset = DreamwordSizeOffset,
         EmoteColor          = EmoteColor,
         SayColor            = SayColor,
@@ -182,7 +178,6 @@ public class Profile : INotifyPropertyChanged
     public bool FkeysPerProfile { get; set; }
 
     // -- Display tab settings (global, loaded from [settings] section at connect time) --
-    public int DefaultMaxColumns { get; set; }
     public int DreamwordSizeOffset { get; set; }
     /// <summary>Hex color (6 digits, no '#') for the speaker of every chat line and act/emote text.</summary>
     public string EmoteColor { get; set; } = MudSharp.Models.ChatTheme.Default.EmoteHex;

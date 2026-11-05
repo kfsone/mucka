@@ -3,9 +3,8 @@ using Mucka.Combat;
 namespace Mucka.Util.Tests;
 
 /// <summary>
-/// Tests for <see cref="CombatRailResize"/> - the Combat Rail's window-resize arithmetic (T1/T3/T4
-/// and the column-change desync fix), extracted from GamePage.xaml.cs so it can be exercised here
-/// without a live WinUI window.
+/// Tests for <see cref="CombatRailResize"/> - the Combat Rail's window-resize arithmetic (T1/T3/T4),
+/// extracted from GamePage.xaml.cs so it can be exercised here without a live WinUI window.
 ///
 /// DPI is passed as a plain value everywhere (96 == 100%, 120 == 125%, 144 == 150%) - see
 /// <see cref="CombatRailResize.DpToPxCeil"/>/<see cref="CombatRailResize.DpToPxRound"/> for the
@@ -15,25 +14,27 @@ public class CombatRailResizeTests
 {
     private const double Dpi100 = 96.0;
 
+    // The least window width the layout allows with the left panel expanded: gutter 4 + panel 228 +
+    // chrome 16.
+    private const int ExpandedFloorPx = 252;
+
     // The production methods take the rail's width as a REQUIRED parameter - no default - because a
     // defaulted one is how three call sites silently kept the wide width after the Stats toggle made
     // it variable. These wrappers put the wide value back for the cases below that are about
     // something else; the narrow-width cases at the end call the real methods directly.
     private static CombatRailResize.ToggleResult ComputeToggle(
-        bool showing, int currentWidthPx, double dpi, int maxColumns, double charWidthDp,
-        bool panelExpanded, double appliedDeltaDp)
-        => CombatRailResize.ComputeToggle(showing, currentWidthPx, dpi, maxColumns, charWidthDp,
-            panelExpanded, appliedDeltaDp, CombatRailResize.CombatPanelWidthDp);
+        bool showing, int currentWidthPx, double dpi, bool panelExpanded, double appliedDeltaDp,
+        double sidePanelScale = 1.0)
+        => CombatRailResize.ComputeToggle(showing, currentWidthPx, dpi, panelExpanded, appliedDeltaDp,
+            CombatRailResize.CombatPanelWidthDp, sidePanelScale);
 
-    private static double SeedAppliedDeltaDp(
-        int currentWidthPx, double dpi, int maxColumns, double charWidthDp, bool panelExpanded)
-        => CombatRailResize.SeedAppliedDeltaDp(currentWidthPx, dpi, maxColumns, charWidthDp,
-            panelExpanded, CombatRailResize.CombatPanelWidthDp);
+    private static double SeedAppliedDeltaDp(int currentWidthPx, double dpi, bool panelExpanded)
+        => CombatRailResize.SeedAppliedDeltaDp(currentWidthPx, dpi, panelExpanded,
+            CombatRailResize.CombatPanelWidthDp);
 
     private static CombatRailResize.InitialSize ComputeInitialWidth(
-        int minWidthPx, double dpi, int maxColumns, double charWidthDp, bool panelExpanded,
-        bool railShown)
-        => CombatRailResize.ComputeInitialWidth(minWidthPx, dpi, maxColumns, charWidthDp,
+        int minWidthPx, double dpi, double charWidthDp, bool panelExpanded, bool railShown)
+        => CombatRailResize.ComputeInitialWidth(minWidthPx, dpi, charWidthDp,
             panelExpanded, railShown, CombatRailResize.CombatPanelWidthDp);
 
     private static int MinTrackWidthPx(int floorPx, double dpi, bool railShown)
@@ -43,57 +44,59 @@ public class CombatRailResizeTests
         => CombatRailResize.ReserveRailWidth(targetWidthPxWithoutRail, dpi,
             CombatRailResize.CombatPanelWidthDp);
 
-    // -- Four acceptance-criteria examples, at the real CombatPanelWidthDp (386, not the
-    //    illustrative 336 - see CombatRailResize's own remarks on why the two differ by the
-    //    Border's 2dp stroke inset) --------------------------------------------------------------
+    // -- The floor ---------------------------------------------------------------------------------
 
     [Fact]
-    public void Auto_Show_GrowsByFullRailWidth()
+    public void Floor_IsGutterPanelAndChrome_WithNoColumnsReserved()
     {
-        // Auto columns (MaxColumns == 0): "there's no slack" - the window always grows by the rail's
-        // full reservation, regardless of its current width.
+        Assert.Equal(252.0, CombatRailResize.FloorWindowWidthDp(panelExpanded: true));
+        Assert.Equal(24.0, CombatRailResize.FloorWindowWidthDp(panelExpanded: false));
+    }
+
+    [Fact]
+    public void Floor_WidensBySidePanelScale_OnlyWhenThePanelIsShown()
+    {
+        Assert.Equal(252.0 + CombatRailResize.SidePanelWidthDp * 0.25,
+            CombatRailResize.FloorWindowWidthDp(panelExpanded: true, sidePanelScale: 1.25), 6);
+        Assert.Equal(24.0, CombatRailResize.FloorWindowWidthDp(panelExpanded: false, sidePanelScale: 1.25));
+    }
+
+    // -- Acceptance-criteria examples, at the real CombatPanelWidthDp (386, not the illustrative 336 -
+    //    see CombatRailResize's own remarks on why the two differ by the Border's 2dp stroke inset) ---
+
+    [Fact]
+    public void Show_GrowsByFullRailWidth()
+    {
+        // "There's no slack" - the window always grows by the rail's full reservation, regardless of
+        // its current width.
         var result = ComputeToggle(
-            showing: true, currentWidthPx: 800, dpi: Dpi100, maxColumns: 0,
-            charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: 0.0);
+            showing: true, currentWidthPx: 800, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 0.0);
 
         Assert.Equal(1186, result.TargetWidthPx);
         Assert.Equal(386.0, result.NewAppliedDeltaDp);
     }
 
     [Fact]
-    public void Auto_HideAfterManualResize_PreservesTheManualAddition()
+    public void Hide_AfterManualResize_PreservesTheManualAddition()
     {
         // Continuing from the show above (delta 386): the player manually widens the window by 100
         // (1186 -> 1286) while the rail is still up, THEN hides it. Hiding must remove only the
         // rail's own 386, not the player's +100.
         var result = ComputeToggle(
-            showing: false, currentWidthPx: 1286, dpi: Dpi100, maxColumns: 0,
-            charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: 386.0);
+            showing: false, currentWidthPx: 1286, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 386.0);
 
         Assert.Equal(900, result.TargetWidthPx);
         Assert.Equal(0.0, result.NewAppliedDeltaDp);
     }
 
-    // Fixed-columns setup shared by the next several tests: panelExpanded=true, maxColumns=42,
-    // charWidthDp=8.0 makes PreferredWindowWidthDp(8, true, 44 /* maxColumns+2 */) come out to
-    // exactly 600 (44*8 + 4 gutter + 228 panel + 16 chrome = 352 + 248 = 600) - a "fixed natural
-    // 600" reached with clean round numbers rather than reverse-engineering charWidthDp to an
-    // ugly fraction.
-    private const int FixedMaxColumns = 42;
-    private const double FixedCharWidthDp = 8.0;
-    private const bool FixedPanelExpanded = true;
-
     [Fact]
-    public void Fixed_Show_SeatsRailInExistingSlackFirst()
+    public void Hide_WithNoManualResize_RestoresExactPreShowWidth()
     {
-        // Natural (without rail) is 600; the window is already at 650, i.e. 50 of genuine slack.
-        // Only 386 - 50 = 336 needs adding, landing at 986 - not 650 + 386 = 1036.
         var result = ComputeToggle(
-            showing: true, currentWidthPx: 650, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
+            showing: false, currentWidthPx: 1186, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 386.0);
 
-        Assert.Equal(986, result.TargetWidthPx);
-        Assert.Equal(336.0, result.NewAppliedDeltaDp);
+        Assert.Equal(800, result.TargetWidthPx);
+        Assert.Equal(0.0, result.NewAppliedDeltaDp);
     }
 
     [Fact]
@@ -104,42 +107,34 @@ public class CombatRailResizeTests
         // one gave it, so the incoming page's applied-delta starts at zero and the first hide
         // subtracts nothing.
         //
-        // Natural here is 600 and the window arrives at 986: 650 of the player's own sizing plus the
-        // 336 the rail was actually seated in. The seed must claim the 336 and leave the 50 of manual
-        // slack alone.
-        var seeded = SeedAppliedDeltaDp(
-            currentWidthPx: 986, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded);
+        // The window arrives at 1186, 938 above the floor: the seed claims the rail's 386 and
+        // hiding gives it back.
+        var seeded = SeedAppliedDeltaDp(currentWidthPx: 1186, dpi: Dpi100, panelExpanded: true);
 
         Assert.Equal(386.0, seeded);
 
-        // The limit of the inference, asserted rather than glossed: the seed claims the rail's FULL
-        // width where this particular show only ever seated 336 of it, because nothing on the window
-        // records which part of the slack was whose. So hiding after a relog lands on 600 - the
-        // natural width - rather than the 650 the same hide would have reached inside one session.
-        //
-        // That is the right way to be wrong. The window ends up at a legal, useful size instead of
-        // stuck a rail-width too wide, and the only cost is 50 units of the player's own sizing in
-        // the case where they had widened the window BEFORE showing the rail and then relogged.
         var hidden = ComputeToggle(
-            showing: false, currentWidthPx: 986, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: seeded);
+            showing: false, currentWidthPx: 1186, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: seeded);
 
-        Assert.Equal(600, hidden.TargetWidthPx);
+        Assert.Equal(800, hidden.TargetWidthPx);
         Assert.Equal(0.0, hidden.NewAppliedDeltaDp);
     }
 
     [Fact]
-    public void Seed_OnAFreshRun_ClaimsNothing()
+    public void Seed_OnAWindowAtTheFloor_ClaimsNothing()
     {
-        // The first page of a run adopts a window that owes the rail nothing - the seed must be a
-        // no-op there, or every launch would hand the first hide a delta to subtract that was never
-        // added. Natural is 600 and the window is at it.
-        var seeded = SeedAppliedDeltaDp(
-            currentWidthPx: 600, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded);
+        // Nothing above the floor can be the rail's, so there is nothing to claim.
+        var seeded = SeedAppliedDeltaDp(currentWidthPx: ExpandedFloorPx, dpi: Dpi100, panelExpanded: true);
 
         Assert.Equal(0.0, seeded);
+    }
+
+    [Fact]
+    public void Seed_ClaimsOnlyTheSlackAboveTheFloor_WhenThatIsLessThanTheRail()
+    {
+        var seeded = SeedAppliedDeltaDp(currentWidthPx: ExpandedFloorPx + 100, dpi: Dpi100, panelExpanded: true);
+
+        Assert.Equal(100.0, seeded);
     }
 
     [Fact]
@@ -147,113 +142,70 @@ public class CombatRailResizeTests
     {
         // A window the player has dragged far wider than the rail could account for: the seed takes
         // the rail's own width and no more, so hiding gives their sizing back rather than eating it.
-        var seeded = SeedAppliedDeltaDp(
-            currentWidthPx: 600 + 386 + 400, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded);
+        var width = ExpandedFloorPx + 386 + 400;
+        var seeded = SeedAppliedDeltaDp(currentWidthPx: width, dpi: Dpi100, panelExpanded: true);
 
         Assert.Equal(386.0, seeded);
 
         var hidden = ComputeToggle(
-            showing: false, currentWidthPx: 600 + 386 + 400, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: seeded);
+            showing: false, currentWidthPx: width, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: seeded);
 
-        Assert.Equal(1000, hidden.TargetWidthPx);
+        Assert.Equal(ExpandedFloorPx + 400, hidden.TargetWidthPx);
     }
 
-    [Fact]
-    public void Fixed_Hide_WithNoManualResize_RestoresExactPreShowWidth()
-    {
-        var result = ComputeToggle(
-            showing: false, currentWidthPx: 978, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 328.0);
-
-        Assert.Equal(650, result.TargetWidthPx);
-        Assert.Equal(0.0, result.NewAppliedDeltaDp);
-    }
-
-    [Fact]
-    public void Fixed_Hide_AfterManualResizeWhileShown_PreservesTheManualAddition()
-    {
-        // From 978 (shown), the player manually resizes to 1040 (+62) while the rail is still up.
-        // Hiding removes only the stored 328, giving back 650 + 62 = 712, not 650.
-        var result = ComputeToggle(
-            showing: false, currentWidthPx: 1040, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 328.0);
-
-        Assert.Equal(712, result.TargetWidthPx);
-        Assert.Equal(0.0, result.NewAppliedDeltaDp);
-    }
-
-    [Fact]
-    public void Fixed_Show_WhenSlackAlreadyExceedsNeed_AddsNothing()
-    {
-        // Slack (388) already exceeds the rail's own width (386): the window must not resize at all.
-        var result = ComputeToggle(
-            showing: true, currentWidthPx: 988, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
-
-        Assert.Equal(988, result.TargetWidthPx);
-        Assert.Equal(0.0, result.NewAppliedDeltaDp);
-    }
-
-    // -- The floor clamp: the window may never end up narrower than the terminal+left-panel need --
+    // -- The floor clamp: the window may never end up narrower than the left-panel floor ----------------
 
     [Fact]
     public void Show_NeverEndsUpNarrowerThanTheFloor()
     {
-        // Floor for 42 columns (no +2 margin - this is PreferredWindowWidthDp(charWidthDp,
-        // panelExpanded, maxColumns), not maxColumns+2): 42*8 + 4 + 228 + 16 = 584.
-        // A near-zero starting width still can't end up below that floor even after adding the rail.
+        // A side panel scaled to twice its width puts the floor at 4 + 4 + 456 + 16 = 480, above the
+        // rail's own 386: a near-zero starting width cannot end up below the floor even after adding
+        // the rail.
         var result = ComputeToggle(
-            showing: true, currentWidthPx: 0, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
+            showing: true, currentWidthPx: 0, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 0.0,
+            sidePanelScale: 2.0);
 
-        Assert.Equal(584, result.TargetWidthPx);
-        // The remembered delta must match what was ACTUALLY applied (584 - 0 = 584), not the raw
-        // pre-clamp deltaPx (386) computed before the floor pushed the target up further.
-        Assert.Equal(584.0, result.NewAppliedDeltaDp);
+        Assert.Equal(480, result.TargetWidthPx);
+        // The remembered delta must match what was ACTUALLY applied (480 - 0), not the raw
+        // pre-clamp 386 the rail costs.
+        Assert.Equal(480.0, result.NewAppliedDeltaDp);
     }
 
     [Fact]
     public void Show_WhenFloorClampBites_DeltaMatchesWhatWasActuallyApplied_AndHideRoundTripsCorrectly()
     {
-        // A window starting at 0 is narrower than even the un-railed floor (584) - impossible via
-        // GamePage's own UpdateWindowMinimumWidth in practice (it continuously enforces that floor),
-        // but ComputeToggle is a pure function and has to stay correct regardless of caller
-        // discipline. At such a low starting width there is no slack, so the raw computed delta is
-        // the rail's full 386 - but 0 + 386 = 386 is still below the 584 floor, so the clamp bites and
-        // the amount ACTUALLY applied is 584, not 386.
+        // A window starting at 0 is narrower than even the un-railed floor - impossible via GamePage's
+        // own UpdateWindowMinimumWidth in practice (it continuously enforces that floor), but
+        // ComputeToggle is a pure function and has to stay correct regardless of caller discipline.
         var shown = ComputeToggle(
-            showing: true, currentWidthPx: 0, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
+            showing: true, currentWidthPx: 0, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 0.0,
+            sidePanelScale: 2.0);
 
-        Assert.Equal(584, shown.TargetWidthPx);
-        Assert.Equal(584.0, shown.NewAppliedDeltaDp);
+        Assert.Equal(480, shown.TargetWidthPx);
+        Assert.Equal(480.0, shown.NewAppliedDeltaDp);
 
         // Hiding immediately, using the resynced delta, must not overshoot below the floor either -
-        // the window lands back at the floor (584), which is the honest answer: the pre-show 0 was
-        // never a legal width to begin with. The delta driving this arithmetic has to be the real
+        // the window lands back at the floor, which is the honest answer: the pre-show 0 was never a
+        // legal width to begin with. The delta driving this arithmetic has to be the real
         // (post-clamp) one, not the raw pre-clamp value.
         var hidden = ComputeToggle(
-            showing: false, currentWidthPx: shown.TargetWidthPx, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded,
-            appliedDeltaDp: shown.NewAppliedDeltaDp);
+            showing: false, currentWidthPx: shown.TargetWidthPx, dpi: Dpi100, panelExpanded: true,
+            appliedDeltaDp: shown.NewAppliedDeltaDp, sidePanelScale: 2.0);
 
-        Assert.Equal(584, hidden.TargetWidthPx);
+        Assert.Equal(480, hidden.TargetWidthPx);
         Assert.Equal(0.0, hidden.NewAppliedDeltaDp);
     }
 
     [Fact]
     public void Hide_NeverEndsUpNarrowerThanTheFloor()
     {
-        // Same floor (584). Subtracting the full stored delta from a window already AT natural width
-        // would go to 262 - the clamp pins it at the floor instead, deliberately forgetting the width
-        // it could not remove rather than trying to claw it back on a later resize.
+        // Subtracting the full stored delta from a window already near the floor would go below it -
+        // the clamp pins it at the floor instead, deliberately forgetting the width it could not
+        // remove rather than trying to claw it back on a later resize.
         var result = ComputeToggle(
-            showing: false, currentWidthPx: 600, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 386.0);
+            showing: false, currentWidthPx: 300, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 386.0);
 
-        Assert.Equal(584, result.TargetWidthPx);
+        Assert.Equal(ExpandedFloorPx, result.TargetWidthPx);
         Assert.Equal(0.0, result.NewAppliedDeltaDp);
     }
 
@@ -262,16 +214,16 @@ public class CombatRailResizeTests
     [Fact]
     public void DpToPxRound_ScalesWithDpi_150Percent()
     {
-        // 338dp at 150% (dpi 144): 386 * 144 / 96 = 579 exactly - no rounding ambiguity.
+        // 386dp at 150% (dpi 144): 386 * 144 / 96 = 579 exactly - no rounding ambiguity.
         Assert.Equal(579, CombatRailResize.DpToPxRound(CombatRailResize.CombatPanelWidthDp, 144.0));
     }
 
     [Fact]
     public void DpToPxRound_ScalesWithDpi_125Percent_BankersRounding()
     {
-        // 338dp at 125% (dpi 120): 386 * 120 / 96 = 472.5 exactly - a genuine rounding midpoint.
+        // 386dp at 125% (dpi 120): 386 * 120 / 96 = 482.5 exactly - a genuine rounding midpoint.
         // Math.Round with no MidpointRounding argument defaults to "round half to even", so this
-        // resolves to 472 (the nearest even integer), not 423. Asserted explicitly so a reader does
+        // resolves to 482 (the nearest even integer), not 483. Asserted explicitly so a reader does
         // not have to guess which way DpToPxRound resolves a tie.
         Assert.Equal(482, CombatRailResize.DpToPxRound(CombatRailResize.CombatPanelWidthDp, 120.0));
     }
@@ -279,10 +231,9 @@ public class CombatRailResizeTests
     [Fact]
     public void Show_At150Percent_ScalesTheFullRailWidth()
     {
-        // Auto mode at 150% DPI: the rail's own 338dp becomes 507px, not 338px.
+        // At 150% DPI the rail's own 386dp becomes 579px, not 386px.
         var result = ComputeToggle(
-            showing: true, currentWidthPx: 1200, dpi: 144.0, maxColumns: 0,
-            charWidthDp: 12.0, panelExpanded: true, appliedDeltaDp: 0.0);
+            showing: true, currentWidthPx: 1200, dpi: 144.0, panelExpanded: true, appliedDeltaDp: 0.0);
 
         Assert.Equal(1200 + 579, result.TargetWidthPx);
         Assert.Equal(386.0, result.NewAppliedDeltaDp);
@@ -291,22 +242,20 @@ public class CombatRailResizeTests
     [Fact]
     public void Hide_AfterDpiChangedWhileShown_ReconvertsAtTheNewDpi_NotTheStaleOne()
     {
-        // Show at 100% DPI (auto mode, currentWidthPx 800): delta stored as 378dp,
-        // window grows to 1178px.
+        // Show at 100% DPI (currentWidthPx 800): delta stored as 386dp, window grows to 1186px.
         var shown = ComputeToggle(
-            showing: true, currentWidthPx: 800, dpi: Dpi100, maxColumns: 0,
-            charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: 0.0);
+            showing: true, currentWidthPx: 800, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 0.0);
         Assert.Equal(1186, shown.TargetWidthPx);
         Assert.Equal(386.0, shown.NewAppliedDeltaDp);
 
         // The window is then dragged to a 150%-scaled monitor. WinUI rescales the whole window's
         // physical size with it (1186 * 1.5 = 1779) - this test does not re-derive that rescale, it
         // simply asserts what CombatRailResize does with the new state: hiding must reconvert the
-        // STORED 338dp at the CURRENT 150% dpi (386 * 144 / 96 = 579), and not leave the window's
+        // STORED 386dp at the CURRENT 150% dpi (386 * 144 / 96 = 579), and not leave the window's
         // DPI-rescaled extra width behind as orphaned space.
         var hidden = ComputeToggle(
-            showing: false, currentWidthPx: 1779, dpi: 144.0, maxColumns: 0,
-            charWidthDp: 12.0, panelExpanded: true, appliedDeltaDp: shown.NewAppliedDeltaDp);
+            showing: false, currentWidthPx: 1779, dpi: 144.0, panelExpanded: true,
+            appliedDeltaDp: shown.NewAppliedDeltaDp);
 
         // 800dp's own equivalent at 150% is 1200px (800 * 1.5) - exactly what a correct reconversion
         // gives back: 1779 - 579 = 1200.
@@ -314,8 +263,8 @@ public class CombatRailResizeTests
         Assert.Equal(0.0, hidden.NewAppliedDeltaDp);
     }
 
-    // -- A column-count change made while the rail is shown must not eat the rail's width out of
-    //    the terminal, and the resynced delta must make a later hide exact -----------------------
+    // -- The enforced-minimum force-grow must not eat the rail's width out of the terminal, and the
+    //    resynced delta must make a later hide exact ------------------------------------------------
 
     [Fact]
     public void ReserveRailWidth_AddsExactlyTheRailsFullReservation()
@@ -326,112 +275,57 @@ public class CombatRailResizeTests
         Assert.Equal(386.0, reserved.AppliedDeltaDp);
     }
 
-    [Fact]
-    public void ColumnsChangeWhileRailShown_TerminalKeepsItsFullColumnCount()
-    {
-        // Fixed columns changed from 60 to 70 while the rail is shown. ResizeWindowToFitColumns
-        // snaps to PreferredWindowWidthDp(charWidthDp, panelExpanded, 72 /* 70 + 2 breathing
-        // columns */) = 72*8 + 4 + 228 + 16 = 824 - then, because the rail is shown, reserves its
-        // width on top via ReserveRailWidth.
-        const double charWidthDp = 8.0;
-        const bool panelExpanded = true;
-        var naturalWithoutRail = CombatRailResize.PreferredWindowWidthDp(charWidthDp, panelExpanded, 72.0);
-        var naturalPx = CombatRailResize.DpToPxCeil(naturalWithoutRail, Dpi100);
-        Assert.Equal(824, naturalPx);
-
-        var reserved = ReserveRailWidth(naturalPx, Dpi100);
-
-        Assert.Equal(824 + 386, reserved.TargetWidthPx);
-        Assert.Equal(386.0, reserved.AppliedDeltaDp);
-
-        // The terminal's own share of that final width - subtracting the rail, the left panel, the
-        // gutter and the chrome - must equal exactly 72 columns' worth (576 = 72 * 8).
-        var terminalColumnsWidth = reserved.TargetWidthPx
-            - CombatRailResize.DpToPxRound(CombatRailResize.CombatPanelWidthDp, Dpi100)
-            - (int)CombatRailResize.SidePanelWidthDp
-            - (int)CombatRailResize.TerminalGutterDp
-            - (int)CombatRailResize.WindowChromeDp;
-        Assert.Equal((int)(72.0 * charWidthDp), terminalColumnsWidth);
-    }
-
-    [Fact]
-    public void ColumnsChangeWhileRailShown_LaterHideReturnsExactlyToTheNewNaturalWidth()
-    {
-        // Continuing the scenario above: the resynced delta (386, zero slack) must make hiding land
-        // exactly back on the new natural width (824), not clamped below the new floor.
-        var result = ComputeToggle(
-            showing: false, currentWidthPx: 824 + 386, dpi: Dpi100, maxColumns: 70,
-            charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: 386.0);
-
-        Assert.Equal(824, result.TargetWidthPx);
-        Assert.Equal(0.0, result.NewAppliedDeltaDp);
-    }
-
     // -- T0: the first sizing of a run, which happens before any toggle has run and must already
     //    account for a profile that starts with the rail shown --------------------------------
 
     [Fact]
-    public void InitialWidth_FixedColumns_TargetsTheConfiguredColumnsPlusTwo()
+    public void InitialWidth_UsesTheLaunchDefaultBasis()
     {
-        // 100 configured columns, rail off: 102*8 + 4 gutter + 228 panel + 16 chrome = 1064.
-        // The launch default (DefaultViewColumns, 82) is NOT the basis when columns are configured.
+        // DefaultViewColumns (82): 82*8 + 4 gutter + 4 scrollbar + 228 panel + 16 chrome = 908.
         var initial = ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: 100, charWidthDp: 8.0,
-            panelExpanded: true, railShown: false);
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0, panelExpanded: true, railShown: false);
 
-        Assert.Equal(1064, initial.TargetWidthPx);
+        Assert.Equal(908, initial.TargetWidthPx);
         Assert.Equal(0.0, initial.AppliedDeltaDp);
     }
 
     [Fact]
     public void InitialWidth_RailShownFromTheProfile_ReservesItOnTopOfTheColumns()
     {
-        // The reported defect: a profile with 100 columns AND the rail already shown was sized to
-        // the terminal alone, so the rail's 386 came out of the columns and the text was cut off.
-        // The rail must be added on top, and the delta recorded in full - this width was computed
-        // with no slack, so a later hide gives back exactly the rail.
+        // The reported defect: a profile with the rail already shown was sized to the terminal alone,
+        // so the rail's 386 came out of the columns and the text was cut off. The rail must be added
+        // on top, and the delta recorded in full - this width was computed with no slack, so a later
+        // hide gives back exactly the rail.
         var initial = ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: 100, charWidthDp: 8.0,
-            panelExpanded: true, railShown: true);
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0, panelExpanded: true, railShown: true);
 
-        Assert.Equal(1064 + 386, initial.TargetWidthPx);
+        Assert.Equal(908 + 386, initial.TargetWidthPx);
         Assert.Equal(386.0, initial.AppliedDeltaDp);
 
-        // The terminal keeps all 102 columns rather than paying for the rail out of them.
+        // The terminal keeps all 82 columns rather than paying for the rail out of them.
         var terminalColumnsWidth = initial.TargetWidthPx
             - CombatRailResize.DpToPxRound(CombatRailResize.CombatPanelWidthDp, Dpi100)
             - (int)CombatRailResize.SidePanelWidthDp
             - (int)CombatRailResize.TerminalGutterDp
+            - (int)CombatRailResize.TerminalScrollbarDp
             - (int)CombatRailResize.WindowChromeDp;
-        Assert.Equal((int)(102.0 * 8.0), terminalColumnsWidth);
+        Assert.Equal((int)(CombatRailResize.DefaultViewColumns * 8.0), terminalColumnsWidth);
     }
 
     [Fact]
     public void InitialWidth_ThatFirstDelta_MakesTheFirstHideExact()
     {
         // The delta T0 records has to be the one T4 subtracts: showing from the profile and then
-        // hiding must land back on the railless width for those columns, with nothing orphaned.
+        // hiding must land back on the railless width, with nothing orphaned.
         var initial = ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: 100, charWidthDp: 8.0,
-            panelExpanded: true, railShown: true);
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0, panelExpanded: true, railShown: true);
 
         var hidden = ComputeToggle(
-            showing: false, currentWidthPx: initial.TargetWidthPx, dpi: Dpi100, maxColumns: 100,
-            charWidthDp: 8.0, panelExpanded: true, appliedDeltaDp: initial.AppliedDeltaDp);
+            showing: false, currentWidthPx: initial.TargetWidthPx, dpi: Dpi100, panelExpanded: true,
+            appliedDeltaDp: initial.AppliedDeltaDp);
 
-        Assert.Equal(1064, hidden.TargetWidthPx);
+        Assert.Equal(908, hidden.TargetWidthPx);
         Assert.Equal(0.0, hidden.NewAppliedDeltaDp);
-    }
-
-    [Fact]
-    public void InitialWidth_AutoColumns_UsesTheLaunchDefaultBasis()
-    {
-        // Auto columns (0): DefaultViewColumns (82) is the right basis - 82*8 + 248 = 904.
-        var initial = ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: 0, charWidthDp: 8.0,
-            panelExpanded: true, railShown: false);
-
-        Assert.Equal(904, initial.TargetWidthPx);
     }
 
     [Fact]
@@ -440,17 +334,16 @@ public class CombatRailResizeTests
         // The caller's floor still wins, and the rail is reserved on top of the floor - not taken
         // out of it - so a floor-pinned window still has room for the rail.
         var initial = ComputeInitialWidth(
-            minWidthPx: 2000, dpi: Dpi100, maxColumns: 42, charWidthDp: 8.0,
-            panelExpanded: true, railShown: true);
+            minWidthPx: 2000, dpi: Dpi100, charWidthDp: 8.0, panelExpanded: true, railShown: true);
 
         Assert.Equal(2000 + 386, initial.TargetWidthPx);
     }
 
     // -- The drag floor: while the rail is shown it includes the rail, so a drag cannot squeeze
-    //    the terminal below its configured columns to pay for it -------------------------------
+    //    the terminal to pay for it --------------------------------------------------------------
 
     [Fact]
-    public void MinTrack_WithoutTheRail_IsThePlainColumnFloor()
+    public void MinTrack_WithoutTheRail_IsThePlainFloor()
         => Assert.Equal(600, MinTrackWidthPx(600, Dpi100, railShown: false));
 
     [Fact]
@@ -458,29 +351,12 @@ public class CombatRailResizeTests
         => Assert.Equal(986, MinTrackWidthPx(600, Dpi100, railShown: true));
 
     [Fact]
-    public void MinTrack_AfterAShowThatHadToGrow_LeavesNothingToDragAway()
-    {
-        // The operator's case: natural 600, the player has widened to 800 (200 of slack), the rail
-        // is 386, so showing adds only 186 and lands on 986. That is exactly the rail-shown drag
-        // floor, so there is nothing left to shrink - which is what makes the later hide's
-        // arithmetic ("-186, plus whatever they added after") the only thing that can move it.
-        var shown = ComputeToggle(
-            showing: true, currentWidthPx: 800, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 0.0);
-
-        Assert.Equal(986, shown.TargetWidthPx);
-        Assert.Equal(186.0, shown.NewAppliedDeltaDp);
-        Assert.Equal(shown.TargetWidthPx, MinTrackWidthPx(600, Dpi100, railShown: true));
-    }
-
-    [Fact]
     public void MinTrack_RailShownFloorIsNotTheHideFloor()
     {
-        // Hiding is allowed to shrink past the rail-shown floor - the column width is the floor it
-        // is held to instead, which is what makes the width the rail was costing recoverable.
+        // Hiding is allowed to shrink past the rail-shown floor - the plain floor is what it is held
+        // to instead, which is what makes the width the rail was costing recoverable.
         var hidden = ComputeToggle(
-            showing: false, currentWidthPx: 978, dpi: Dpi100, maxColumns: FixedMaxColumns,
-            charWidthDp: FixedCharWidthDp, panelExpanded: FixedPanelExpanded, appliedDeltaDp: 178.0);
+            showing: false, currentWidthPx: 978, dpi: Dpi100, panelExpanded: true, appliedDeltaDp: 178.0);
 
         Assert.Equal(800, hidden.TargetWidthPx);
         Assert.Equal(600, MinTrackWidthPx(600, Dpi100, railShown: false));
@@ -516,15 +392,13 @@ public class CombatRailResizeTests
     [Fact]
     public void Show_WithStatsOff_ReservesTheNarrowWidthNotTheWide()
     {
-        // Auto columns, so there is no slack and the rail costs its full reservation - which must be
-        // the narrow one. Reserving 386 here and later giving back 298 would orphan 80dp of window.
+        // The rail costs its full reservation - which must be the narrow one. Reserving 386 here and
+        // later giving back 298 would orphan 88dp of window.
         var result = CombatRailResize.ComputeToggle(
             showing: true,
             currentWidthPx: 1000,
             dpi: Dpi100,
-            maxColumns: 0,
-            charWidthDp: FixedCharWidthDp,
-            panelExpanded: FixedPanelExpanded,
+            panelExpanded: true,
             appliedDeltaDp: 0.0,
             panelWidthDp: CombatRailResize.CombatPanelNarrowWidthDp);
 
@@ -537,21 +411,19 @@ public class CombatRailResizeTests
     {
         // The launch path, and the one this whole feature is FOR: a saved "rail shown, stats off"
         // must size the window for the narrow rail. Reserving the wide one here hands the difference
-        // to the terminal column and the window is 80dp too wide from the first frame, with no later
+        // to the terminal column and the window is 88dp too wide from the first frame, with no later
         // event to correct it - this went unnoticed because ComputeInitialWidth was the one function
         // that kept a defaulted width.
         var wide = CombatRailResize.ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: FixedMaxColumns, charWidthDp: FixedCharWidthDp,
-            panelExpanded: FixedPanelExpanded, railShown: true,
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0, panelExpanded: true, railShown: true,
             panelWidthDp: CombatRailResize.CombatPanelWidthDp);
         var narrow = CombatRailResize.ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: FixedMaxColumns, charWidthDp: FixedCharWidthDp,
-            panelExpanded: FixedPanelExpanded, railShown: true,
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0, panelExpanded: true, railShown: true,
             panelWidthDp: CombatRailResize.CombatPanelNarrowWidthDp);
 
-        Assert.Equal(600 + 386, wide.TargetWidthPx);
+        Assert.Equal(908 + 386, wide.TargetWidthPx);
         Assert.Equal(386.0, wide.AppliedDeltaDp);
-        Assert.Equal(600 + 298, narrow.TargetWidthPx);
+        Assert.Equal(908 + 298, narrow.TargetWidthPx);
         Assert.Equal(298.0, narrow.AppliedDeltaDp);
     }
 
@@ -585,13 +457,13 @@ public class CombatRailResizeTests
     public void InitialWidth_CarriesTheSidePanelScale()
     {
         var authored = CombatRailResize.ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: 0, charWidthDp: 8.0,
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0,
             panelExpanded: true, railShown: false, panelWidthDp: CombatRailResize.CombatPanelWidthDp);
         var scaled = CombatRailResize.ComputeInitialWidth(
-            minWidthPx: 0, dpi: Dpi100, maxColumns: 0, charWidthDp: 8.0,
+            minWidthPx: 0, dpi: Dpi100, charWidthDp: 8.0,
             panelExpanded: true, railShown: false, panelWidthDp: CombatRailResize.CombatPanelWidthDp,
             sidePanelScale: 1.5);
-        Assert.Equal(904, authored.TargetWidthPx);
-        Assert.Equal(904 + 114, scaled.TargetWidthPx);
+        Assert.Equal(908, authored.TargetWidthPx);
+        Assert.Equal(908 + 114, scaled.TargetWidthPx);
     }
 }

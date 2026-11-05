@@ -5,7 +5,7 @@ namespace Mucka.Settings;
 /// profile into <c>[settings]</c>.
 ///
 /// <para>Per-profile copies came from two places: <c>[settings:Name]</c> sections (the old "Save to
-/// profile only" checkbox on the Settings page) and four keys inside <c>[profile:Name]</c>
+/// profile only" checkbox on the Settings page) and three keys inside <c>[profile:Name]</c>
 /// (<see cref="ProfileSectionGlobalKeys"/>). Both are read here as sources, in
 /// most-recently-used order, and removed afterwards. Everything else in those sections - the
 /// connection identity, a Mac plain text <c>password</c>, and any key this version does not know -
@@ -21,11 +21,11 @@ public static class GlobalSettingsMigration
 
     /// <summary>Single-value keys that were per profile in <c>[settings:Name]</c> and are now global.</summary>
     public static readonly IReadOnlyList<string> ScalarKeys =
-        ["fontsize", "columns", "volume", "statupdate", "mutebeep", "logttr"];
+        ["fontsize", "volume", "statupdate", "mutebeep", "logttr"];
 
     /// <summary>Keys that lived in <c>[profile:Name]</c> and are now global under the same name.</summary>
     public static readonly IReadOnlyList<string> ProfileSectionGlobalKeys =
-        ["columns", "antiidle", "keepscreenon", "defaulthotkeys"];
+        ["antiidle", "keepscreenon", "defaulthotkeys"];
 
     // The sound family: "sounds" is the master switch, the rest are dotted override prefixes.
     private const string SoundMasterKey = "sounds";

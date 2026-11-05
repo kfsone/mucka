@@ -105,6 +105,31 @@
                 <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="5"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDataTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDataTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="Data" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDataTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDataTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
+
+                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="2"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
@@ -188,22 +213,6 @@
             <!-- - SETTINGS TAB - -->
             <ScrollView IsVisible="{Binding IsSettingsTabActive}">
                 <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
-
-                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Columns" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="&#x2212;" Command="{Binding DecrColumnsCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding ColumnsLabel}" TextColor="White" FontSize="{core:ScaledFont 13}"
-                                   MinimumWidthRequest="28" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
-                            <Button Text="+" Command="{Binding IncrColumnsCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
-                        </HorizontalStackLayout>
-                    </Grid>
 
                     <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
                         <Label Grid.Column="0" Text="Volume" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
@@ -627,22 +636,6 @@
                         </HorizontalStackLayout>
                     </Grid>
 
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Default Column Width" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                            <Button Text="&#x2212;" Command="{Binding DecrDisplayColumnsCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
-                            <Label Text="{Binding DisplayColumnsDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
-                                   WidthRequest="36" VerticalOptions="Center" HorizontalTextAlignment="Center"/>
-                            <Button Text="+" Command="{Binding IncrDisplayColumnsCommand}"
-                                    BackgroundColor="#2d333b" TextColor="#cccccc"
-                                    FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
-                                    CornerRadius="4" Padding="0"/>
-                        </HorizontalStackLayout>
-                    </Grid>
-
                     <!-- Mac only: where saved passwords live -->
                     <Grid ColumnDefinitions="160,*" ColumnSpacing="12" IsVisible="{Binding IsPasswordStoreAvailable}">
                         <Label Grid.Column="0" Text="Store Passwords Securely" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
@@ -886,6 +879,51 @@
                         </Grid>
 
                     </VerticalStackLayout>
+
+                </VerticalStackLayout>
+            </ScrollView>
+
+            <!-- - DATA TAB - -->
+            <ScrollView IsVisible="{Binding IsDataTabActive}">
+                <VerticalStackLayout Spacing="14" Padding="0,0,0,12">
+
+                    <Label Text="Applies to all profiles, straight away."
+                           TextColor="#555555" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"/>
+
+                    <Label Text="Local Data backups" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"/>
+
+                    <Label TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
+                           Text="Mucka keeps a history of your game sessions and sometimes has to reorganize it. When a change is risky, it can back up your history first. How eager should it be?"/>
+
+                    <VerticalStackLayout Spacing="0">
+                        <RadioButton GroupName="backups" Content="Startup" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                     IsChecked="{Binding BackupStartup, Mode=TwoWay}"/>
+                        <Label Margin="32,0,0,10" TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                               Text="Back up before every risky change."/>
+
+                        <RadioButton GroupName="backups" Content="Hourly" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                     IsChecked="{Binding BackupHourly, Mode=TwoWay}"/>
+                        <Label Margin="32,0,0,10" TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                               Text="Skip it if the last backup is under an hour old."/>
+
+                        <RadioButton GroupName="backups" Content="Daily" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                     IsChecked="{Binding BackupDaily, Mode=TwoWay}"/>
+                        <Label Margin="32,0,0,10" TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                               Text="Skip it if the last backup is under a day old."/>
+
+                        <RadioButton GroupName="backups" Content="Weekly" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                     IsChecked="{Binding BackupWeekly, Mode=TwoWay}"/>
+                        <Label Margin="32,0,0,10" TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                               Text="Skip it if the last backup is under a week old."/>
+
+                        <RadioButton GroupName="backups" Content="LEEEEEEROOOOY! (never)" TextColor="White" FontSize="{core:ScaledFont 13}"
+                                     IsChecked="{Binding BackupNever, Mode=TwoWay}"/>
+                        <Label Margin="32,0,0,10" TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                               Text="No backups. You just want to play MUD."/>
+                    </VerticalStackLayout>
+
+                    <Label TextColor="#555555" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"
+                           Text="Backups only happen before a risky change, never on a timer."/>
 
                 </VerticalStackLayout>
             </ScrollView>

@@ -39,9 +39,9 @@ public sealed record DatabaseImportOutcome(bool Ok, string Message);
 /// </summary>
 public static class DatabaseImport
 {
-    /// <summary>The previous database, kept after a successful import. The one before it is deleted by
-    /// the next import.</summary>
-    public const string OldFileName = "mucka.old.db";
+    /// <summary>The previous database, kept after a successful import. It is the file
+    /// <see cref="DatabaseBackup"/> keeps, so the next launch's import or heal replaces it.</summary>
+    public const string OldFileName = DatabaseBackup.FileName;
 
     public static DatabaseImportOutcome Run(string databasePath, string exportPath)
     {
@@ -199,6 +199,8 @@ public static class DatabaseImport
 
         // One call: the live name is never absent, and a failure leaves the previous backup in place.
         File.Replace(newPath, databasePath, oldPath);
+        // Recorded the moment the previous file is the backup, before the cleanup that can still throw.
+        DatabaseBackup.NoteKept(databasePath);
         foreach (var suffix in new[] { "-wal", "-shm", "-journal" })
             if (File.Exists(oldPath + suffix))
                 File.Delete(oldPath + suffix);

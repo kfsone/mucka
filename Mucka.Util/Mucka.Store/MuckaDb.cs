@@ -39,24 +39,40 @@ public static class MuckaDb
         => new SqliteConnectionStringBuilder { DataSource = path, Mode = SqliteOpenMode.ReadWriteCreate }.ToString();
 
     /// <summary>Opens a connection, creating the file and directory if needed, and brings the schema
-    /// up to date - see <see cref="ApplySchema"/>.
+    /// up to date - see <see cref="ApplySchema(SqliteConnection)"/>. An existing file that has
+    /// migrations to run is backed up first (<see cref="DatabaseBackup.TakeOnce"/>) unless
+    /// <paramref name="backUpBeforeUpgrade"/> is false, which is for a scratch copy the caller
+    /// backs up, or replaces, itself.
     ///
-    /// <para><b>Not safe against a second process opening the same file at the same moment</b>, on a
-    /// file that still has migrations to run. Migrations are no longer all IF NOT EXISTS - they drop
-    /// columns and rename tables - so two clients that both read the journal before either writes it
-    /// would both try, and the loser throws. <see cref="MuckaStore"/> catches that and comes up
-    /// faulted, so the client still plays but records nothing for that run. It is a one-instant window
-    /// on the first launch after an update; a second instance started later finds the work done.</para>
+    /// <para><b>A second process opening the same file waits.</b> Migrations are not all IF NOT EXISTS -
+    /// they remove columns and rename tables - so two clients that both read the journal before either
+    /// writes it would both try, and the loser would throw. A file that is new or has migrations to run is
+    /// brought to the current schema under <see cref="DatabaseLock"/>: the second client waits, under a
+    /// maintenance job, then finds the work done and does none of it.</para>
     /// </summary>
-    public static SqliteConnection Open(string path)
+    public static SqliteConnection Open(string path, bool backUpBeforeUpgrade = true)
     {
         var directory = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
         var connection = new SqliteConnection(ConnectionString(path));
-        connection.Open();
+        try
+        {
+            connection.Open();
+            Prepare(connection);
+            ApplySchema(connection, Maintenance.Current, backUpBeforeUpgrade, path);
+            return connection;
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+    }
 
+    private static void Prepare(SqliteConnection connection)
+    {
         // WAL: readers and the single writer never block each other, and a crash mid-write rolls back
         // to the last commit rather than leaving a torn row - strictly better than the append-only
         // text files this replaced, which could and did leave truncated final lines.
@@ -69,9 +85,6 @@ public static class MuckaDb
         // READER overlapping the writer - a warm-up query, or an offline tool - and a second instance
         // of the client. Five seconds is far longer than any commit here takes.
         Execute(connection, "PRAGMA busy_timeout=5000;");
-
-        ApplySchema(connection);
-        return connection;
     }
 
     /// <summary>The read-only connection string <see cref="OpenRead"/> uses.</summary>
@@ -86,7 +99,7 @@ public static class MuckaDb
         return connection;
     }
 
-    /// <summary>Deletes a database file and its WAL companions, closing the pooled connections that
+    /// <summary>Deletes a database file, its WAL companions and its lock file, closing the pooled connections that
     /// would otherwise hold it open. For a throwaway store - a replay's - never for the real one.
     /// Best effort: a file that cannot go yet is left for the system's temp cleanup.</summary>
     public static void Delete(string path)
@@ -95,7 +108,7 @@ public static class MuckaDb
             SqliteConnection.ClearPool(writable);
         using (var readOnly = new SqliteConnection(ReadConnectionString(path)))
             SqliteConnection.ClearPool(readOnly);
-        foreach (var file in new[] { path, path + "-wal", path + "-shm" })
+        foreach (var file in new[] { path, path + "-wal", path + "-shm", DatabaseLock.PathFor(path) })
         {
             try { File.Delete(file); }
             catch (IOException) { }
@@ -124,18 +137,102 @@ public static class MuckaDb
     /// assuming otherwise.</para>
     /// </summary>
     public static void ApplySchema(SqliteConnection connection)
-    {
-        // Before the journal exists, and only then: the two v0.20.0 column adds that no idempotent
-        // script can express. Everything else, including the baseline, is an ordinary migration.
-        if (!LegacySchemaAdopter.JournalExists(connection))
-            LegacySchemaAdopter.Run(connection);
+        => ApplySchema(connection, Maintenance.Current);
 
-        var result = BuildUpgradeEngine(connection).PerformUpgrade();
-        if (!result.Successful)
-            throw new InvalidOperationException(
-                $"Schema migration failed on '{result.ErrorScript?.Name ?? "(unknown script)"}'.",
-                result.Error);
+    /// <summary>
+    /// <see cref="ApplySchema(SqliteConnection)"/> that opens a job on <paramref name="maintenance"/>
+    /// for as long as the work takes, and none when the file is already current or has nothing in it yet.
+    ///
+    /// <para>A file that exists and has tables is backed up before its first migration
+    /// (<see cref="DatabaseBackup.TakeOnce"/>), because released scripts remove columns and tables and
+    /// a stranger's file has no other copy - unless every pending script only adds an index or table
+    /// (<see cref="MigrationScripts.IsAdditive"/>), which can lose nothing. A backup that cannot be taken throws, and nothing is
+    /// migrated. It is skipped when <paramref name="backUp"/> is false, and for a connection that is
+    /// not a file.</para>
+    /// </summary>
+    public static void ApplySchema(SqliteConnection connection, MaintenanceTracker maintenance, bool backUp = true,
+        string? databasePath = null)
+    {
+        MaintenanceTracker.Job? job = null;
+        IDisposable? held = null;
+        try
+        {
+            var existing = HasTables(connection);
+
+            var journaled = LegacySchemaAdopter.JournalExists(connection);
+            var engine = BuildUpgradeEngine(connection);
+            if (!journaled || engine.IsUpgradeRequired())
+            {
+                // The caller's own spelling of the path is what the rest of a launch keys its backup by,
+                // so it is used when there is one; the connection's is its resolved form.
+                var path = databasePath ?? connection.DataSource;
+                if (backUp && IsFile(path))
+                {
+                    // One process creates or upgrades a file at a time (DatabaseLock), a new one included:
+                    // two first launches would otherwise both run the scripts. Whatever was decided before
+                    // the lock was had is decided again after it: the holder may have done this very work.
+                    // A scratch copy (backUp false) is the caller's own, and takes no lock.
+                    held = DatabaseLock.Acquire(path, maintenance);
+                    existing = HasTables(connection);
+                    journaled = LegacySchemaAdopter.JournalExists(connection);
+                }
+                // A file with nothing in it is being created, not upgraded: no job, so a throwaway store
+                // (a replay's, an export's scratch) does not put the overlay over the game.
+                if (existing && (!journaled || engine.IsUpgradeRequired()))
+                {
+                    job = maintenance.Begin(UpgradeDetail);
+                    // Only scripts that add nothing but an index or table need no copy of the file.
+                    if (!journaled || engine.GetScriptsToExecute().Any(s => !MigrationScripts.IsAdditive(s.Name)))
+                        BackUp(path, job, backUp);
+                }
+            }
+
+            // Before the journal exists, and only then: the two v0.20.0 column adds that no idempotent
+            // script can express. Everything else, including the baseline, is an ordinary migration.
+            // An empty file has no journal either, and the adopter declines every probe on it.
+            if (!journaled)
+                LegacySchemaAdopter.Run(connection);
+
+            var result = engine.PerformUpgrade();
+            if (!result.Successful)
+                throw new InvalidOperationException(
+                    $"Schema migration failed on '{result.ErrorScript?.Name ?? "(unknown script)"}'.",
+                    result.Error);
+        }
+        finally
+        {
+            job?.Dispose();
+            held?.Dispose();
+        }
     }
+
+    private static bool IsFile(string path) => !string.IsNullOrEmpty(path) && File.Exists(path);
+
+    private static void BackUp(string path, MaintenanceTracker.Job job, bool backUp)
+    {
+        if (!backUp || !IsFile(path))
+            return;
+        if (!DatabaseBackup.IsDue(path))
+            return;
+        job.Detail = BackupDetail;
+        DatabaseBackup.TakeOnce(path);
+        job.Detail = UpgradeDetail;
+    }
+
+    private static bool HasTables(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table';";
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) > 0;
+    }
+
+    /// <summary>What the maintenance overlay says while a schema upgrade runs.</summary>
+    public const string UpgradeDetail = "Upgrading your game data";
+
+    /// <summary>What the maintenance overlay says while a backup is taken, for players rather than for
+    /// whoever reads the code: a line, and after the line feed a sub-heading the overlay shows
+    /// smaller (<see cref="MaintenanceTracker.Job.Detail"/>).</summary>
+    public const string BackupDetail = "Backing up data for safety\n(probably so I can introduce a shiny new feature)";
 
     /// <summary>
     /// The configured runner. Three settings are load-bearing and none of them is DbUp's default.

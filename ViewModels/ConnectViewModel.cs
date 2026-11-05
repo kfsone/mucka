@@ -40,7 +40,6 @@ public sealed class ConnectViewModel : BaseViewModel
     private bool _advancedVisible;
     private bool _guidedLogin;
     private string _guidedLoginPersona = string.Empty;
-    private int _maxColumns;
     private int _antiIdleSeconds;
     private int _profileSelectionVersion;
     private int _profileLoadsInProgress;
@@ -198,15 +197,6 @@ public sealed class ConnectViewModel : BaseViewModel
         get => _telnetLoginName;
         set { if (Set(ref _telnetLoginName, value)) OnPropertyChanged(nameof(IsGuestLogin)); }
     }
-    public int MaxColumns
-    {
-        get => _maxColumns;
-        set
-        {
-            Set(ref _maxColumns, Math.Clamp(value, 0, 160));
-        }
-    }
-
     /// <summary>This page's width, set by the page as it lays out. The game page has the same width,
     /// so the terminal's columns are worked out from it before connecting.</summary>
     public double PageWidthDp { get; set; }
@@ -408,8 +398,6 @@ public sealed class ConnectViewModel : BaseViewModel
         TelnetLoginEnabled = !string.IsNullOrWhiteSpace(AccountId);
         RememberPassword = false;
         TelnetLoginName = q.Guest ? Profile.GuestLoginName : "mud";
-        // The settings editor's Columns, which every profile carries.
-        MaxColumns = SavedProfiles.FirstOrDefault()?.MaxColumns ?? 0;
         GuidedLogin = true;
         GuidedLoginPersona = string.Empty;
         HasError = false;
@@ -652,17 +640,17 @@ public sealed class ConnectViewModel : BaseViewModel
             // session most worth a byte-exact record of, is in the log like everything else. A store
             // that cannot be opened reports itself into the terminal and never blocks the connection.
             // Off the UI thread, because constructing this opens the database, and opening the
-            // database runs any schema migration the file still needs (MuckaDb.ApplySchema). That is
-            // synchronous SQLite work whose cost is unbounded in principle and measured in hundreds
-            // of milliseconds in practice - the migration that introduced persona_sessions took over
-            // half a second on the operator's own file, rewriting eleven tables.
+            // database runs any schema migration the file still needs (MuckaDb.ApplySchema), after
+            // a backup of the whole file when one is needed and none was taken this launch. That is
+            // synchronous SQLite and disk work whose cost is unbounded in principle - the migration
+            // that introduced persona_sessions took over half a second on the operator's own file,
+            // rewriting eleven tables, before any backup existed.
             //
             // Not Invariant #1, which is about the command box and there is none on this page: this
             // is a frozen Connect button on the first launch after an update, which is a bad first
             // impression rather than a broken one. Worth fixing on its own merits.
-            // The server wraps the login at the width it is told on connecting, before the game page
-            // exists to measure; this page is as wide as that one, so the count is worked out here.
-            // Auto used to reach the connection as 0 and be clamped to 20.
+            // The connection takes its window size on connecting, before the game page exists to
+            // measure; this page is as wide as that one, so the count is worked out here.
             // The game font is global, so a guest takes any saved profile's.
             var fontPx = (SavedProfileForForm() ?? SavedProfiles.FirstOrDefault()) is { } font
                 ? (font.FontSize > 0 ? font.FontSize : GameViewModel.DefaultFontSizePx)
@@ -684,20 +672,18 @@ public sealed class ConnectViewModel : BaseViewModel
             var terminalWidthDp = PageWidthDp;
 #endif
             var displayableCols = Mucka.Terminal.TerminalColumns.Displayable(terminalWidthDp, fontPx);
-#if MACCATALYST
-            // The game window is sized to a fixed count's width, so it is not limited by this page.
-            if (MaxColumns > 0) displayableCols = Math.Max(displayableCols, MaxColumns);
-#endif
-            var windowCols = Mucka.Terminal.TerminalColumns.Effective(MaxColumns, displayableCols);
+            var windowCols = Mucka.Terminal.TerminalColumns.Effective(displayableCols);
             // The profile keeps its stored name; what the shell is shown depends on the login kind.
             var shellLogin = Mucka.Commands.ShellLogin.For(loginName, TelnetLoginEnabled && accountId.Length > 0);
+            var netTimes = await SettingsStore.GetNetTimesAsync();
             var conn = await Task.Run(() => new MuckaConnection(
                 autoLogin ? accountId : null,
                 autoLogin ? resolvedPassword : null,
                 windowCols,
                 shellLogin,
                 Host.Trim(),
-                DreamwordCarry)).ConfigureAwait(true);
+                DreamwordCarry,
+                netTimes)).ConfigureAwait(true);
 
             await conn.ConnectAsync(Host.Trim(), port, useSsh);
 
@@ -750,7 +736,6 @@ public sealed class ConnectViewModel : BaseViewModel
             RememberPassword = RememberPassword,
             TelnetLoginEnabled = TelnetLoginEnabled,
             TelnetLoginName = loginName,
-            MaxColumns = MaxColumns,
             AntiIdleSeconds = AntiIdleSeconds,
             KeepScreenOn = KeepScreenOn,
             GuidedLogin = GuidedLogin,
@@ -776,7 +761,6 @@ public sealed class ConnectViewModel : BaseViewModel
             // looks like in the hands: a value saved in [settings] is read into `saved` at
             // startup, dropped here, and the live default is what the session runs on, so the
             // ini keeps the player's answer and the client keeps ignoring it.
-            DefaultMaxColumns = saved?.DefaultMaxColumns ?? 0,
             DreamwordSizeOffset = saved?.DreamwordSizeOffset ?? 0,
             EmoteColor = saved?.EmoteColor ?? MudSharp.Models.ChatTheme.Default.EmoteHex,
             SayColor = saved?.SayColor ?? MudSharp.Models.ChatTheme.Default.SayHex,
@@ -849,8 +833,6 @@ public sealed class ConnectViewModel : BaseViewModel
         TelnetLoginEnabled = p.AutoLogin;
         RememberPassword = p.RememberPassword;
         TelnetLoginName = string.IsNullOrEmpty(p.TelnetLoginName) ? "mud" : p.TelnetLoginName;
-        // Not on this page: the settings editor's Columns, which every profile carries.
-        MaxColumns = p.MaxColumns;
         AntiIdleSeconds = p.AntiIdleSeconds;
         KeepScreenOn = p.KeepScreenOn;
         GuidedLogin = p.GuidedLogin;
@@ -1194,7 +1176,6 @@ public sealed class ConnectViewModel : BaseViewModel
         foreach (var p in SavedProfiles)
         {
             p.FontSize            = settings.FontSize;
-            p.MaxColumns          = settings.MaxColumns;
             p.Volume              = settings.Volume;
             p.StatUpdateFrequency = settings.StatUpdateFrequency;
             p.MuteBeepPermanently = settings.MuteBeepPermanently;
@@ -1207,8 +1188,6 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             existing.FkeysPerProfile = settings.FkeysPerProfile;
             existing.Fkeys           = fkeys;
-            if (string.Equals(existing.Name, ProfileName, StringComparison.OrdinalIgnoreCase))
-                MaxColumns = settings.MaxColumns;
         }
         await SettingsStore.SaveProfileAsync(profileName, settings, fkeys);
     }
@@ -1269,7 +1248,6 @@ public sealed class ConnectViewModel : BaseViewModel
             existing.RememberPassword = incoming.RememberPassword;
             existing.TelnetLoginEnabled = incoming.TelnetLoginEnabled;
             existing.TelnetLoginName = incoming.TelnetLoginName;
-            existing.MaxColumns = incoming.MaxColumns;
             existing.AntiIdleSeconds = incoming.AntiIdleSeconds;
             existing.KeepScreenOn = incoming.KeepScreenOn;
             existing.GuidedLogin = incoming.GuidedLogin;
@@ -1286,24 +1264,22 @@ public sealed class ConnectViewModel : BaseViewModel
             SavedProfiles.Insert(0, incoming);
         }
 
-        // Columns, anti-idle and keep-screen-on are global: the other cached profiles show the same
+        // Anti-idle and keep-screen-on are global: the other cached profiles show the same
         // values the next time they are selected.
         foreach (var p in SavedProfiles)
         {
-            p.MaxColumns      = incoming.MaxColumns;
             p.AntiIdleSeconds = incoming.AntiIdleSeconds;
             p.KeepScreenOn    = incoming.KeepScreenOn;
         }
 
         await SettingsStore.SaveProfilesAsync(SavedProfiles.ToList());
-        await SettingsStore.SaveConnectGlobalsAsync(incoming.MaxColumns, incoming.AntiIdleSeconds, incoming.KeepScreenOn);
+        await SettingsStore.SaveConnectGlobalsAsync(incoming.AntiIdleSeconds, incoming.KeepScreenOn);
 
-        // Keep mucka.ini in sync - it is the authoritative settings store, so a column
-        // change made on this page must not be reverted by a stale ini section next launch.
+        // Keep mucka.ini in sync - it is the authoritative settings store, so a change made on
+        // this page must not be reverted by a stale ini section next launch.
         var settings = new ClientSettings
         {
             FontSize            = incoming.FontSize,
-            MaxColumns          = incoming.MaxColumns,
             Volume              = incoming.Volume,
             StatUpdateFrequency = incoming.StatUpdateFrequency,
             MuteBeepPermanently = incoming.MuteBeepPermanently,

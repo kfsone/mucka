@@ -47,6 +47,10 @@ public sealed class MuckaStore : IDisposable
     private readonly Task? _writerTask;
     private readonly Action<string, Exception>? _onError;
 
+    // Held by the writer for each batch and by Optimize for its whole run, so the writer's connection
+    // is never used by two threads and never has a batch open while the file is compacted.
+    private readonly object _batchGate = new();
+
     private volatile bool _disposed;
     private volatile bool _faulted;
 
@@ -63,8 +67,12 @@ public sealed class MuckaStore : IDisposable
     /// point of the client is to play MUD2. It comes up <see cref="IsFaulted"/>, and every
     /// <see cref="Enqueue"/> is a no-op for the rest of the session.</para>
     /// </summary>
+    /// <param name="wireHealedAtStart">Writes the run with <c>wire_healed_ms</c> already set, for a
+    /// writer that joins the reads of each prompt-bounded unit as it records, so the heal at launch has
+    /// nothing to do for it. A crash leaves the few rows of the unit open as the reads they arrived in,
+    /// and they stay that way.</param>
     public MuckaStore(string path, string host, string? clientVersion = null,
-        Action<string, Exception>? onError = null, string? accountId = null)
+        Action<string, Exception>? onError = null, string? accountId = null, bool wireHealedAtStart = false)
     {
         _path = path;
         _onError = onError;
@@ -76,7 +84,7 @@ public sealed class MuckaStore : IDisposable
         {
             connection = MuckaDb.Open(path);
             SessionId = InsertSession(connection, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                host, clientVersion, _accountId);
+                host, clientVersion, _accountId, wireHealedAtStart);
         }
         catch (Exception ex)
         {
@@ -262,6 +270,59 @@ public sealed class MuckaStore : IDisposable
         command.ExecuteNonQuery();
     }
 
+    /// <summary>What <see cref="Optimize"/> did to the file.</summary>
+    public readonly record struct OptimizeResult(long BytesBefore, long BytesAfter);
+
+    /// <summary>
+    /// Compacts the database: checkpoints the WAL, refreshes the planner's statistics, rebuilds the
+    /// file without its free pages, and drops the pooled read connections so the next reader opens
+    /// the new file. Blocks for as long as that takes, which grows with the file - never call it on the
+    /// UI thread.
+    ///
+    /// <para><b>The writer waits, it does not fail.</b> The compaction runs on the writer's own
+    /// connection while it holds the batch gate, so no batch can be open and none can lose the lock
+    /// to it - the failure that would fault the store. Producers are unaffected: <see cref="Enqueue"/>
+    /// is a channel write, and what they queue is written when the gate opens. A quit during the run
+    /// is bounded by <see cref="DrainTimeout"/> like any other, and can lose what is queued.</para>
+    ///
+    /// <para><b>Another process is not protected.</b> A second Mucka on the same file has its own
+    /// writer, whose commit gives up after the busy timeout and faults its store, so it stops
+    /// recording for the rest of its session if this runs past that; so
+    /// do this process's own short-lived connections (a login's attribution).</para>
+    ///
+    /// <para>Needs free space of twice the file's size, on its drive and on the temp drive; without it
+    /// nothing is attempted and the exception says how much is needed. The check is skipped on a
+    /// platform whose drive information cannot be read for the path.</para>
+    /// </summary>
+    public OptimizeResult Optimize()
+    {
+        if (_disposed || _faulted)
+            throw new InvalidOperationException("the store is not recording, so there is no connection to compact");
+
+        var before = FileLength(_path);
+        var needed = before * 2;
+        DatabaseBackup.RequireFreeSpace(System.IO.Path.GetFullPath(_path), needed, "compacting");
+        DatabaseBackup.RequireFreeSpace(System.IO.Path.GetTempPath(), needed, "compacting");
+
+        lock (_batchGate)
+        {
+            if (_disposed || _faulted)
+                throw new InvalidOperationException("the store stopped recording before it could be compacted");
+            Execute(_connection!, "PRAGMA wal_checkpoint(TRUNCATE);");
+            Execute(_connection!, "ANALYZE;");
+            Execute(_connection!, "VACUUM;");
+            Execute(_connection!, "PRAGMA wal_checkpoint(TRUNCATE);");
+        }
+
+        using (var pooled = new SqliteConnection(MuckaDb.ConnectionString(_path)))
+            SqliteConnection.ClearPool(pooled);
+        using (var pooledRead = new SqliteConnection(MuckaDb.ReadConnectionString(_path)))
+            SqliteConnection.ClearPool(pooledRead);
+        return new OptimizeResult(before, FileLength(_path));
+    }
+
+    private static long FileLength(string path) => new FileInfo(path).Exists ? new FileInfo(path).Length : 0;
+
     /// <summary>Hands one row to the writer. Cheap, thread-safe, never blocks, never throws.</summary>
     public void Enqueue(IStoreRow row)
     {
@@ -304,8 +365,12 @@ public sealed class MuckaStore : IDisposable
         try
         {
             while (await reader.WaitToReadAsync().ConfigureAwait(false))
-                WriteBatch(reader);
-            CloseSession();
+            {
+                lock (_batchGate)
+                    WriteBatch(reader);
+            }
+            lock (_batchGate)
+                CloseSession();
         }
         catch (Exception ex)
         {
@@ -377,13 +442,14 @@ public sealed class MuckaStore : IDisposable
     }
 
     private static long InsertSession(SqliteConnection connection, long startedMs, string host,
-        string? clientVersion, string? accountId)
+        string? clientVersion, string? accountId, bool wireHealed)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
-            "INSERT INTO mucka_runs (uid, started_ms, host, client_version, account_id) " +
-            "VALUES ($uid, $started, $host, $version, $account); " +
+            "INSERT INTO mucka_runs (uid, started_ms, host, client_version, account_id, wire_healed_ms) " +
+            "VALUES ($uid, $started, $host, $version, $account, $healed); " +
             "SELECT last_insert_rowid();";
+        command.Parameters.AddWithValue("$healed", wireHealed ? (object)startedMs : DBNull.Value);
         command.Parameters.AddWithValue("$account", (object?)accountId ?? DBNull.Value);
         command.Parameters.AddWithValue("$uid", Guid.NewGuid().ToString("N"));
         command.Parameters.AddWithValue("$started", startedMs);

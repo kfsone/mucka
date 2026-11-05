@@ -72,11 +72,10 @@ public sealed class MudStreamParser
     public event Action? BellReceived;
 
     /// <summary>
-    /// Server confirmed the terminal width with an ESC-&lt;n&gt;W response, or the parser
-    /// detected the server's "[New terminal width is N]" annotation line.
-    /// The payload is the confirmed column count.
+    /// The server answered <c>/F+</c> at the Option menu with the line "[Local formatting is now
+    /// on]", which is swallowed rather than shown. Not raised in game mode.
     /// </summary>
-    public event Action<int>? TerminalWidthConfirmed;
+    public event Action? LocalFormattingConfirmed;
 
     /// <summary>
     /// The server sent ESC-K, "erase to end of line". Nothing to erase in this model: '\r' is
@@ -180,6 +179,14 @@ public sealed class MudStreamParser
     /// a consumer has seen every line of the frame before being told it ended.</para>
     /// </summary>
     public event Action? FrameClosed;
+
+    /// <summary>
+    /// The prompt container closed, whether the prompt was shown or discarded. Unlike
+    /// <see cref="FrameClosed"/> it also fires for the naked prompt that ends an FES, FEW or FEI
+    /// response, which MUD2 sends with no game output before it. Fires on the Feed thread, after the
+    /// read that held the container's close has been fed up to that point.
+    /// </summary>
+    public event Action? PromptClosed;
 
     /// <summary>
     /// A player name bracketed by a C05 presence code (here/arriving/departing/
@@ -644,6 +651,7 @@ public sealed class MudStreamParser
         }
         _promptSpans.Clear();
         _promptText.Clear();
+        PromptClosed?.Invoke();
     }
 
     /// <summary>
@@ -733,7 +741,6 @@ public sealed class MudStreamParser
     public MudStreamParser()
     {
         Ansi = new AnsiSgrState();
-        Ansi.WidthConfirmed = w => TerminalWidthConfirmed?.Invoke(w);
         Ansi.ClearScreen = EmitClearScreen;
         Ansi.EraseToEndOfLine = () => EraseToEndOfLineReceived?.Invoke();
         Ansi.EndOfSession = () => EndOfSessionReceived?.Invoke();
@@ -878,10 +885,11 @@ public sealed class MudStreamParser
                 FlushPendingLineSounds();
                 return;
             }
-            // Pre-game terminal-width confirmation line: "[New terminal width is N]"
-            // Arrives without an ESC-<n>W prefix on plain-mud connections; swallow it and
-            // fire TerminalWidthConfirmed so callers can verify the requested width.
-            if (!_inGameMode && TryEmitTerminalWidthLine())
+            // Pre-game answers to the Option menu's terminal commands, swallowed rather than shown:
+            // "[Local formatting is now on]" (the reply to /F+, which the client sends) and
+            // "[New terminal width is N]" (the reply to /T, which only recordings made before the
+            // client stopped sending it carry).
+            if (!_inGameMode && (TryEmitTerminalWidthLine() || TryEmitLocalFormattingLine()))
             {
                 FlushPendingLineSounds();
                 return;
@@ -1320,9 +1328,9 @@ public sealed class MudStreamParser
     internal void QueueReprocessByte(byte b) => _pendingReprocess = b;
 
     /// <summary>
-    /// Checks whether the accumulated spans form the server's pre-game width-confirmation
-    /// annotation "[New terminal width is N]". If so, fires <see cref="TerminalWidthConfirmed"/>,
-    /// resets line-boundary state, and returns true (caller should skip LineReady).
+    /// Checks whether the accumulated spans form the server's pre-game answer to /T, the annotation
+    /// "[New terminal width is N]". If so, resets line-boundary state and returns true (caller should
+    /// skip LineReady).
     /// </summary>
     private bool TryEmitTerminalWidthLine()
     {
@@ -1353,10 +1361,32 @@ public sealed class MudStreamParser
             return false;
 
         var numSpan = text.AsSpan(prefix.Length, text.Length - prefix.Length - 1);
-        if (!int.TryParse(numSpan, out int w))
+        if (!int.TryParse(numSpan, out _))
             return false;
 
-        TerminalWidthConfirmed?.Invoke(w);
+        _spans.Clear();
+        PromptAllowed = true;
+        _atLineStart = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Checks whether the accumulated spans form the Option menu's reply to <c>/F+</c>, the line
+    /// "[Local formatting is now on]". If so, fires <see cref="LocalFormattingConfirmed"/>, resets
+    /// line-boundary state, and returns true (caller should skip LineReady).
+    /// </summary>
+    private bool TryEmitLocalFormattingLine()
+    {
+        const string reply = "[Local formatting is now on]";
+        int totalLen = 0;
+        foreach (var s in _spans) totalLen += s.Text.Length;
+        if (totalLen != reply.Length) return false;
+
+        var sb = new System.Text.StringBuilder(totalLen);
+        foreach (var s in _spans) sb.Append(s.Text);
+        if (!sb.ToString().Equals(reply, StringComparison.Ordinal)) return false;
+
+        LocalFormattingConfirmed?.Invoke();
         _spans.Clear();
         PromptAllowed = true;
         _atLineStart = true;
@@ -1420,7 +1450,7 @@ public sealed class MudStreamParser
                 break;
             case ParserState.EscapeDashAnnotation:
                 // Swallow the server's "[New terminal width is N]\r\n" annotation.
-                // The ESC-<n>W already fired TerminalWidthConfirmed; just discard text until \n.
+                // Discard text until \n.
                 // If a high-bit control byte arrives instead, the annotation was interrupted;
                 // hand that byte back to the main parser so we do not swallow binary traffic.
                 if (b >= 0x80)

@@ -421,10 +421,10 @@ public class FeDocumentedFormsTests
     }
 
     [Fact]
-    public void EscDashWidth_StillConfirmsTheWidth()
+    public void EscDashWidth_IsConsumedAndShowsNothing()
     {
         var h = new ParserHarness();
         h.Feed("\x1B-70W");
-        Assert.Equal([70], h.ConfirmedWidths);
+        Assert.Empty(h.Lines);
     }
 }

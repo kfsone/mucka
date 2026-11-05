@@ -1,9 +1,9 @@
 namespace Mucka.Terminal;
 
 /// <summary>
-/// How many columns the terminal has, which is the width the server is told (NAWS and <c>/T</c>) and
-/// wraps at. One formula, so the width sent at login and the width the game page measures agree, and
-/// the server is not told a second width once play has started.
+/// How many columns the terminal has, which is the width <see cref="LineWrapper"/> wraps at and the
+/// window size the transport advertises (NAWS). One formula for both: the connection starts at the
+/// count the connect page works out, and the game page replaces it with its pane's.
 /// </summary>
 public static class TerminalColumns
 {
@@ -12,14 +12,11 @@ public static class TerminalColumns
     /// advance).</summary>
     public const double CharWidthPerFontPx = 1200.0 / 2048.0;
 
-    /// <summary>The fewest columns the server is ever told.</summary>
+    /// <summary>The fewest columns the pane wraps at and the transport advertises.</summary>
     public const int Min = 20;
 
-    /// <summary>The most columns the server is ever told.</summary>
-    public const int Max = 160;
-
-    /// <summary>What an auto profile is told when there is no width to measure. Operator rule: 40, a
-    /// sane width for a phone, never <see cref="Min"/>.</summary>
+    /// <summary>What is used when there is no width to measure. Operator rule: 40, a sane width for a
+    /// phone, never <see cref="Min"/>.</summary>
     public const int Unmeasured = 40;
 
     /// <summary>The columns a font fits across a width.</summary>
@@ -38,14 +35,10 @@ public static class TerminalColumns
     }
 
     /// <summary>
-    /// The columns to use: the profile's maximum, or all that fit when it is 0 (auto), and never more
-    /// than fit. <paramref name="displayableCols"/> of 0 means the width is not known yet, and the
-    /// profile's maximum - or <see cref="Unmeasured"/> for auto - stands in for it.
+    /// The columns to use: all that fit, and never fewer than <see cref="Min"/>.
+    /// <paramref name="displayableCols"/> of 0 means the width is not known yet, and
+    /// <see cref="Unmeasured"/> stands in for it.
     /// </summary>
-    public static int Effective(int maxColumns, int displayableCols)
-    {
-        if (displayableCols <= 0)
-            return Math.Clamp(maxColumns > 0 ? maxColumns : Unmeasured, Min, Max);
-        return Math.Clamp(maxColumns > 0 ? Math.Min(maxColumns, displayableCols) : displayableCols, Min, Max);
-    }
+    public static int Effective(int displayableCols)
+        => Math.Max(displayableCols > 0 ? displayableCols : Unmeasured, Min);
 }

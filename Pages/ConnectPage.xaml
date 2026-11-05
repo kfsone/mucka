@@ -327,5 +327,8 @@
             <pages:ProfileEditView x:Name="WidePane" Grid.Row="1" IsVisible="{Binding ShowEditorPane}" />
             <pages:WelcomeView x:Name="WideWelcome" Grid.Row="1" IsVisible="{Binding ShowWelcome}" />
         </Grid>
+
+        <!-- Over everything while the database is upgraded on first launch after an update. -->
+        <pages:MaintenanceOverlay Grid.ColumnSpan="3"/>
     </Grid>
 </ContentPage>
