@@ -1687,6 +1687,10 @@ public sealed class MudSession : IDisposable
                     _setupCloseAfterFrame = true;
                 }
                 break;
+            case SetupReplies.Verdict.Fragment:
+                // Only this row: the frame it sits in is classified on its next rows.
+                _setupHeld.Clear();
+                break;
             case SetupReplies.Verdict.NotOurs:
                 ReleaseSetupHeld();
                 break;

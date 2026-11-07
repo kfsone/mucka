@@ -411,6 +411,30 @@ public class PostSelectSetupTests : IDisposable
         => Assert.StartsWith("You're already getting object identification\r\0\r\nnumbers",
             Wrap(IdentifyReplyAgain, 44));
 
+    /// <summary>A row "i" arrives ahead of the echo frame in some sessions, over either transport.</summary>
+    [Fact]
+    public void LoneIRowAheadOfTheEchoFrame_IsSwallowed()
+    {
+        Enter();
+        Prompt(); Feed("i\r\n");
+        Prompt(); Feed(Echoes);
+        Prompt(); Feed(AutoFexReply);
+        Prompt(); Feed(ScoreSheet);
+        Prompt(); Feed("You warm your hands by the fire.\r\n");
+
+        Assert.Equal(["You warm your hands by the fire."], _visible);
+    }
+
+    /// <summary>Only the fragment row goes: whatever else its frame carries is shown.</summary>
+    [Fact]
+    public void LoneIRow_DoesNotSwallowTheRestOfItsFrame()
+    {
+        Enter();
+        Prompt(); Feed("i\r\nDrizzle wibbles.\r\n");
+
+        Assert.Equal(["Drizzle wibbles."], _visible);
+    }
+
     /// <summary>Widening the matcher must not have made it greedy: ordinary game prose that happens to
     /// start the same way is NOT part of the setup batch and must still render.</summary>
     [Theory]

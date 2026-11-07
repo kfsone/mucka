@@ -13,6 +13,9 @@ internal static class SetupReplies
     {
         /// <summary>A setup reply: swallow the frame.</summary>
         Ours,
+        /// <summary>A row that is only the opening of the batch's first command: drop that row, not the
+        /// frame it sits in.</summary>
+        Fragment,
         /// <summary>Not yet known: the text so far is the opening of a setup reply.</summary>
         Undecided,
         /// <summary>Not a setup reply: pass it on.</summary>
@@ -61,6 +64,13 @@ internal static class SetupReplies
         foreach (var cmd in commands)
             if (text.Equals(cmd, StringComparison.OrdinalIgnoreCase))
                 return Verdict.Ours;
+
+        // Observed in some sessions, over SSH and over telnet: a row "i" ahead of the echo frame, then
+        // the whole batch echoed as usual. Only that row is dropped; a frame that goes on to say
+        // anything else is shown.
+        if (commands.Count > 0 && text.Length < commands[0].Length
+            && commands[0].StartsWith(text, StringComparison.OrdinalIgnoreCase))
+            return Verdict.Fragment;
 
         var undecided = false;
         foreach (var opening in Openings)
