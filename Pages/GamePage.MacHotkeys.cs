@@ -15,8 +15,11 @@ public partial class GamePage
     {
         MacHotkeys.Handler = _macHotkeyHandler ??= OnMacHotkey;
         MacHotkeys.Fkeys = _vm.GetAllFkeys;
+        MacHotkeys.NavClaims = MacNavClaims;
         _vm.FkeysChanged -= RebuildMacMenu;
         _vm.FkeysChanged += RebuildMacMenu;
+        _vm.NavKeysChanged -= RebuildMacMenu;
+        _vm.NavKeysChanged += RebuildMacMenu;
 #if MACCATALYST
         SetUpMacCopy();
 #endif
@@ -29,12 +32,25 @@ public partial class GamePage
         TearDownMacCopy();
 #endif
         _vm.FkeysChanged -= RebuildMacMenu;
+        _vm.NavKeysChanged -= RebuildMacMenu;
         if (ReferenceEquals(MacHotkeys.Handler, _macHotkeyHandler))
         {
             MacHotkeys.Handler = null;
             MacHotkeys.Fkeys = null;
+            MacHotkeys.NavClaims = null;
         }
         RebuildMacMenu();
+    }
+
+    // The keys the navigation options are on while the setting is on (see ApplyNavKeyBindings, the
+    // Windows side of the same claim).
+    private IReadOnlyList<(Mucka.Commands.NavKeyChoice Key, Mucka.Commands.NavAction Action)> MacNavClaims()
+        => _vm.NavKeysEnabled ? _vm.NavKeys.Claims(MacFkeyHasValue) : [];
+
+    private bool MacFkeyHasValue(int number)
+    {
+        var all = _vm.GetAllFkeys();
+        return number >= 1 && number <= 12 && !string.IsNullOrWhiteSpace(all[number - 1]);
     }
 
     // The Game menu lists only the Fkeys that have text, so it is rebuilt when they change.
@@ -54,6 +70,13 @@ public partial class GamePage
         {
             if (Terminal.IsHistoryMode) Terminal.ScrollToBottom();
             action();
+        }
+
+        if (id.StartsWith(MacHotkeys.NavIdPrefix, StringComparison.Ordinal)
+            && Enum.TryParse<Mucka.Commands.NavAction>(id.AsSpan(MacHotkeys.NavIdPrefix.Length), out var nav))
+        {
+            Live(() => _vm.SendNavAction(nav));
+            return;
         }
 
         if (id.Length >= 2 && id[^1] is >= '0' and <= '9' && id.Contains('f') && !id.Contains('-'))
