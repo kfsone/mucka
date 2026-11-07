@@ -183,7 +183,10 @@ public sealed class MaintenanceTests : IDisposable
     {
         using var connection = new SqliteConnection(MuckaDb.ConnectionString(DbPath));
         connection.Open();
-        MuckaDb.ApplySchema(connection, tracker);
+        // The path as the test spells it, as MuckaDb.Open does: on a Mac the connection's own DataSource
+        // is the resolved form (/private/var/... for a path under /var/...), and the backup record is
+        // keyed by the spelling.
+        MuckaDb.ApplySchema(connection, tracker, databasePath: DbPath);
     }
 
     [Fact]

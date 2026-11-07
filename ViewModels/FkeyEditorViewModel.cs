@@ -444,12 +444,12 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     /// <summary>Saved default for floating the compass (unpinned from the side panel).</summary>
     public bool FloatCompass { get => _floatCompass; set => Set(ref _floatCompass, value); }
 
-    // -- Navkeys tab ------------------------------------------------------------
+    // -- Nav Keys tab ------------------------------------------------------------
 
-    /// <summary>The Navkeys tab's checkbox: the number pad moves.</summary>
+    /// <summary>The Nav Keys tab's checkbox: the number pad moves.</summary>
     public bool NavKeysEnabled { get => _navKeysEnabled; set => Set(ref _navKeysEnabled, value); }
 
-    /// <summary>The Navkeys tab's rows, in <see cref="Mucka.Commands.NavKeyMap.Actions"/> order.</summary>
+    /// <summary>The Nav Keys tab's rows, in <see cref="Mucka.Commands.NavKeyMap.Actions"/> order.</summary>
     public NavKeyEditorItem[] NavKeyRows { get; }
 
     public ICommand ResetNavKeysCommand { get; }
@@ -469,7 +469,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         var problems = CollectNavKeys().Problems(n => n >= 1 && n <= 12 && !string.IsNullOrWhiteSpace(fkeys[n - 1]));
         if (problems.Count == 0)
             return true;
-        SaveFailed?.Invoke("Navkeys: " + string.Join(" ", problems));
+        SaveFailed?.Invoke("Nav Keys: " + string.Join(" ", problems));
         return false;
     }
 

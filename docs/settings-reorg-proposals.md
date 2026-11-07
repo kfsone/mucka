@@ -16,7 +16,7 @@ Six tabs, the Data tab being the backup choice alone. Every setting except the F
   float).
 - Function Keys (the tab the proposals below call Hotkeys): modifier pills, import, the F-key list,
   "Save to profile only".
-- Navkeys: the checkbox that switches the keys on, and one drop-down per navigation option
+- Nav Keys: the checkbox that switches the keys on, and one drop-down per navigation option
   (`NavKeyMap.Actions`) choosing its key from `NavKeyMap.Choices`; Apply and Save refuse a choice
   `NavKeyBindings.Problems` reports.
 - Sounds: master row, the group/sound tree.
