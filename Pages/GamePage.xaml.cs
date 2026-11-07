@@ -266,13 +266,10 @@ public partial class GamePage : ContentPage
         // Neither a Mac window nor an iPhone has a back button; this row is a way back on both.
         DisconnectSeparator.IsVisible = true;
         DisconnectRow.IsVisible = true;
-#endif
-#if IOS
+        // The navigation bar's back button on a Mac pops the page without calling OnBackButtonPressed
+        // (Microsoft.Maui.Controls 10.0.20, Compatibility NavigationRenderer.ShouldPopItem returns
+        // true unconditionally), so the bar stays hidden and this page's own button asks first.
         BackButton.IsVisible = true;
-#endif
-#if MACCATALYST
-        // The platform's own back button lives in the navigation bar, which this page hides elsewhere.
-        NavigationPage.SetHasNavigationBar(this, true);
 #endif
         _vm = vm;
         _exitOnDisconnect = exitOnDisconnect;
@@ -1266,7 +1263,7 @@ public partial class GamePage : ContentPage
         return true;
     }
 
-    // Back on every platform (Android gesture, Windows and Mac back button): dismiss the About
+    // Back (Android gesture, Windows back button): dismiss the About
     // overlay if open. Otherwise confirm before leaving - a back click is trivially easy to hit by
     // accident, and popping this page tears down the live session.
     protected override bool OnBackButtonPressed()

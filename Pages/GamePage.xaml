@@ -38,7 +38,7 @@
                 <Grid Grid.Column="0" ColumnDefinitions="Auto,Auto,Auto" VerticalOptions="Center">
 
                     <!-- Back: leaves the game after asking, as the overflow menu's Disconnect row does.
-                         Shown on iOS only (GamePage constructor), which has no back button of its own. -->
+                         Shown on iOS and Mac (GamePage constructor): neither has a back button of its own that asks first. -->
                     <Border x:Name="BackButton"
                             Grid.Column="0"
                             IsVisible="False"
