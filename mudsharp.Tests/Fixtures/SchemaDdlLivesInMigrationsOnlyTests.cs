@@ -46,6 +46,8 @@ public class SchemaDdlLivesInMigrationsOnlyTests
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "WireLogTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "MuckaIIImportTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "RunTransferTests.cs"),
+        // Drops 0010's tables to build a file the launch has not upgraded yet.
+        Path.Combine("Mucka.Util", "Mucka.Util.Tests", "SessionHistoryTests.cs"),
         Path.Combine("Mucka.Util", "Mucka.Util.Tests", "MigrationScriptsAreFrozenTests.cs"),
         Path.Combine("mudsharp.Tests", "Fixtures", "SchemaDdlLivesInMigrationsOnlyTests.cs"),
     };

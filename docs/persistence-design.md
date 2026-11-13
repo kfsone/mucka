@@ -178,9 +178,12 @@ Nothing persistence-related is in the DI container; `MauiProgram.cs` registers o
   `MuckaConnection` is one `mucka_runs` row, and store lifetime is one connection - not one app run.
   A LOGIN is a separate thing again: `persona_sessions`, opened on game-mode entry, and what every
   fact table keys to.
-- Nothing reads the database outside that lifetime. The two readers are
-  `FightHistoryStore.LoadAsync` and the swing ledger's warm-up (`SwingLedger.WarmCore`), both fired
-  from `MuckaConnection` and both opening their own short-lived connection.
+- Inside a game, the two readers are `FightHistoryStore.LoadAsync` and the swing ledger's warm-up
+  (`SwingLedger.WarmCore`), both fired from `MuckaConnection` and both opening their own short-lived
+  connection.
+- Outside one, the connect page's Score and History pages each open a short-lived connection of
+  their own: `ScoreHistoryReader` and `SessionHistoryReader` read, and `SessionLabels` writes one
+  Session's name or tags in one transaction (`docs/history-design.md`).
 - No DI registration is added. A container entry would claim an app-run lifetime the store does not
   have.
 
@@ -334,6 +337,7 @@ Added by later scripts:
 | Table | Script | Notes |
 |---|---|---|
 | `trimmed` | `0008_wire_heal_and_trim.sql` | rows `$trimdb trim` took out of `wire`: its columns, the same ids, plus `trimmed_ms` and `reason`. Empty until a trim runs |
+| `session_names`, `session_tags` | `0010_session_names_and_tags.sql` | the name and tags a player gives a Session in History (`SessionLabels`). Keyed on `persona_session_id` like the fact tables, so `RunTransfer` carries them by the same id rewrite; tags are rows, one per tag. Empty until a player names or tags something |
 | `some_kinds` | `0005_some_kinds.sql` | one row per species: whether MUD2 calls it "someone" or "something" when unseen. Nothing in the client reads or writes it; it stays because shipped schema is frozen, and `RunTransfer` carries its rows between databases. The unseen book's class lookup is `SomeKindKnowledge.Known`, seeded and read-only |
 
 The seven encounter tables, which hold what the clog files used to:
@@ -493,8 +497,8 @@ defaults to `mucka-export.db` in the data directory.
   whose size or write time moved during the merge each abandon the new file. A failed second rename
   puts the first back.
 - **Import merges finished runs.** One run is copied with its whole tree in one transaction: wire
-  records, logins, the five fact tables keyed to a login, those logins' encounters and every child
-  row. Row ids are renumbered and every foreign key to one rewritten (`mucka_run_id`,
+  records, logins with their names and tags, the five fact tables keyed to a login, those logins'
+  encounters and every child row. Row ids are renumbered and every foreign key to one rewritten (`mucka_run_id`,
   `persona_session_id`, `encounter_contents_items.contents_id`). Encounter references are uids and
   copy unchanged.
 - **The key is `mucka_runs.uid`**, so importing a file twice, or importing into A the export of a B

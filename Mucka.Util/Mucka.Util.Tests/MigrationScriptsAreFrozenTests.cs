@@ -41,6 +41,7 @@ public sealed class MigrationScriptsAreFrozenTests
         ("0007_run_account.sql",       "0CAA5DF6557D32C158DCDA161441B2BE3C542A5DD195140427490202D94155A8"),
         ("0008_wire_heal_and_trim.sql", "5F22478CCCA580818C0A5C9CAA4C1A7A97B4540E9104ED0A513381E2C6A37CF5"),
         ("0009_wire_run_index.sql",    "A87CFAC6F77A08D636183CAFDF1FD7731554145CD4057CD8AC9BC7F7A4478457"),
+        ("0010_session_names_and_tags.sql", "9145BB4882F4AC54C5EA0C6C4ACEC63BAA4B1C7CB15959B6FECD3BDE62B6B74A"),
     ];
 
     private static string HashOf(string contents)

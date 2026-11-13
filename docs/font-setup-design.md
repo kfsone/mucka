@@ -182,8 +182,8 @@ platforms keep the authored ones.
 FACT On Windows the list column is `ConnectPage.WideListColumnDp` times `UiFontScale.PanelScale`, so
 it widens with the step like the game page's side panel, and `ConnectPage.WideListColumn` re-applies
 it when `UiFontScaleState.Step` changes. Buttons and fields there have a minimum height and no fixed
-one, so they grow with their text. The header's "Profiles" title and the version label truncate
-rather than wrap when the header row is short of room.
+one, so they grow with their text. The version label truncates rather than wraps when it is short
+of room.
 
 FACT The wide list's large logo is square and sits behind the rows. `ProfileLogoFit.Compute` sizes
 it from the list pane: whole when the pane has `ProfileLogoFit.ListNeedDp` (`ProfileLogoFit.DenseListNeedDp`
@@ -191,8 +191,8 @@ on Windows), times the step's `UiFontScale.PanelScale`, to spare beneath it (two
 partly shown card says the list scrolls); short of that the rows cover up to its bottom half,
 `ProfileLogoFit.MaxOverlapShare`, with `ConnectPage.LogoScrim` darkening what they cover; short of
 that the header carries a small logo instead. `ConnectPage.FitLogo` re-runs it when the pane or the
-step changes. The version shows at the foot of the large logo when it is there, and under the title
-only in the narrow layout. On Windows `App.CreateWindow` opens the window at `App.DefaultWindowHeightDp`,
+step changes. The version shows at the foot of the large logo when it is there, and under the
+header's button bar only in the narrow layout. On Windows `App.CreateWindow` opens the window at `App.DefaultWindowHeightDp`,
 capped to a share of the display, which is enough for the whole logo and the list at the default step.
 
 FACT Fonts are not part of the Windows density: every authored size still goes through

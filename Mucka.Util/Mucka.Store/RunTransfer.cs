@@ -41,7 +41,7 @@ public sealed record RunTransferResult(
 /// anyway because it cannot know where a file came from.</para>
 ///
 /// <para><b>Import merges finished runs.</b> A run is copied with its whole tree in one transaction:
-/// its wire records, its logins, every fact row on those logins, and those logins' encounters with
+/// its wire records, its logins with their names and tags, every fact row on those logins, and those logins' encounters with
 /// their child rows. Row ids are local to their database, so each is renumbered and each foreign key
 /// to one rewritten (<c>mucka_run_id</c>, <c>persona_session_id</c>, <c>contents_id</c>). An encounter
 /// is referred to by its uid, which means the same in every database and is copied as it stands.</para>
@@ -74,6 +74,10 @@ public static class RunTransfer
     /// handled apart, because its own children key on its id.</summary>
     private static readonly string[] EncounterChildTables =
         ["encounter_lines", "encounter_stats", "creature_values", "encounter_events"];
+
+    /// <summary>What the player wrote about a login in History. Keyed on the login, as the fact tables
+    /// are, and kept out of <see cref="SessionTables"/>, whose rows are the counted facts.</summary>
+    private static readonly string[] SessionLabelTables = ["session_names", "session_tags"];
 
     private const string EncountersOfSession =
         "encounter_uid IN (SELECT uid FROM encounters WHERE persona_session_id = $p)";
@@ -194,6 +198,10 @@ public static class RunTransfer
             {
                 foreach (var table in SessionTables)
                     factRows += copier.Copy(transaction, table, "persona_session_id = $p", oldSession,
+                        "persona_session_id", newSession);
+
+                foreach (var table in SessionLabelTables)
+                    copier.Copy(transaction, table, "persona_session_id = $p", oldSession,
                         "persona_session_id", newSession);
 
                 foreach (var table in EncounterChildTables)

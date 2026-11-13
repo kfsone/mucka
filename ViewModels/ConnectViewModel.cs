@@ -261,6 +261,10 @@ public sealed class ConnectViewModel : BaseViewModel
     }
     public ICommand DeleteProfileCommand { get; }
     public ICommand SaveProfileCommand { get; }
+    /// <summary>The editor's Connect: the form is saved as Apply saves it, then connected.</summary>
+    public ICommand ConnectFromEditorCommand { get; }
+    /// <summary>The editor's "Connect without Saving": the form as it stands, nothing written.</summary>
+    public ICommand ConnectUnsavedCommand { get; }
     public ICommand RenameProfileCommand { get; }
     public ICommand DismissGuestIntroCommand { get; }
     public ICommand ToggleGuestPresetsCommand { get; }
@@ -373,8 +377,34 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    // Set while ConnectAsGuestAsync's connection is made: nothing about it is saved.
+    /// <summary>Plays a replay as a guest connection does: the form is filled for it, nothing is
+    /// saved, and the form goes back to what it showed before.</summary>
+    public async Task PlayReplayAsync(string name)
+    {
+        if (IsConnecting) return;
+        var before = _selectedProfile;
+        FillFromQuickStart(new QuickStart("replay", name, Mucka.WireLog.Muckrep.HostPrefix + name, TelnetPort,
+            Ssh: false, Guest: false), name);
+        _guestSession = true;
+        try
+        {
+            await ConnectAsync();
+        }
+        finally
+        {
+            _guestSession = false;
+            if (before is not null && SavedProfiles.Contains(before)) SelectProfile(before);
+            else if (SavedProfiles.Count > 0) SelectProfile(SavedProfiles[0]);
+        }
+    }
+
+    // Set while ConnectAsGuestAsync's or PlayReplayAsync's connection is made: nothing about it is
+    // saved.
     private bool _guestSession;
+
+    // Set while ConnectUnsavedAsync's connection is made. Unlike a guest, the form may be a saved
+    // profile, whose carried settings it still takes; only the writes are skipped.
+    private bool _unsavedSession;
 
     // The saved profile the form is, by name. Never for a guest: a saved profile may share the
     // guest preset's name.
@@ -499,12 +529,9 @@ public sealed class ConnectViewModel : BaseViewModel
         => OnPropertiesChanged(nameof(ShowNarrowGuestIntro), nameof(ShowNarrowWelcome), nameof(ShowWideEmptyNote),
             nameof(ShowListError));
 
-    /// <summary>The profile page's score history button: for the highlighted profile's server.</summary>
-    public string ScoreHistoryText
-        => Glyph.ScoreChart + "  " + (_selectedProfile is { } p ? $"Score history for {p.Name}" : "Score history");
-
-    /// <summary>The server whose score history that button opens; empty with no profile highlighted.</summary>
-    public string ScoreHistoryHost => _selectedProfile?.Host.Trim() ?? string.Empty;
+    /// <summary>The header's Score opens the highlighted profile's server; with none highlighted it
+    /// has nothing to open.</summary>
+    public bool HasSelectedProfile => _selectedProfile is not null;
 
     /// <summary>No profiles at all: the first run, or every profile deleted.</summary>
     public bool HasNoProfiles => SavedProfiles.Count == 0;
@@ -540,10 +567,11 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    /// <summary>"Save", or "Saved" for a moment after a save.</summary>
-    public string SaveButtonText { get => _saveButtonText; private set => Set(ref _saveButtonText, value); }
-    private string _saveButtonText = SaveLabel;
-    private const string SaveLabel = "Save";
+    /// <summary>"Apply", or "Applied" for a moment after a save.</summary>
+    public string ApplyButtonText { get => _applyButtonText; private set => Set(ref _applyButtonText, value); }
+    private string _applyButtonText = ApplyLabel;
+    private const string ApplyLabel = "Apply";
+    private const string AppliedLabel = "Applied";
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired { get; set; }
 
@@ -555,6 +583,8 @@ public sealed class ConnectViewModel : BaseViewModel
         ToggleAdvancedCommand = new Command(() => AdvancedVisible = !AdvancedVisible);
         DeleteProfileCommand = new AsyncCommand(DeleteProfileAsync);
         SaveProfileCommand = new AsyncCommand(SaveProfileAsync);
+        ConnectFromEditorCommand = new AsyncCommand(ConnectFromEditorAsync);
+        ConnectUnsavedCommand = new AsyncCommand(ConnectUnsavedAsync);
         RenameProfileCommand = new AsyncCommand(RenameProfileAsync);
         DismissGuestIntroCommand = new Command(() => GuestIntroVisible = false);
         ToggleGuestPresetsCommand = new Command(() => GuestPresetsVisible = !GuestPresetsVisible);
@@ -566,7 +596,7 @@ public sealed class ConnectViewModel : BaseViewModel
             if (e.PropertyName is nameof(Port) or nameof(UseSsh))
                 OnPropertyChanged(nameof(ConnectionLabel));
             else if (e.PropertyName is nameof(SelectedProfile))
-                OnPropertiesChanged(nameof(ScoreHistoryText), nameof(ScoreHistoryHost));
+                OnPropertyChanged(nameof(HasSelectedProfile));
             else if (e.PropertyName is nameof(ShowGuestIntro) or nameof(ShowWelcome) or nameof(HasNoProfiles)
                      or nameof(ShowEditorPane))
                 RaiseLayoutFlags();
@@ -688,7 +718,7 @@ public sealed class ConnectViewModel : BaseViewModel
             await conn.ConnectAsync(Host.Trim(), port, useSsh);
 
             var profile = await BuildFormProfileAsync(port, useSsh, accountId, loginName);
-            if (!IsDirectConnectMode && !_guestSession)
+            if (!IsDirectConnectMode && !_guestSession && !_unsavedSession)
             {
                 await SaveCurrentProfileAsync(profile);
             }
@@ -702,7 +732,7 @@ public sealed class ConnectViewModel : BaseViewModel
             // the fetch having succeeded, does clear it.
             var storedPasswordUnread = RememberPassword && string.IsNullOrEmpty(resolvedPassword)
                 && (_passwordFetchFailed || RememberedPasswordUnfetched);
-            if (!IsDirectConnectMode && !_guestSession && !storedPasswordUnread)
+            if (!IsDirectConnectMode && !_guestSession && !_unsavedSession && !storedPasswordUnread)
                 _ = SavePasswordAsync(profile.Name, RememberPassword ? resolvedPassword : null);
         }
         catch (Exception ex)
@@ -920,17 +950,58 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    /// <summary>Writes the form to its profile without connecting.</summary>
+    /// <summary>Apply: writes the form to its profile without connecting.</summary>
     private async Task SaveProfileAsync()
     {
+        if (!await TrySaveFormAsync()) return;
+        ApplyButtonText = AppliedLabel;
+        EditFinished?.Invoke();
+        await Task.Delay(TimeSpan.FromSeconds(1.5));
+        ApplyButtonText = ApplyLabel;
+    }
+
+    /// <summary>Connect from the editor: saved first, by the same rules as Apply, so a new profile
+    /// cannot connect under the name of one that exists and overwrite it.</summary>
+    private async Task ConnectFromEditorAsync()
+    {
+        // A direct connect saves nothing, so there is nothing to save first.
+        if (!IsDirectConnectMode)
+        {
+            if (!await TrySaveFormAsync()) return;
+            EditFinished?.Invoke();
+        }
+        await ConnectAsync();
+    }
+
+    /// <summary>Connect without Saving: the form as it stands, and connecting writes nothing - not
+    /// the profile list, not mucka.ini, not the stored password. Settings saved from the game's own
+    /// settings dialog are still written under the form's name, as a guest's are.</summary>
+    private async Task ConnectUnsavedAsync()
+    {
+        if (IsConnecting) return;
+        _unsavedSession = true;
+        try
+        {
+            await ConnectAsync();
+        }
+        finally
+        {
+            _unsavedSession = false;
+        }
+    }
+
+    /// <summary>Writes the form to its profile. False when nothing was written; the reason is in
+    /// <see cref="StatusText"/> unless the page was busy.</summary>
+    private async Task<bool> TrySaveFormAsync()
+    {
         // Not while the selected profile's password is still being read: the box is empty until then.
-        if (IsConnecting || IsDirectConnectMode || Volatile.Read(ref _profileLoadsInProgress) > 0) return;
+        if (IsConnecting || IsDirectConnectMode || Volatile.Read(ref _profileLoadsInProgress) > 0) return false;
         var name = ProfileName.Trim();
         if (name.Length == 0)
         {
             StatusText = "Give the profile a name to save it.";
             HasError = true;
-            return;
+            return false;
         }
         ProfileName = name;
         HasError = false;
@@ -939,7 +1010,7 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             StatusText = $"There is already a profile called \"{name}\".";
             HasError = true;
-            return;
+            return false;
         }
         try
         {
@@ -963,12 +1034,9 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             StatusText = $"Could not save: {ex.Message}";
             HasError = true;
-            return;
+            return false;
         }
-        SaveButtonText = "Saved";
-        EditFinished?.Invoke();
-        await Task.Delay(TimeSpan.FromSeconds(1.5));
-        SaveButtonText = SaveLabel;
+        return true;
     }
 
     /// <summary>Renames the highlighted profile: its list entry, its sections in mucka.ini and its

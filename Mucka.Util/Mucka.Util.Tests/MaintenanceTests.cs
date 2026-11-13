@@ -204,9 +204,12 @@ public sealed class MaintenanceTests : IDisposable
     [Fact]
     public void AScriptStillToRunOnAJournaledFile_IsBackedUpFirstToo()
     {
-        // The last two: the newest only adds, and the one before it does not.
+        // From the newest script that does more than add, to the end: scripts that only add follow it,
+        // so what is pending is a mix.
+        var from = MigrationScripts.AllNames.Last(n => !MigrationScripts.IsAdditive(n));
+        Assert.NotEqual(MigrationScripts.AllNames[^1], from);
         using (var connection = MuckaDb.Open(DbPath))
-            Run(connection, "DELETE FROM SchemaVersions WHERE ScriptName IN (SELECT ScriptName FROM SchemaVersions ORDER BY ScriptName DESC LIMIT 2);");
+            Run(connection, $"DELETE FROM SchemaVersions WHERE ScriptName >= '{from}';");
         var before = Scalar(DbPath, "SELECT COUNT(*) FROM SchemaVersions;");
         File.Delete(DatabaseBackup.PathFor(DbPath));
         // The record is per process and the path is this test's own, so nothing is held yet.

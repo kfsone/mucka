@@ -67,7 +67,8 @@ so a range that starts after the login is still scrubbed. Each `--sub` replaces 
 A profile or a direct connect whose host is `replay:<name>` plays the replay instead of connecting;
 the port and SSH settings are ignored. `ReplayFiles` looks for `<name>.muckrep` (the extension is
 optional) in this order: an absolute path as given; the player's replays folder; on Android, the
-app's external files folder; and the replays packaged with the app.
+app's external files folder; and the replays packaged with the app. History's Replays tab lists the
+same places and plays one with a tap (`docs/history-design.md`).
 
 `ReplayTransport` stands in for the socket and `ReplayPlayer` schedules the records. The replay bar
 covers the input row the way the SCROLLBACK bar does, and the whole replay counts as the keyboard

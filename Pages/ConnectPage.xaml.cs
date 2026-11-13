@@ -150,10 +150,30 @@ public partial class ConnectPage : ContentPage
 
     private async void OnGuestRequested() => await ChooseQuickStartAsync(showGuest: true);
 
-    private async void OnScoreHistoryClicked(object? sender, EventArgs e)
+    private async void OnHistoryClicked(object? sender, EventArgs e)
     {
-        if (Navigation.ModalStack.Count > 0 || _vm.ScoreHistoryHost.Length == 0) return;
-        await Navigation.PushModalAsync(new ScorePage(_vm.ScoreHistoryHost));
+        if (Navigation.ModalStack.Count > 0) return;
+        await Navigation.PushModalAsync(new HistoryPage(PlayReplayRefusal, _vm.PlayReplayAsync));
+    }
+
+    /// <summary>Playing a replay refills the form, so a new profile still being typed would be lost.
+    /// Asked by History before it closes, so the refusal is shown over History.</summary>
+    private string? PlayReplayRefusal() => _vm.IsNewProfile
+        ? "Finish or cancel the new profile first: playing a replay would replace what you have typed."
+        : null;
+
+    private async void OnScoreClicked(object? sender, EventArgs e)
+    {
+        if (_vm.SelectedProfile is { } profile)
+            await OpenScoreAsync(profile);
+    }
+
+    /// <summary>The score history of a profile's server, without connecting.</summary>
+    private async Task OpenScoreAsync(Profile profile)
+    {
+        var host = profile.Host.Trim();
+        if (Navigation.ModalStack.Count > 0 || host.Length == 0) return;
+        await Navigation.PushModalAsync(new ScorePage(host));
     }
 
     private bool _settingsOpen;
@@ -211,6 +231,7 @@ public partial class ConnectPage : ContentPage
     private const string MenuEdit = "Edit";
     private const string MenuRename = "Rename";
     private const string MenuDuplicate = "Duplicate";
+    private const string MenuScore = "Score";
     private const string MenuDelete = "Delete";
 
     // A row's more-actions menu.
@@ -218,7 +239,7 @@ public partial class ConnectPage : ContentPage
     {
         if (sender is not Button { CommandParameter: Profile profile } button || !_vm.IsNotConnecting) return;
         var pick = await ActionMenu.ShowAsync(this, button, profile.Name, "Cancel", MenuDelete,
-            MenuEdit, MenuRename, MenuDuplicate);
+            MenuEdit, MenuRename, MenuDuplicate, MenuScore);
         switch (pick)
         {
             case MenuEdit:
@@ -230,6 +251,9 @@ public partial class ConnectPage : ContentPage
                 break;
             case MenuDuplicate:
                 _vm.BeginDuplicate(profile);
+                break;
+            case MenuScore:
+                await OpenScoreAsync(profile);
                 break;
             case MenuDelete:
                 _vm.Highlight(profile);
@@ -455,6 +479,11 @@ public partial class ConnectPage : ContentPage
         {
             try
             {
+                // Connect without Saving leaves the editor's sheet open until the connection is
+                // made, because closing it drops an unsaved new profile's form. Nothing may sit
+                // above the login and game pages.
+                if (Navigation.ModalStack is [.., EditProfilePage])
+                    await Navigation.PopModalAsync();
                 var vm = _vm;
                 Func<ClientSettings, string[], Task>? saveSettings = _vm.IsDirectConnectMode
                     ? null

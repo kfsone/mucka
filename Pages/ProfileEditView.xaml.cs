@@ -1,3 +1,4 @@
+using Mucka.Core;
 using Mucka.ViewModels;
 
 namespace Mucka.Pages;
@@ -41,6 +42,19 @@ public partial class ProfileEditView : ContentView
             while (e is not null and not Page) e = e.Parent;
             return e as Page;
         }
+    }
+
+    private const string ConnectUnsavedChoice = "Connect without Saving";
+
+    /// <summary>Connect's drop-down. MAUI has no long-press gesture, and a mouse would not find one,
+    /// so the other way to connect is on a menu.</summary>
+    private async void OnConnectMenuClicked(object? sender, EventArgs e)
+    {
+        if (BindingContext is not ConnectViewModel vm || HostPage is not { } page || !vm.CanConnect) return;
+        var pick = await ActionMenu.ShowAsync(page, ConnectMenuButton, "Connect", "Cancel", null,
+            ConnectUnsavedChoice);
+        if (pick == ConnectUnsavedChoice && vm.ConnectUnsavedCommand.CanExecute(null))
+            vm.ConnectUnsavedCommand.Execute(null);
     }
 
     private const string SecureChoice = "Secure (SSH)";

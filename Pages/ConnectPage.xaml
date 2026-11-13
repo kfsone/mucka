@@ -58,7 +58,7 @@
                 </Grid.Background>
             </Grid>
 
-            <Grid x:Name="ListRows" RowDefinitions="Auto,Auto,Auto,*,Auto">
+            <Grid x:Name="ListRows" RowDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto">
 
                 <!-- Wide: the space the large logo leaves above the rows, with the version at its foot -->
                 <Grid x:Name="WideHeader"
@@ -72,11 +72,11 @@
                            Padding="0,0,0,2" />
                 </Grid>
 
-                <!-- Title, Settings and Add; narrow puts a small logo and the version here too -->
+                <!-- History, Score and Settings; narrow puts a small logo at the start -->
                 <Grid Grid.Row="1"
                       IsEnabled="{Binding IsNotConnecting}"
                       Opacity="{Binding IdleOpacity}"
-                      ColumnDefinitions="Auto,*,Auto,Auto"
+                      ColumnDefinitions="Auto,*,Auto,Auto,Auto"
                       ColumnSpacing="{OnPlatform Default=8, WinUI=6}"
                       Padding="{OnPlatform Default='12,8', WinUI='8,6'}">
                     <Image x:Name="NarrowLogo"
@@ -84,39 +84,36 @@
                            Source="mucka_logo.png"
                            HeightRequest="46"
                            Aspect="AspectFit" />
-                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="0">
-                        <Label Text="Profiles"
-                               TextColor="White"
-                               FontAttributes="Bold"
-                               LineBreakMode="TailTruncation"
-                               FontSize="{core:ScaledFont 20}" />
-                        <Label x:Name="NarrowVersionLabel"
-                               TextColor="#555555"
-                               LineBreakMode="TailTruncation"
-                               FontSize="{core:ScaledFont 11}" />
-                    </VerticalStackLayout>
                     <Button Grid.Column="2"
+                            Text="History"
+                            Style="{StaticResource HeaderButton}"
+                            Clicked="OnHistoryClicked"
+                            SemanticProperties.Description="Session history" />
+                    <!-- The highlighted profile's server: its score history, without connecting -->
+                    <Button Grid.Column="3"
+                            Text="Score"
+                            Style="{StaticResource HeaderButton}"
+                            Clicked="OnScoreClicked"
+                            IsEnabled="{Binding HasSelectedProfile}"
+                            SemanticProperties.Description="Score history" />
+                    <Button Grid.Column="4"
                             Text="Settings"
                             Style="{StaticResource HeaderButton}"
                             Clicked="OnSettingsClicked"
-                            IsEnabled="{Binding IsNotConnecting}"
                             SemanticProperties.Description="Settings" />
-                    <Button Grid.Column="3"
-                            Text="+ Add"
-                            Clicked="OnAddClicked"
-                            IsEnabled="{Binding IsNotConnecting}"
-                            BackgroundColor="#1f6feb"
-                            TextColor="White"
-                            CornerRadius="8"
-                            HeightRequest="{OnPlatform Default=44, WinUI=-1}"
-                            MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
-                            Padding="{OnPlatform Default='16,0', WinUI='10,0'}"
-                            VerticalOptions="Center"
-                            SemanticProperties.Description="Add a profile" />
                 </Grid>
 
+                <!-- Narrow: the version, under the bar -->
+                <Label x:Name="NarrowVersionLabel"
+                       Grid.Row="2"
+                       TextColor="#555555"
+                       LineBreakMode="TailTruncation"
+                       FontSize="{core:ScaledFont 11}"
+                       HorizontalOptions="Center"
+                       Margin="0,0,0,6" />
+
                 <!-- Narrow: guest access mentioned once, the first run that has it -->
-                <Border Grid.Row="2"
+                <Border Grid.Row="3"
                             IsVisible="{Binding ShowNarrowGuestIntro}"
                             IsEnabled="{Binding IsNotConnecting}"
                             Opacity="{Binding IdleOpacity}"
@@ -153,7 +150,7 @@
                         </Grid>
                     </Border>
 
-                <Grid Grid.Row="3" IsEnabled="{Binding IsNotConnecting}" Opacity="{Binding IdleOpacity}">
+                <Grid Grid.Row="4" IsEnabled="{Binding IsNotConnecting}" Opacity="{Binding IdleOpacity}">
                     <CollectionView x:Name="ProfileList"
                                     ItemsSource="{Binding SavedProfiles}"
                                     SelectionMode="Single"
@@ -214,7 +211,7 @@
                                                         HeightRequest="{OnPlatform Default=44, WinUI=-1}"
                                                         MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
                                                         MinimumWidthRequest="{OnPlatform Default=104, WinUI=76}" />
-                                                <!-- Edit, Rename, Duplicate and Delete (OnMoreClicked) -->
+                                                <!-- Edit, Rename, Duplicate, Score and Delete (OnMoreClicked) -->
                                                 <Button Text="&#x22EF;"
                                                         Clicked="OnMoreClicked"
                                                         CommandParameter="{Binding .}"
@@ -228,7 +225,7 @@
                                                         MinimumHeightRequest="{OnPlatform Default=44, WinUI=26}"
                                                         MinimumWidthRequest="{OnPlatform Default=104, WinUI=76}"
                                                         Padding="0"
-                                                        SemanticProperties.Description="More: edit, rename, duplicate, delete" />
+                                                        SemanticProperties.Description="More: edit, rename, duplicate, score, delete" />
                                             </VerticalStackLayout>
                                         </Grid>
                                     </Border>
@@ -251,23 +248,23 @@
                            Margin="0,24,0,0" />
                 </Grid>
 
-                <VerticalStackLayout Grid.Row="4" Spacing="4" Padding="12,4">
-                    <!-- The highlighted profile's server: its score history, without connecting -->
-                    <Button Text="{Binding ScoreHistoryText}"
-                            IsVisible="{Binding HasProfiles}"
-                            IsEnabled="{Binding IsNotConnecting}"
-                            Opacity="{Binding IdleOpacity}"
-                            Clicked="OnScoreHistoryClicked"
-                            BackgroundColor="Transparent"
-                            TextColor="#58a6ff"
-                            BorderColor="#333333"
-                            BorderWidth="1"
-                            CornerRadius="6"
-                            Padding="{OnPlatform Default='14,10', WinUI='8,0'}"
-                            HeightRequest="{OnPlatform Default=40, WinUI=-1}"
-                            MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
-                            HorizontalOptions="Fill"
-                            SemanticProperties.Description="Score history" />
+                <!-- Below the list and outside its scroll, so it is always in view -->
+                <Button Grid.Row="5"
+                        Text="+ Add"
+                        Clicked="OnAddClicked"
+                        IsEnabled="{Binding IsNotConnecting}"
+                        Opacity="{Binding IdleOpacity}"
+                        BackgroundColor="#1f6feb"
+                        TextColor="White"
+                        CornerRadius="8"
+                        HeightRequest="{OnPlatform Default=44, WinUI=-1}"
+                        MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
+                        Padding="{OnPlatform Default='16,0', WinUI='10,0'}"
+                        Margin="{OnPlatform Default='12,8,12,4', WinUI='12,6,12,2'}"
+                        HorizontalOptions="Fill"
+                        SemanticProperties.Description="Add a profile" />
+
+                <VerticalStackLayout Grid.Row="6" Spacing="4" Padding="12,4">
                     <HorizontalStackLayout IsVisible="{Binding IsConnecting}"
                                            HorizontalOptions="Center" Spacing="8">
                         <ActivityIndicator IsRunning="{Binding IsConnecting}" Color="#58a6ff"
