@@ -7,8 +7,8 @@
 // and with any number of edits, each replacing every case-blind OLD with NEW:
 //   dotnet run --file scripts/make-muckrep.cs -- <mucka.db> <run id> <out.muckrep> [first] [last] [--sub OLD=NEW]...
 //
-// The account ID and password become Muckrep.PlaceholderAccountId and Muckrep.PlaceholderPassword
-// wherever the server echoed them (Muckrep.FromSession); nothing the client sent is written at all.
+// The account ID is masked where the server printed it, found by context (Muckrep.MaskLogin), and
+// nothing the client sent is written at all.
 
 using System.Globalization;
 using Mucka.WireLog;
@@ -58,6 +58,6 @@ if (replay.Count == 0)
     return 1;
 }
 using (var file = File.Create(outPath))
-    Muckrep.Write(file, ["muckrep", "account ID and password replaced with placeholders"], replay);
+    Muckrep.Write(file, Muckrep.ScrubbedHeader, replay);
 Console.WriteLine($"{outPath}: {replay.Count} records, {replay[^1].TimestampMs / 1000.0:0.0}s");
 return 0;

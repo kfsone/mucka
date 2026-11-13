@@ -13,7 +13,7 @@ namespace Mucka.Combat;
 /// nothing about how the Session ended.</param>
 /// <param name="Points">What the score graph's steps inside this Session add up to
 /// (<see cref="SessionPoints.Of"/>); null when the Session has no score reading.</param>
-/// <param name="Name">The name the player gave it, or null.</param>
+/// <param name="Title">The title the player gave it, or null.</param>
 /// <param name="Tags">The player's tags, in <see cref="SessionLabels.Ordered"/> order.</param>
 public sealed record SessionSummary(
     long Id,
@@ -23,11 +23,27 @@ public sealed record SessionSummary(
     string? Persona,
     string? EndedNote,
     long? Points,
-    string? Name,
+    string? Title,
     IReadOnlyList<string> Tags)
 {
     /// <summary>Null when the end was never recorded.</summary>
     public long? DurationMs => EndedMs - StartedMs;
+
+    /// <summary>The title a Session has until the player gives it one, and the name a file made
+    /// from it is offered: the character, then the local start time
+    /// (<c>Derpster-20261112-2057</c>).</summary>
+    public string DefaultTitle
+        => $"{Persona ?? "session"}-"
+           + DateTimeOffset.FromUnixTimeMilliseconds(StartedMs).ToLocalTime()
+               .ToString("yyyyMMdd-HHmm", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The title, or null while it is the default: the list shows the server then.</summary>
+    public string? ShownTitle => Title is { } title && title != DefaultTitle ? title : null;
+
+    /// <summary>What to store for a typed title: null, which removes it, for a blank one or the
+    /// default; otherwise the typed title, trimmed.</summary>
+    public string? TitleToStore(string? typed)
+        => typed?.Trim() is { Length: > 0 } title && title != DefaultTitle ? title : null;
 }
 
 /// <summary>
@@ -102,7 +118,7 @@ public static class SessionHistoryReader
 
         // A read-only open migrates nothing, and the launch can leave a file un-upgraded (its upgrade
         // is skipped while "nettimes" is on, and a failed one waits for the next game). Such a file has
-        // no names or tags yet.
+        // no titles or tags yet.
         bool labelled;
         using (var command = connection.CreateCommand())
         {

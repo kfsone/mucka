@@ -2247,7 +2247,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
 #if DESKTOP
     /// <summary>$MAKEREPLAY [name] - this connection's session so far, as a replay in the player's
-    /// replays folder: Tx dropped, the login replaced (<see cref="Muckrep.FromSession"/>). The name
+    /// replays folder: Tx dropped, the login masked (<see cref="Muckrep.FromSession"/>). The name
     /// defaults to the time; an existing file is never overwritten. Desktop only - docs/replay.md.
     /// </summary>
     private void MakeReplay(string argument)
@@ -2277,24 +2277,11 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         }
         var database = _conn.DatabasePath;
         var run = _conn.MuckaRunId;
-        var login = _conn.Login;
 
         RunDatabaseJob("replay", $"writing {path} ...", () =>
         {
-            var replay = Muckrep.FromSession(WireLogExport.ReadSession(database, run).ToList(),
-                accountId: login.AccountId, password: login.Password);
-            Directory.CreateDirectory(directory);
-            try
-            {
-                using var file = new FileStream(path, FileMode.CreateNew);
-                Muckrep.Write(file, ["muckrep", "account ID and password replaced with placeholders"], replay);
-            }
-            catch
-            {
-                // A half-written file would only be refused as "already exists" next time.
-                try { File.Delete(path); } catch (IOException) { }
-                throw;
-            }
+            var replay = Muckrep.FromSession(WireLogExport.ReadSession(database, run).ToList());
+            Muckrep.WriteNewFile(path, replay);
             return ($"wrote {path}: {replay.Count} records; watch it with replay:{name} as the host", true);
         });
     }

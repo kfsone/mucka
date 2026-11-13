@@ -6,7 +6,7 @@ namespace Mucka.Util.Tests;
 
 /// <summary>
 /// The replay file and its player: bytes survive the file, nothing the client sent reaches it, the
-/// login secrets are scrubbed wherever the server echoed them, and the player keeps the original
+/// account ID is masked where the server printed it, found by context, and the player keeps the original
 /// timing at 1.0x, waits at pause and ignores it at max.
 /// </summary>
 public sealed class MuckrepTests
@@ -17,7 +17,8 @@ public sealed class MuckrepTests
     private static string Text(WireRecord r) => Encoding.Latin1.GetString(r.Payload);
 
     // The login as captured on a mudii.co.uk telnet session, with a made-up account ID: the ID is
-    // echoed in two pieces, the password is not echoed, and the ID comes back in lower case later.
+    // echoed in two pieces, the password is not echoed, and the ID comes back in lower case in the
+    // FE code 95 block (licence, min, max, account, privs) that follows.
     private static readonly WireRecord[] Login =
     [
         Rx(1000, "\r\nPlease enter your account id (starting Z000) now.\r\n"),
@@ -28,7 +29,7 @@ public sealed class MuckrepTests
         Tx(1180, "hunter2pw\r\n"),
         Rx(1330, "\r\nOK\r\nZ00099988 logged in on pts/5.\r\n"),
         An(1335, "terminal width confirmed: 44"),
-        Rx(1510, "\u009b\u00ff\u00ff1\r\nz00099988\r\n1\r\nOption (H for help): "),
+        Rx(1510, "\u009b\u00ff\u00ff\u00fa\u00ff\u00ff40000001\r\n1\r\n1\r\nz00099988\r\n1\r\n\u00ff\u00ffOption (H for help): "),
     ];
 
     [Fact]
@@ -56,14 +57,7 @@ public sealed class MuckrepTests
     }
 
     [Fact]
-    public void FindsWhatWasTypedAtTheAccountAndPasswordPrompts()
-        => Assert.Equal(
-            [new Muckrep.Substitution("Z00099988", Muckrep.PlaceholderAccountId),
-             new Muckrep.Substitution("hunter2pw", Muckrep.PlaceholderPassword)],
-            Muckrep.FindLoginSecrets(Login));
-
-    [Fact]
-    public void ReplacesAnEchoSplitAcrossRecordsAndInAnyCase()
+    public void MasksAnEchoSplitAcrossRecords_TheBanner_AndTheLowerCaseRepeat()
     {
         var replay = Muckrep.FromSession(Login);
         var all = string.Concat(replay.Where(r => r.Direction == WireDirection.Rx).Select(Text));
@@ -75,6 +69,8 @@ public sealed class MuckrepTests
         Assert.Contains("M00010101 logged in", Text(replay[4]));
         // The server's lower-case repeat gets a lower-case placeholder.
         Assert.Contains("\r\nm00010101\r\n", Text(replay[6]));
+        // The rest of the code 95 block is left alone.
+        Assert.Contains("40000001\r\n1\r\n1\r\n", Text(replay[6]));
     }
 
     [Fact]
@@ -84,16 +80,73 @@ public sealed class MuckrepTests
         Assert.DoesNotContain(replay, r => r.Direction == WireDirection.Tx);
         Assert.Equal(0, replay[0].TimestampMs);
         Assert.Equal(1, replay[1].TimestampMs);
-        // Secrets are found over the whole session, so a slice after the login is still replaced.
         Assert.Equal("M000101", Text(replay[0]));
     }
 
     [Fact]
-    public void TheProfilesOwnLoginIsReplacedToo()
+    public void ACutInsideTheEcho_StillMasksTheHalfItKeeps()
     {
-        var replay = Muckrep.FromSession([Rx(0, "hello Z00011122, your word is hunter2pw")],
-            accountId: "Z00011122", password: "hunter2pw");
-        Assert.Equal($"hello {Muckrep.PlaceholderAccountId}, your word is {Muckrep.PlaceholderPassword}", Text(replay[0]));
+        // Record 4 holds only the echo's tail; its context begins in record 3, outside the cut.
+        var replay = Muckrep.FromSession(Login, first: 4);
+        Assert.StartsWith("01\r\nPassword: ", Text(replay[0]));
+    }
+
+    [Fact]
+    public void APasswordThatIsAlsoAWordSaidInPlay_IsLeftAlone()
+    {
+        // Masking by value would turn every "dwarf48" into the placeholder, and so point at the
+        // password wherever it was said.
+        WireRecord[] session =
+        [
+            Rx(0, "\r\nAccount ID: "), Tx(1, "Z00099988\r\n"), Rx(2, "Z00099988\r\nPassword: "), Tx(3, "dwarf48\r\n"),
+            Rx(4, "\r\nOK\r\nBob says \"I killed dwarf48 earlier\".\r\n"),
+        ];
+        var replay = Muckrep.FromSession(session);
+        Assert.Contains("I killed dwarf48 earlier", string.Concat(replay.Select(Text)));
+    }
+
+    [Fact]
+    public void AnAccountIdSaidInPlay_IsLeftAlone_BecauseOnlyItsContextsAreMasked()
+    {
+        var replay = Muckrep.FromSession([Rx(0, "Bob says \"my account is Z00099988\".\r\n")]);
+        Assert.Contains("Z00099988", Text(replay[0]));
+    }
+
+    [Fact]
+    public void WhatIsTypedAtTheAccountPrompt_IsMaskedWhateverItIs()
+    {
+        var replay = Muckrep.FromSession([Rx(0, "\r\nAccount ID: dwarf48\r\nPassword: ")]);
+        Assert.DoesNotContain("dwarf48", Text(replay[0]));
+    }
+
+    [Fact]
+    public void AnythingAfterThePasswordPrompt_OnItsLine_IsMasked()
+    {
+        var replay = Muckrep.FromSession([Rx(0, "\r\nPassword: dwarf48\r\nOK\r\n")]);
+        Assert.Equal("\r\nPassword: *******\r\nOK\r\n", Text(replay[0]));
+    }
+
+    [Theory]
+    [InlineData("\r\nOption (H for help): q\r\nZ00099988 logged out.\r\n")]
+    [InlineData("OK\r\n\u001b[f\u001b[2JZ00099988 logged in on pts/5.\r\n")]
+    [InlineData("\r\nOK\r\nAccount Z00099988 is already logged in.\r\n")]
+    [InlineData("\u001b-CAccount: Z00099988\r\nBalance: 12hrs 3mins\r\n")]
+    [InlineData("EXAMINE>L\r\nLast games for z00099988:\r\n")]
+    [InlineData("\u00fa\u009d\u00ff\u00ffZ00099988\r\n1\r\n\u00ff\u00ff")]
+    [InlineData("\u00fa\u009e\u00ff\u00ffZ00099988\r\n\u00ff\u00ff")]
+    [InlineData("\u00fa\u009e\u00ffZ00099988\r\n\u00ff")]
+    [InlineData("\u00fa\u00ff\u00ff57009120\r\u0000\n1\r\u0000\n1\r\u0000\nz00099988\r\u0000\n1\r\u0000\n")]
+    [InlineData("\u00fa\u009b\u00ff\u00ffUnlicensed product!\r\n1\r\n1\r\nz00099988\r\n1\r\n")]
+    [InlineData("Account ID: Z00099988\r\nPassword: ")]
+    [InlineData("\u001b[2JAccount ID: Z00099988\r\n")]
+    public void EveryContextTheServerPrintsTheAccountIn_IsMasked(string sent)
+    {
+        var text = Text(Muckrep.FromSession([Rx(0, sent)])[0]);
+        Assert.DoesNotContain("99988", text);
+        // A lower-case ID gets the lower-case placeholder.
+        Assert.Contains(sent.Contains("z000", StringComparison.Ordinal) ? "m00010101" : "M00010101", text);
+        // Only the ID changes: what surrounds it, escape sequences included, keeps its bytes.
+        Assert.Equal(sent.Length, text.Length);
     }
 
     [Fact]
@@ -115,14 +168,6 @@ public sealed class MuckrepTests
     }
 
     [Fact]
-    public void ATelnetReplyAtThePromptIsNotTakenForTheAnswer()
-    {
-        // IAC WILL NAWS, then the typed line: the reply neither becomes a secret nor ends the wait.
-        WireRecord[] session = [Rx(0, "Account ID: "), new(1, WireDirection.Tx, [0xFF, 0xFB, 0x1F]), Tx(2, "Z00099988\r\n")];
-        Assert.Equal([new Muckrep.Substitution("Z00099988", Muckrep.PlaceholderAccountId)], Muckrep.FindLoginSecrets(session));
-    }
-
-    [Fact]
     public void ReadKeepsAnEmptyRecordWhoseTrailingSpaceWasTrimmedAndAnUnknownEscape()
     {
         using var ms = new MemoryStream(Encoding.Latin1.GetBytes("0 rx\n5 rx a\\xb\n"));
@@ -130,13 +175,6 @@ public sealed class MuckrepTests
         Assert.Equal(2, records.Count);
         Assert.Empty(records[0].Payload);
         Assert.Equal("a\\xb", Text(records[1]));
-    }
-
-    [Fact]
-    public void AShortSecretIsNotSearchedFor()
-    {
-        var replay = Muckrep.FromSession([Rx(0, "Account ID: "), Tx(1, "ab\r\n"), Rx(2, "a cab")]);
-        Assert.Equal("a cab", Text(replay[^1]));
     }
 
     [Fact]

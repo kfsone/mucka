@@ -72,20 +72,41 @@ internal static class ReplayLibrary
             : name;
     }
 
+    /// <summary>A name offered for a new replay, from text a player wrote for something else (a
+    /// Session's title): each character a file name cannot hold becomes <c>-</c>.</summary>
+    public static string OfferedName(string text)
+    {
+        var invalid = System.IO.Path.GetInvalidFileNameChars();
+        return new string([.. text.Trim().Select(c => Array.IndexOf(invalid, c) >= 0 ? '-' : c)]);
+    }
+
     /// <summary>Why <paramref name="name"/> cannot be a replay's new name, or null when it can.
     /// <paramref name="current"/> is the replay being renamed; <paramref name="listed"/> is every
     /// replay <see cref="List"/> found. A name another listed replay holds is refused whichever folder
     /// it is in, because only one of the two would list and play.</summary>
     public static string? RenameProblem(ReplayEntry current, string name, IEnumerable<ReplayEntry> listed)
+        => NameProblem(name, System.IO.Path.GetDirectoryName(current.Path)!, current.Path, listed);
+
+    /// <summary>Why <paramref name="name"/> cannot name a new replay in the player's replay folder,
+    /// or null when it can; as <see cref="RenameProblem"/>.</summary>
+    public static string? NewNameProblem(string name, IEnumerable<ReplayEntry> listed)
+        => NameProblem(name, MuckaPaths.GetReplayDirectory(), null, listed);
+
+    /// <summary>Where a new replay called <paramref name="name"/> is written: the player's replay
+    /// folder, the first place <see cref="ReplayFiles"/> looks.</summary>
+    public static string NewPath(string name)
+        => System.IO.Path.Combine(MuckaPaths.GetReplayDirectory(), name + Muckrep.Extension);
+
+    private static string? NameProblem(string name, string directory, string? currentPath, IEnumerable<ReplayEntry> listed)
     {
         if (name.Length == 0)
             return "A replay needs a name.";
         if (name.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 || name.Trim('.').Length == 0)
             return "That name has characters a file name cannot hold.";
-        var target = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(current.Path)!, name + Muckrep.Extension);
-        var taken = listed.Any(e => !string.Equals(e.Path, current.Path, StringComparison.Ordinal)
+        var target = System.IO.Path.Combine(directory, name + Muckrep.Extension);
+        var taken = listed.Any(e => !string.Equals(e.Path, currentPath, StringComparison.Ordinal)
                                     && string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
-        if (taken || (!string.Equals(target, current.Path, StringComparison.OrdinalIgnoreCase) && File.Exists(target)))
+        if (taken || (!string.Equals(target, currentPath, StringComparison.OrdinalIgnoreCase) && File.Exists(target)))
             return $"There is already a replay called \"{name}\".";
         return null;
     }

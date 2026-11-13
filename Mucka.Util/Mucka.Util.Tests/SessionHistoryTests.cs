@@ -84,7 +84,7 @@ public sealed class SessionHistoryTests : IDisposable
     public void TheList_IsNewestFirst_WithTheGraphsPoints_AndTheRunsHostWhereTheSessionHasNone()
     {
         var (first, second, unnamed) = Seed();
-        SessionLabels.SetName(Db, first, "  the long one ");
+        SessionLabels.SetTitle(Db, first, "  the long one ");
         SessionLabels.SetTags(Db, first, ["pk", "Quest", "", " pk "]);
 
         var list = SessionHistoryReader.Read(Db, 30000);
@@ -104,23 +104,45 @@ public sealed class SessionHistoryTests : IDisposable
         Assert.Equal(150, named.Points);   // from its own first reading: nothing earlier
         Assert.Equal(3900, named.DurationMs);
         Assert.Equal("quit", named.EndedNote);
-        Assert.Equal("the long one", named.Name);
+        Assert.Equal("the long one", named.Title);
         Assert.Equal(["pk", "Quest"], named.Tags);
     }
 
     [Fact]
-    public void ABlankName_RemovesIt_AndNewTagsReplaceTheOld()
+    public void ABlankTitle_RemovesIt_AndNewTagsReplaceTheOld()
     {
         var (first, _, _) = Seed();
-        SessionLabels.SetName(Db, first, "x");
+        SessionLabels.SetTitle(Db, first, "x");
         SessionLabels.SetTags(Db, first, ["a", "b"]);
 
-        SessionLabels.SetName(Db, first, "   ");
+        SessionLabels.SetTitle(Db, first, "   ");
         SessionLabels.SetTags(Db, first, ["c"]);
 
         var session = SessionHistoryReader.Read(Db, 30000).Single(s => s.Id == first);
-        Assert.Null(session.Name);
+        Assert.Null(session.Title);
         Assert.Equal(["c"], session.Tags);
+    }
+
+    [Fact]
+    public void TheDefaultTitle_IsTheCharacterAndTheLocalStart_AndIsNeverShownOrStored()
+    {
+        var started = new DateTimeOffset(2026, 11, 12, 20, 57, 30, TimeSpan.Zero);
+        var local = started.ToLocalTime().ToString("yyyyMMdd-HHmm", System.Globalization.CultureInfo.InvariantCulture);
+        var session = new SessionSummary(1, started.ToUnixTimeMilliseconds(), null, "mud2.co.uk", "Derpster",
+            "quit", null, null, []);
+
+        Assert.Equal($"Derpster-{local}", session.DefaultTitle);
+        Assert.Matches(@"^Derpster-2026111[23]-\d{4}$", session.DefaultTitle);   // 20:57 UTC, in any zone
+        Assert.Equal($"session-{local}", (session with { Persona = null }).DefaultTitle);
+
+        Assert.Null(session.ShownTitle);
+        Assert.Null((session with { Title = session.DefaultTitle }).ShownTitle);
+        Assert.Equal("the long one", (session with { Title = "the long one" }).ShownTitle);
+
+        Assert.Null(session.TitleToStore(null));
+        Assert.Null(session.TitleToStore("   "));
+        Assert.Null(session.TitleToStore($" {session.DefaultTitle} "));
+        Assert.Equal("the long one", session.TitleToStore("  the long one "));
     }
 
     [Fact]
@@ -140,7 +162,7 @@ public sealed class SessionHistoryTests : IDisposable
 
         Assert.Equal(3, list.Count);
         Assert.Equal(150, list.Single(s => s.Id == first).Points);
-        Assert.All(list, s => Assert.Null(s.Name));
+        Assert.All(list, s => Assert.Null(s.Title));
         Assert.All(list, s => Assert.Empty(s.Tags));
     }
 
@@ -161,7 +183,7 @@ public sealed class SessionHistoryTests : IDisposable
             var run = Insert(a, "INSERT INTO mucka_runs (uid, started_ms, ended_ms, host) VALUES ('ra', 1000, 2000, 'h');");
             sessionInSource = Insert(a, "INSERT INTO persona_sessions (mucka_run_id, persona, started_ms) VALUES ($r, 'Ollie', 1100);", ("$r", run));
         }
-        SessionLabels.SetName(source, sessionInSource, "first blood");
+        SessionLabels.SetTitle(source, sessionInSource, "first blood");
         SessionLabels.SetTags(source, sessionInSource, ["pk"]);
 
         // Ids pushed off the source's, so a copy that kept them would point at the wrong login.
@@ -178,7 +200,7 @@ public sealed class SessionHistoryTests : IDisposable
 
         var imported = SessionHistoryReader.Read(destination, 3000).Single(s => s.Persona == "Ollie");
         Assert.NotEqual(sessionInSource, imported.Id);
-        Assert.Equal("first blood", imported.Name);
+        Assert.Equal("first blood", imported.Title);
         Assert.Equal(["pk"], imported.Tags);
     }
 }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Mucka.WireLog;
 
@@ -13,10 +14,11 @@ namespace Mucka.WireLog;
 /// with <c>#</c> are header notes. Offsets count from the first record, so a file carries no clock
 /// time.</para>
 ///
-/// <para>What a file never holds: anything the client sent. Tx records are dropped whole, so what
-/// was typed - the password included - cannot reach a file. What the server echoed back is still
-/// there, and <see cref="FromSession"/> replaces the account ID and password in it with
-/// <see cref="PlaceholderAccountId"/> and <see cref="PlaceholderPassword"/>.</para>
+/// <para>What a file never holds: a Tx record. Those are dropped whole, so what was typed - the
+/// password included - cannot reach a file. Annotations are kept; they are the client's own notes,
+/// and a few name a command it sent (a dreamword spoken, an alternate weapon wielded). Where the
+/// server printed the account ID back, <see cref="FromSession"/> masks it by its context
+/// (<see cref="MaskLogin"/>).</para>
 /// </summary>
 public static class Muckrep
 {
@@ -25,10 +27,6 @@ public static class Muckrep
 
     /// <summary>The host prefix that plays a file instead of connecting: <c>replay:name</c>.</summary>
     public const string HostPrefix = "replay:";
-
-    /// <summary>A secret shorter than this is not searched for in what the server sent: it would
-    /// match ordinary text. The record that carried it is a Tx record and is dropped anyway.</summary>
-    public const int MinScrubLength = 4;
 
     /// <summary>The account ID a replay shows in place of the real one: the stand-in for a valid
     /// account. Nine characters, as the captured one is, so an echo split across records stays split
@@ -76,6 +74,31 @@ public static class Muckrep
         return records;
     }
 
+    /// <summary>The header every replay the client makes carries.</summary>
+    public static readonly IReadOnlyList<string> ScrubbedHeader =
+        ["muckrep", "account ID masked; no record of what the client sent"];
+
+    /// <summary>Writes <paramref name="records"/> to a new file at <paramref name="path"/> under
+    /// <see cref="ScrubbedHeader"/>. An existing file is never overwritten (<see cref="IOException"/>),
+    /// and a file left half-written by a failure is deleted, so a retry is not refused as existing.
+    /// </summary>
+    public static void WriteNewFile(string path, IEnumerable<WireRecord> records)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var created = false;
+        try
+        {
+            using var file = new FileStream(path, FileMode.CreateNew);
+            created = true;
+            Write(file, ScrubbedHeader, records);
+        }
+        catch when (created)
+        {
+            try { File.Delete(path); } catch (IOException) { }
+            throw;
+        }
+    }
+
     /// <summary>Writes <paramref name="header"/> as <c>#</c> lines, then the records. Tx records are
     /// skipped, whatever the caller passed.</summary>
     public static void Write(Stream stream, IEnumerable<string> header, IEnumerable<WireRecord> records)
@@ -103,39 +126,36 @@ public static class Muckrep
 
     /// <summary>
     /// A replay of <paramref name="session"/>'s records <paramref name="first"/> to
-    /// <paramref name="last"/> (indexes, inclusive - a session's <c>seq</c>): Tx dropped, offsets
-    /// counted from the first record kept, the login's account ID and password replaced by
-    /// <see cref="PlaceholderAccountId"/> and <see cref="PlaceholderPassword"/> wherever the server
-    /// echoed them, and any <paramref name="edits"/> applied.
+    /// <paramref name="last"/> (indexes, inclusive - a session's <c>seq</c>): the login masked
+    /// (<see cref="MaskLogin"/>), Tx dropped, any <paramref name="edits"/> applied, and offsets counted
+    /// from the first record kept.
     ///
-    /// <para>The login is found over the WHOLE session (<see cref="FindLoginSecrets"/>), so a slice
-    /// that starts after it is still scrubbed; <paramref name="accountId"/> and
-    /// <paramref name="password"/> add what the caller knows, such as the profile's own.</para>
+    /// <para>The login is masked over the WHOLE session before the slice is cut: a context can span
+    /// records (the account ID is echoed one keystroke at a time), and a cut inside one would leave it
+    /// whole.</para>
     /// </summary>
     public static List<WireRecord> FromSession(IReadOnlyList<WireRecord> session, int first = 0, int last = int.MaxValue,
-        string? accountId = null, string? password = null, IEnumerable<Substitution>? edits = null)
+        IEnumerable<Substitution>? edits = null)
     {
-        var secrets = FindLoginSecrets(session);
-        if (!string.IsNullOrWhiteSpace(accountId))
-            secrets.Add(new Substitution(accountId.Trim(), PlaceholderAccountId));
-        if (!string.IsNullOrWhiteSpace(password))
-            secrets.Add(new Substitution(password.Trim(), PlaceholderPassword));
-        var all = secrets.Where(s => s.From.Length >= MinScrubLength).Concat(edits ?? []).ToList();
+        var masked = MaskLogin(session);
+        var substitutions = (edits ?? []).ToList();
 
-        last = Math.Min(last, session.Count - 1);
+        last = Math.Min(last, masked.Count - 1);
         var kept = new List<WireRecord>();
         for (var i = Math.Max(first, 0); i <= last; i++)
-            if (session[i].Direction != WireDirection.Tx)
-                kept.Add(session[i]);
+            if (masked[i].Direction != WireDirection.Tx)
+                kept.Add(masked[i]);
 
-        // The server echoes the account ID as it is typed, so one echo can be split across records;
-        // and it is repeated in lower case. Each direction is searched as one stream, case-blind.
-        foreach (var direction in new[] { WireDirection.Rx, WireDirection.Annotation })
+        // Each direction is searched as one stream, case-blind, so an edit may span records.
+        if (substitutions.Count > 0)
         {
-            var at = Enumerable.Range(0, kept.Count).Where(i => kept[i].Direction == direction).ToList();
-            var edited = Substitute(at.Select(i => kept[i]).ToList(), all);
-            for (var k = 0; k < at.Count; k++)
-                kept[at[k]] = edited[k];
+            foreach (var direction in new[] { WireDirection.Rx, WireDirection.Annotation })
+            {
+                var at = Enumerable.Range(0, kept.Count).Where(i => kept[i].Direction == direction).ToList();
+                var edited = Substitute(at.Select(i => kept[i]).ToList(), substitutions);
+                for (var k = 0; k < at.Count; k++)
+                    kept[at[k]] = edited[k];
+            }
         }
 
         if (kept.Count == 0)
@@ -144,57 +164,83 @@ public static class Muckrep
         return kept.Select(r => r with { TimestampMs = Math.Max(0, r.TimestampMs - origin) }).ToList();
     }
 
+    /// <summary>Where the server prints the player's account ID, found by what surrounds it and never
+    /// by its value; group 1 is the ID. The FE frames are from <c>mud2_FE4.txt</c>: code 95's block
+    /// carries it in its fourth line, and 95 02 (account change) and 95 03 (account logout) bracket
+    /// it. The prose is as captured on mudii.co.uk and mud2.com (<c>docs/replay.md</c>).</summary>
+    private static readonly Regex[] AccountContexts =
+    [
+        // What the player typed at the account prompt, as the server echoed it, to the end of the
+        // line - whatever it is, a password typed there by mistake included.
+        // Matched anywhere and in any case, as the login handler and AccountBackfill find the prompt:
+        // a prompt that does not start a line (after a screen clear, say) is still the prompt.
+        new(@"Account ID:(?> *)([^\r\n]+)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase),
+        // A line in these blocks may end CR NUL LF, as the decoder allows (Mud2C1Decoder.OnC95Data);
+        // the bare block may be spelt 95 00.
+        new(@"\xFA\x9B?\xFF{1,2}(?:[^\r\n\xFF]*\r?\0?\n){3}([^\r\n\xFF\0]+)\r?\0?\n", RegexOptions.CultureInvariant),
+        new(@"\xFA[\x9D\x9E]\xFF{1,2}([^\r\n\xFF\0]+)\r?\0?\n", RegexOptions.CultureInvariant),
+        // In prose the ID is held to its shape, a letter then digits, because what comes before it
+        // need not end a word: the banner follows the screen-clear ESC [ 2 J with no space.
+        new(@"([A-Za-z][0-9]+) logged in on ", RegexOptions.CultureInvariant),
+        new(@"([A-Za-z][0-9]+) logged out\.", RegexOptions.CultureInvariant),
+        new(@"Account ([A-Za-z][0-9]+) is already logged in", RegexOptions.CultureInvariant),
+        new(@"Account: ([A-Za-z][0-9]+)", RegexOptions.CultureInvariant),
+        new(@"Last games for ([A-Za-z][0-9]+):", RegexOptions.CultureInvariant),
+    ];
+
+    /// <summary>The rest of the line after the password prompt. The server is not seen to echo a
+    /// password there; anything it did send is masked.</summary>
+    private static readonly Regex PasswordLine =
+        new(@"Password:(?> *)([^\r\n]+)", RegexOptions.CultureInvariant);
+
     /// <summary>
-    /// What the client typed in answer to the server's login prompts, each paired with its
-    /// placeholder: a Tx line sent while the server's latest output ended at <c>Account ID:</c> or
-    /// <c>Password:</c>. Only a Tx record of printable text ending in CR or LF is a typed line; any
-    /// other - a telnet negotiation reply, a window size - is passed over without ending the wait
-    /// for the answer. Those are the prompts, as captured on a mudii.co.uk telnet session:
-    /// <code>Type QUIT to abort login.\r\nAccount ID: </code> and <code>\r\nPassword: </code>
+    /// <paramref name="session"/> with the login masked in what the server sent: each account ID found
+    /// by its context (<see cref="AccountContexts"/>) becomes <see cref="PlaceholderAccountId"/> - in
+    /// lower case where the server printed it in lower case - and anything after the password prompt
+    /// on its line becomes asterisks. Rx is searched as one stream, so a context may span records.
+    /// Tx and annotations pass through unchanged.
+    ///
+    /// <para>Masking is by context and never by value. Replacing a known password or ID wherever it
+    /// occurs would mark every place it occurs - a password that is also a word the player said shows
+    /// itself by being replaced - and a saved password says nothing about a session played before it
+    /// was changed.</para>
     /// </summary>
-    public static List<Substitution> FindLoginSecrets(IEnumerable<WireRecord> session)
+    public static List<WireRecord> MaskLogin(IReadOnlyList<WireRecord> session)
     {
-        var secrets = new List<Substitution>();
-        var tail = new StringBuilder();
-        foreach (var record in session)
+        var rx = Enumerable.Range(0, session.Count).Where(i => session[i].Direction == WireDirection.Rx).ToList();
+        var records = rx.Select(i => session[i]).ToList();
+        var text = Encoding.Latin1.GetString(records.SelectMany(r => r.Payload).ToArray());
+
+        var spans = new List<(int Start, int Length, byte[] To)>();
+        foreach (var context in AccountContexts)
         {
-            switch (record.Direction)
+            foreach (Match m in context.Matches(text))
             {
-                case WireDirection.Rx:
-                    tail.Append(Encoding.Latin1.GetString(record.Payload));
-                    if (tail.Length > 64)
-                        tail.Remove(0, tail.Length - 64);
-                    break;
-                case WireDirection.Tx when IsTypedLine(record.Payload):
-                    var prompt = tail.ToString().TrimEnd();
-                    var typed = Encoding.Latin1.GetString(record.Payload).Trim();
-                    if (typed.Length > 0 && prompt.EndsWith("Account ID:", StringComparison.OrdinalIgnoreCase))
-                        secrets.Add(new Substitution(typed, PlaceholderAccountId));
-                    else if (typed.Length > 0 && prompt.EndsWith("Password:", StringComparison.OrdinalIgnoreCase))
-                        secrets.Add(new Substitution(typed, PlaceholderPassword));
-                    tail.Clear();
-                    break;
+                var id = m.Groups[1];
+                var placeholder = id.Value.Any(char.IsAsciiLetterUpper) || !id.Value.Any(char.IsAsciiLetter)
+                    ? PlaceholderAccountId
+                    : PlaceholderAccountId.ToLowerInvariant();
+                spans.Add((id.Index, id.Length, Encoding.Latin1.GetBytes(placeholder)));
             }
         }
-        return secrets;
-    }
+        foreach (Match m in PasswordLine.Matches(text))
+            spans.Add((m.Groups[1].Index, m.Groups[1].Length, Encoding.Latin1.GetBytes(new string('*', m.Groups[1].Length))));
 
-    private static bool IsTypedLine(byte[] payload)
-        => payload.Length > 0 && payload[^1] is 0x0D or 0x0A
-           && payload.All(b => b is >= 0x20 and < 0x7F or 0x0D or 0x0A);
+        var edited = Overlay(records, spans);
+        var result = session.ToList();
+        for (var k = 0; k < rx.Count; k++)
+            result[rx[k]] = edited[k];
+        return result;
+    }
 
     /// <summary>
     /// <paramref name="records"/> with every case-blind occurrence of each edit's
     /// <see cref="Substitution.From"/> replaced by its <see cref="Substitution.To"/>, searching the
     /// records' payloads as one stream so a match may span records. Matches are taken left to right,
     /// the longest at a position first, and never overlap. A match that differs in case from what was
-    /// searched for and is all lower case - the server's lower-case repeat of an account ID - gets
-    /// its replacement in lower case.
-    ///
-    /// <para>The replacement is laid over the match byte for byte, so when the two are the same
-    /// length every record keeps its length and an echo split across records stays split the same
-    /// way. A longer replacement puts its excess in the record holding the match's last byte; a
-    /// shorter one leaves the match's trailing bytes out.</para>
+    /// searched for and is all lower case gets its replacement in lower case. The replacement is laid
+    /// over the match as <see cref="Overlay"/> lays it. These are edits a person chose (<c>--sub</c>);
+    /// the login is masked by context instead (<see cref="MaskLogin"/>).
     /// </summary>
     public static List<WireRecord> Substitute(IReadOnlyList<WireRecord> records, IReadOnlyList<Substitution> edits)
     {
@@ -203,18 +249,13 @@ public static class Muckrep
             .OrderByDescending(e => e.From.Length)
             .ToList();
         var joined = records.SelectMany(r => r.Payload).ToArray();
-        var owner = new int[joined.Length];
-        for (int r = 0, at = 0; r < records.Count; r++)
-            for (var k = 0; k < records[r].Payload.Length; k++)
-                owner[at++] = r;
 
-        var output = records.Select(_ => new List<byte>()).ToArray();
+        var spans = new List<(int Start, int Length, byte[] To)>();
         for (var i = 0; i < joined.Length;)
         {
             var edit = usable.FirstOrDefault(e => Matches(joined, i, e.From));
             if (edit.From is null)
             {
-                output[owner[i]].Add(joined[i]);
                 i++;
                 continue;
             }
@@ -222,14 +263,47 @@ public static class Muckrep
             var match = joined.AsSpan(i, edit.From.Length);
             if (!match.SequenceEqual(edit.From) && !match.ContainsAnyInRange((byte)'A', (byte)'Z'))
                 to = to.Select(Fold).ToArray();
-            var last = edit.From.Length - 1;
-            for (var k = 0; k <= last; k++)
-            {
-                var piece = k < last ? to.Skip(k).Take(1) : to.Skip(last);
-                output[owner[i + k]].AddRange(piece);
-            }
+            spans.Add((i, edit.From.Length, to));
             i += edit.From.Length;
         }
+        return Overlay(records, spans);
+    }
+
+    /// <summary>
+    /// <paramref name="records"/> with each span of their joined payloads replaced by its bytes, laid
+    /// over byte for byte: when a replacement is the length of what it replaces, every record keeps
+    /// its length, so an echo split across records stays split the same way. A longer replacement puts
+    /// its excess in the record holding the span's last byte; a shorter one leaves the span's trailing
+    /// bytes out. Where a span overlaps an earlier one, the earlier one's replacement stands and the
+    /// later span's bytes beyond it are left out, so no part of either is kept.
+    /// </summary>
+    private static List<WireRecord> Overlay(IReadOnlyList<WireRecord> records,
+        IEnumerable<(int Start, int Length, byte[] To)> spans)
+    {
+        var joined = records.SelectMany(r => r.Payload).ToArray();
+        var owner = new int[joined.Length];
+        for (int r = 0, at = 0; r < records.Count; r++)
+            for (var k = 0; k < records[r].Payload.Length; k++)
+                owner[at++] = r;
+
+        var output = records.Select(_ => new List<byte>()).ToArray();
+        var i = 0;
+        foreach (var (start, length, to) in spans.Where(s => s.Length > 0).OrderBy(s => s.Start))
+        {
+            if (start < i)
+            {
+                i = Math.Max(i, start + length);
+                continue;
+            }
+            for (; i < start; i++)
+                output[owner[i]].Add(joined[i]);
+            var last = length - 1;
+            for (var k = 0; k <= last; k++)
+                output[owner[start + k]].AddRange(k < last ? to.Skip(k).Take(1) : to.Skip(last));
+            i = start + length;
+        }
+        for (; i < joined.Length; i++)
+            output[owner[i]].Add(joined[i]);
         return records.Select((r, n) => r with { Payload = output[n].ToArray() }).ToList();
     }
 

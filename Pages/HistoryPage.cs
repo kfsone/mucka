@@ -5,6 +5,7 @@ using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Mucka.Combat;
 using Mucka.Core;
 using Mucka.Store;
+using Mucka.WireLog;
 
 namespace Mucka.Pages;
 
@@ -17,6 +18,8 @@ namespace Mucka.Pages;
 internal sealed class HistoryPage : ContentPage
 {
     private static readonly Color PageColor = Color.FromArgb("#0C0C0C");
+    /// <summary>Every other row: <see cref="PageColor"/> plus 10 on each channel.</summary>
+    private static readonly Color AlternateRow = Color.FromArgb("#161616");
     private static readonly Color Rule = Color.FromArgb("#222222");
     private static readonly Color Body = Color.FromArgb("#E6E6E6");
     private static readonly Color Muted = Color.FromArgb("#8B949E");
@@ -27,8 +30,31 @@ internal sealed class HistoryPage : ContentPage
     /// <summary>The widest the lists grow on a desktop window; past it a row is mostly gap.</summary>
     private const double MaxContentWidth = 820;
 
+    /// <summary>The date column's width, authored against its 14-point text and scaled with it, so the
+    /// character names after it line up. Wide enough for the widest date the format makes
+    /// ("Wed 28 Nov 2026  20:57"), measured by eye on Windows.</summary>
+    private const double DateColumnWidth = 14 * 11.5;
+
+    /// <summary>What a Session that ended in permanent death is called: the game's own word, where the
+    /// store says <see cref="PersonaSessionEnd.Permadeath"/>.</summary>
+    private const string DeadDead = "deaddead";
+
+    private static readonly string[] SortChoices =
+        ["Newest first", "Oldest first", "Most points", "Fewest points", "Longest", "Shortest"];
+
+    private const string AllCharacters = "All characters";
+
     private const string RenameChoice = "Rename";
+    private const string OpenChoice = "Open";
+    private const string TitleChoice = "Set title";
     private const string TagsChoice = "Tags";
+    private const string SaveAsChoice = "Save as...";
+    private const string TrimChoice = "Trim";
+    private const string ReplayFormat = "Replay (.muckrep)";
+    private const string TextFormat = "Text log (.txt)";
+    private const string ColourFormat = "Colour log (.log)";
+    private const string WebFormat = "Web page (.html)";
+    private static readonly string[] SaveFormats = [ReplayFormat, TextFormat, ColourFormat, WebFormat];
     private const string PlayChoice = "Play";
     private const string ShareChoice = "Share";
     private const string DeleteChoice = "Delete";
@@ -40,6 +66,15 @@ internal sealed class HistoryPage : ContentPage
     private readonly CollectionView _sessions;
     private readonly CollectionView _replays;
     private readonly Label _empty;
+    private readonly Grid _sessionTools;
+    private readonly Entry _filter;
+    private readonly Picker _character;
+    private readonly Picker _sort;
+    private List<SessionSummary> _allSessions = [];
+    private int _filterVersion;
+
+    /// <summary>How long the filter box waits after a keystroke before the list is rebuilt.</summary>
+    private const int FilterPauseMs = 200;
     private ObservableCollection<SessionItem> _sessionItems = [];
     private List<ReplayItem> _replayItems = [];
     private bool _showingReplays;
@@ -107,6 +142,41 @@ internal sealed class HistoryPage : ContentPage
             IsVisible = false,
         }.Scaled(14);
 
+        _filter = new Entry
+        {
+            Placeholder = "Filter: character, server, title, tag, outcome",
+            TextColor = Body,
+            PlaceholderColor = Muted,
+            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        _filter.SetBinding(Entry.FontSizeProperty, ScaledFontBinding.For(13));
+        _filter.TextChanged += async (_, _) =>
+        {
+            // The list is rebuilt once typing pauses, not on every keystroke.
+            var typed = ++_filterVersion;
+            await Task.Delay(FilterPauseMs);
+            if (typed == _filterVersion)
+                ShowSessions();
+        };
+        _character = ToolPicker("Character");
+        _character.ItemsSource = new List<string> { AllCharacters };
+        _character.SelectedIndex = 0;
+        _character.SelectedIndexChanged += (_, _) => ShowSessions();
+        _sort = ToolPicker("Sort");
+        _sort.ItemsSource = SortChoices;
+        _sort.SelectedIndex = 0;
+        _sort.SelectedIndexChanged += (_, _) => ShowSessions();
+        _sessionTools = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)],
+            ColumnSpacing = 8,
+            Padding = new Thickness(16, 6, 16, 6),
+        };
+        _sessionTools.Add(_filter, 0);
+        _sessionTools.Add(_character, 1);
+        _sessionTools.Add(_sort, 2);
+
         var body = new Grid();
         body.Add(_sessions);
         body.Add(_replays);
@@ -114,11 +184,12 @@ internal sealed class HistoryPage : ContentPage
 
         var root = new Grid
         {
-            RowDefinitions = [new(GridLength.Auto), new(1), new(GridLength.Star)],
+            RowDefinitions = [new(GridLength.Auto), new(1), new(GridLength.Auto), new(GridLength.Star)],
         };
         root.Add(header, 0, 0);
         root.Add(new BoxView { Color = Rule, HeightRequest = 1 }, 0, 1);
-        root.Add(body, 0, 2);
+        root.Add(_sessionTools, 0, 2);
+        root.Add(body, 0, 3);
         Content = root;
 
         ShowTab(showReplays: false);
@@ -141,6 +212,13 @@ internal sealed class HistoryPage : ContentPage
         return button;
     }
 
+    private static Picker ToolPicker(string title)
+    {
+        var picker = new Picker { Title = title, TextColor = Body, TitleColor = Muted, VerticalOptions = LayoutOptions.Center };
+        picker.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
+        return picker;
+    }
+
     private static CollectionView List(DataTemplate template) => new()
     {
         ItemTemplate = template,
@@ -154,9 +232,10 @@ internal sealed class HistoryPage : ContentPage
         FontAttributes = bold ? FontAttributes.Bold : FontAttributes.None,
     }.Scaled(size);
 
-    /// <summary>A row: its lines, its "..." menu of actions, and the rule under it. A tap on the row
-    /// itself does nothing, so tap and double-click stay free for opening a Session.</summary>
-    private static Grid Row(View content, string what, EventHandler more)
+    /// <summary>A row: its lines, its "..." menu of actions, and the rule under it. With
+    /// <paramref name="open"/>, the row itself opens on a double-click, or a tap on a phone or tablet,
+    /// where there is no double-click; a single click on a desktop does nothing.</summary>
+    private static Grid Row(View content, string what, EventHandler more, EventHandler<TappedEventArgs>? open = null)
     {
         var row = new Grid
         {
@@ -164,7 +243,21 @@ internal sealed class HistoryPage : ContentPage
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
             BackgroundColor = PageColor,
         };
-        var padded = new ContentView { Content = content, Padding = new Thickness(16, 8, 8, 8) };
+        // Transparent rather than no background, so the padding takes a click as the text does.
+        var padded = new ContentView
+        {
+            Content = content,
+            Padding = new Thickness(16, 8, 8, 8),
+            BackgroundColor = Colors.Transparent,
+        };
+        if (open is not null)
+        {
+            // By platform, not idiom: the Mac build runs as an iPad app and may report a tablet.
+            var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
+            var gesture = new TapGestureRecognizer { NumberOfTapsRequired = desktop ? 2 : 1 };
+            gesture.Tapped += open;
+            padded.GestureRecognizers.Add(gesture);
+        }
         var button = new Button
         {
             Text = Glyph.More,
@@ -193,10 +286,11 @@ internal sealed class HistoryPage : ContentPage
     private DataTemplate SessionTemplate() => new(() =>
     {
         var when = Line(Body, 14);
+        when.SetBinding(WidthRequestProperty, ScaledFontBinding.For(DateColumnWidth));
         var persona = Line(Body, 14, bold: true);
-        persona.Margin = new Thickness(12, 0, 0, 0);
         var points = Line(Body, 14);
         points.HorizontalOptions = LayoutOptions.End;
+        points.Margin = new Thickness(12, 0, 0, 0);
 
         var top = new Grid
         {
@@ -206,20 +300,30 @@ internal sealed class HistoryPage : ContentPage
         top.Add(persona, 1);
         top.Add(points, 2);
 
-        var detail = Line(Muted, 12);
+        var host = Line(Muted, 12);
+        var played = Line(Muted, 12);
+        played.HorizontalOptions = LayoutOptions.End;
+        played.Margin = new Thickness(12, 0, 0, 0);
+        var second = new Grid { ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)] };
+        second.Add(host, 0);
+        second.Add(played, 1);
+
         var labels = Line(Accent, 12);
 
-        var lines = new VerticalStackLayout { Spacing = 2, Children = { top, detail, labels } };
-        var row = Row(lines, "More: rename, tags", OnSessionMore);
+        var lines = new VerticalStackLayout { Spacing = 2, Children = { top, second, labels } };
+        var row = Row(lines, "More: open, set title, tags, save as, trim, delete", OnSessionMore, OnSessionOpen);
         row.BindingContextChanged += (_, _) =>
         {
             if (row.BindingContext is not SessionItem item)
                 return;
+            row.BackgroundColor = item.Index % 2 == 0 ? PageColor : AlternateRow;
             when.Text = item.When;
             persona.Text = item.Persona;
             points.Text = item.Points;
             points.TextColor = item.PointsColor;
-            detail.Text = item.Detail;
+            host.Text = item.Where;
+            host.TextColor = item.Summary.ShownTitle is null ? Muted : Body;
+            played.Text = item.Played;
             labels.Text = item.Labels;
             labels.IsVisible = item.Labels.Length > 0;
         };
@@ -236,6 +340,7 @@ internal sealed class HistoryPage : ContentPage
         {
             if (row.BindingContext is not ReplayItem item)
                 return;
+            row.BackgroundColor = item.Index % 2 == 0 ? PageColor : AlternateRow;
             name.Text = item.Entry.Name;
             detail.Text = item.Detail;
         };
@@ -255,6 +360,7 @@ internal sealed class HistoryPage : ContentPage
         _sessionsTab.FontAttributes = showReplays ? FontAttributes.None : FontAttributes.Bold;
         _replaysTab.FontAttributes = showReplays ? FontAttributes.Bold : FontAttributes.None;
         _sessions.IsVisible = !showReplays;
+        _sessionTools.IsVisible = !showReplays;
         _replays.IsVisible = showReplays;
         _ = showReplays ? LoadReplaysAsync() : LoadSessionsAsync();
     }
@@ -283,9 +389,73 @@ internal sealed class HistoryPage : ContentPage
         }
         if (_showingReplays)
             return;
-        _sessionItems = new ObservableCollection<SessionItem>(sessions.Select(s => new SessionItem(s)));
+        _allSessions = [.. sessions];
+
+        // The character list follows what was read; a character no longer there falls back to all.
+        var chosen = _character.SelectedItem as string;
+        var characters = new List<string> { AllCharacters };
+        characters.AddRange(sessions.Select(s => s.Persona).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase));
+        _character.ItemsSource = characters;
+        _character.SelectedIndex = Math.Max(0,
+            characters.FindIndex(c => string.Equals(c, chosen, StringComparison.OrdinalIgnoreCase)));
+
+        ShowSessions();
+    }
+
+    /// <summary>Lists the Sessions the filter, character and sort pick out. Cheap: the list is in
+    /// memory, and nothing is read again.</summary>
+    private void ShowSessions()
+    {
+        if (_showingReplays)
+            return;
+        var character = _character.SelectedIndex > 0 ? _character.SelectedItem as string : null;
+        var text = _filter.Text?.Trim().TrimStart('#') ?? string.Empty;
+
+        var picked = _allSessions.Where(s =>
+            (character is null || string.Equals(s.Persona, character, StringComparison.OrdinalIgnoreCase))
+            && (text.Length == 0 || Matches(s, text)));
+        picked = _sort.SelectedIndex switch
+        {
+            1 => picked.OrderBy(s => s.StartedMs).ThenBy(s => s.Id),
+            2 => picked.OrderBy(s => s.Points is null).ThenByDescending(s => s.Points),
+            3 => picked.OrderBy(s => s.Points is null).ThenBy(s => s.Points),
+            4 => picked.OrderBy(s => s.DurationMs is null).ThenByDescending(s => s.DurationMs),
+            5 => picked.OrderBy(s => s.DurationMs is null).ThenBy(s => s.DurationMs),
+            _ => picked,
+        };
+
+        _sessionItems = new ObservableCollection<SessionItem>(picked.Select((s, i) => new SessionItem(s, i)));
         _sessions.ItemsSource = _sessionItems;
-        ShowEmpty(sessions.Count == 0 ? "No Sessions yet. Each time you play a character, it is listed here." : null);
+        ShowEmpty(_allSessions.Count == 0 ? "No Sessions yet. Each time you play a character, it is listed here."
+            : _sessionItems.Count == 0 ? "No Sessions match."
+            : null);
+    }
+
+    private static bool Matches(SessionSummary s, string text)
+    {
+        bool Has(string? field) => field?.Contains(text, StringComparison.OrdinalIgnoreCase) == true;
+        return Has(s.Persona) || Has(s.Host) || Has(s.Title ?? s.DefaultTitle) || Has(Outcome(s.EndedNote))
+               || s.Tags.Any(Has);
+    }
+
+    /// <summary>How a Session's end reads in the list: the stored note, in the game's own words.</summary>
+    private static string? Outcome(string? endedNote)
+        => endedNote == PersonaSessionEnd.Permadeath ? DeadDead : endedNote;
+
+    private async void OnSessionOpen(object? sender, TappedEventArgs e)
+    {
+        if (_busy || sender is not View { BindingContext: SessionItem })
+            return;
+        _busy = true;
+        try
+        {
+            await AlertAsync(OpenChoice, $"{OpenChoice} is not built yet.");
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async void OnSessionMore(object? sender, EventArgs e)
@@ -295,30 +465,43 @@ internal sealed class HistoryPage : ContentPage
         _busy = true;
         try
         {
-            var pick = await ActionMenu.ShowAsync(this, button, $"{item.Persona}, {item.When}", "Cancel", null,
-                RenameChoice, TagsChoice);
+            // Every dialog this menu opens names the whole row, so a mis-click shows which Session it is.
+            var pick = await ActionMenu.ShowAsync(this, button, item.Described, "Cancel", DeleteChoice,
+                [OpenChoice, TitleChoice, TagsChoice, SaveAsChoice, TrimChoice],
+                new Dictionary<string, string[]> { [SaveAsChoice] = SaveFormats });
             var id = item.Summary.Id;
             switch (pick)
             {
-                case RenameChoice:
-                    var typed = await DisplayPromptAsync("Name this Session", "Leave it blank to remove the name.",
-                        "Save", "Cancel", initialValue: item.Summary.Name ?? string.Empty);
+                case TitleChoice:
+                    var typed = await DisplayPromptAsync("Set title",
+                        item.Described + "\n\nLeave it blank to show the server again.",
+                        "Save", "Cancel", initialValue: item.Summary.Title ?? item.Summary.DefaultTitle);
                     if (typed is null)
                         return;
-                    var name = typed.Trim();
+                    var title = item.Summary.TitleToStore(typed);
                     await WriteAsync(item,
-                        () => SessionLabels.SetName(MuckaPaths.GetDatabasePath(), id, name),
-                        item.Summary with { Name = name.Length == 0 ? null : name });
+                        () => SessionLabels.SetTitle(MuckaPaths.GetDatabasePath(), id, title),
+                        item.Summary with { Title = title });
                     break;
                 case TagsChoice:
-                    var line = await DisplayPromptAsync("Tags", "Separate tags with commas.", "Save", "Cancel",
-                        initialValue: string.Join(SessionLabels.Separator + " ", item.Summary.Tags));
+                    var line = await DisplayPromptAsync("Tags", item.Described + "\n\nSeparate tags with commas.",
+                        "Save", "Cancel", initialValue: string.Join(SessionLabels.Separator + " ", item.Summary.Tags));
                     if (line is null)
                         return;
                     var tags = SessionLabels.Parse(line);
                     await WriteAsync(item,
                         () => SessionLabels.SetTags(MuckaPaths.GetDatabasePath(), id, tags),
                         item.Summary with { Tags = SessionLabels.Ordered(tags) });
+                    break;
+                case ReplayFormat:
+                    await MakeReplayAsync(item);
+                    break;
+                case TextFormat or ColourFormat when !OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst():
+                    await AlertAsync(pick, "If you want this on your phone, send Ollie a mudmail.");
+                    break;
+                // Placeholders: on the menu so the shape is visible, and each says it is not built.
+                case OpenChoice or TrimChoice or DeleteChoice or TextFormat or ColourFormat or WebFormat:
+                    await AlertAsync(pick, $"{pick} is not built yet.");
                     break;
             }
         }
@@ -328,6 +511,66 @@ internal sealed class HistoryPage : ContentPage
         }
     }
 
+    /// <summary>Writes the Session's recording as a replay in the player's replay folder, where the
+    /// Replays tab lists it; on a phone or tablet the share sheet then offers it.</summary>
+    private async Task MakeReplayAsync(SessionItem item)
+    {
+        const string Heading = "Save as replay";
+        var summary = item.Summary;
+        var typed = await DisplayPromptAsync(Heading,
+            item.Described + "\n\nName the replay. It is listed on the Replays tab.", "Save",
+            "Cancel", initialValue: ReplayLibrary.OfferedName(summary.Title ?? summary.DefaultTitle));
+        if (typed is null)
+            return;
+        var name = ReplayLibrary.NameFromTyped(typed);
+        try
+        {
+            var listed = await Task.Run(ReplayLibrary.List);
+            if (ReplayLibrary.NewNameProblem(name, listed) is { } problem)
+            {
+                await AlertAsync(Heading, problem);
+                return;
+            }
+            var path = ReplayLibrary.NewPath(name);
+            var id = summary.Id;
+            var database = MuckaPaths.GetDatabasePath();
+            var written = await Task.Run(() =>
+            {
+                if (SessionSlice.Read(database, id) is not { IsEmpty: false } slice)
+                    return false;
+                Muckrep.WriteNewFile(path, slice.ToReplay());
+                return true;
+            });
+            if (!written)
+            {
+                await AlertAsync(Heading, "This Session has no recording left.");
+                return;
+            }
+#if ANDROID || IOS
+            try
+            {
+                if (!_closed)
+                    await Share.Default.RequestAsync(new ShareFileRequest { Title = name, File = new ShareFile(path) });
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                await AlertAsync(Heading, $"Saved as \"{name}\" on the Replays tab, but it could not be shared: {ex.Message}");
+            }
+#else
+            await AlertAsync(Heading, $"Saved as \"{name}\" on the Replays tab.");
+#endif
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException
+                                       or InvalidOperationException)
+        {
+            await AlertAsync(Heading, $"The replay could not be made: {ex.Message}");
+        }
+    }
+
+    /// <summary>An alert over this page, or nothing once it has closed.</summary>
+    private Task AlertAsync(string title, string message)
+        => _closed ? Task.CompletedTask : DisplayAlertAsync(title, message, "OK");
+
     /// <summary>One edit, off the UI thread; then the row shows <paramref name="after"/> in place, so
     /// the list keeps its scroll position.</summary>
     private async Task WriteAsync(SessionItem item, Action write, SessionSummary after)
@@ -335,16 +578,19 @@ internal sealed class HistoryPage : ContentPage
         try
         {
             await Task.Run(write);
+            var all = _allSessions.FindIndex(s => s.Id == after.Id);
+            if (all >= 0)
+                _allSessions[all] = after;
             var index = _sessionItems.IndexOf(item);
             if (index >= 0)
-                _sessionItems[index] = new SessionItem(after);
+                _sessionItems[index] = new SessionItem(after, item.Index);
         }
         // The write opens the store as the launch does, so it can also meet a failed schema upgrade
         // (InvalidOperationException) or a maintenance pass holding the file (OperationCanceledException).
         catch (Exception ex) when (ex is SqliteException or IOException or InvalidOperationException
                                        or OperationCanceledException)
         {
-            await DisplayAlertAsync("History", $"That could not be saved: {ex.Message}", "OK");
+            await AlertAsync("History", $"That could not be saved: {ex.Message}");
         }
     }
 
@@ -365,7 +611,7 @@ internal sealed class HistoryPage : ContentPage
         }
         if (!_showingReplays)
             return;
-        _replayItems = [.. replays.Select(r => new ReplayItem(r))];
+        _replayItems = [.. replays.Select((r, i) => new ReplayItem(r, i))];
         _replays.ItemsSource = _replayItems;
         ShowEmpty(replays.Count == 0 ? "No replays yet." : null);
     }
@@ -516,10 +762,13 @@ internal sealed class HistoryPage : ContentPage
 
     // ------------------------------------------------------------------- row models ----
 
-    /// <summary>What one Sessions row shows, worked out once.</summary>
-    private sealed class SessionItem(SessionSummary summary)
+    /// <summary>What one Sessions row shows, worked out once. <paramref name="index"/> is its place in
+    /// the list as shown, which picks its background.</summary>
+    private sealed class SessionItem(SessionSummary summary, int index)
     {
         public SessionSummary Summary { get; } = summary;
+
+        public int Index { get; } = index;
 
         public string When { get; } = DateTimeOffset.FromUnixTimeMilliseconds(summary.StartedMs).LocalDateTime
             .ToString("ddd d MMM yyyy  HH:mm", CultureInfo.CurrentCulture);
@@ -531,30 +780,41 @@ internal sealed class HistoryPage : ContentPage
 
         public Color PointsColor { get; } = summary.Points switch { > 0 => Gain, < 0 => Loss, _ => Muted };
 
-        public string Detail { get; } = string.Join("   ", new[]
+        /// <summary>How long it lasted and how it ended, under the points.</summary>
+        public string Played { get; } = string.Join("   ", new[]
         {
-            summary.Host,
             summary.DurationMs is { } ms ? Duration(ms) : null,
-            summary.EndedNote,
+            Outcome(summary.EndedNote),
         }.Where(s => !string.IsNullOrEmpty(s)));
 
-        public string Labels { get; } = string.Join("   ", new[] { summary.Name }
-            .Concat(summary.Tags.Select(t => "#" + t))
-            .Where(s => !string.IsNullOrEmpty(s)));
+        /// <summary>Under the date: the title the player gave it, else the server.</summary>
+        public string Where { get; } = summary.ShownTitle ?? summary.Host;
+
+        public string Labels { get; } = string.Join("   ", summary.Tags.Select(t => "#" + t));
+
+        /// <summary>Everything the row shows, as lines of text, for a dialog about it.</summary>
+        public string Described => string.Join("\n", new[]
+        {
+            $"{Persona}   {When}   {Points}".TrimEnd(),
+            string.Join("   ", new[] { Where, Played }.Where(s => s.Length > 0)),
+            Labels,
+        }.Where(s => s.Length > 0));
 
         private static string Duration(long ms)
         {
             var span = TimeSpan.FromMilliseconds(Math.Max(0, ms));
-            return span.TotalMinutes < 1 ? "under a minute"
+            return span.TotalMinutes < 1 ? $"{Math.Max(1, (int)span.TotalSeconds)}s"
                 : span.TotalHours < 1 ? $"{(int)span.TotalMinutes}m"
                 : $"{(int)span.TotalHours}h {span.Minutes:00}m";
         }
     }
 
-    /// <summary>What one Replays row shows.</summary>
-    private sealed class ReplayItem(ReplayEntry entry)
+    /// <summary>What one Replays row shows. <paramref name="index"/> is its place in the list.</summary>
+    private sealed class ReplayItem(ReplayEntry entry, int index)
     {
         public ReplayEntry Entry { get; } = entry;
+
+        public int Index { get; } = index;
 
         public string Detail { get; } = string.Join("   ", new[]
         {

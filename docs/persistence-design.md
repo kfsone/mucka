@@ -183,7 +183,7 @@ Nothing persistence-related is in the DI container; `MauiProgram.cs` registers o
   connection.
 - Outside one, the connect page's Score and History pages each open a short-lived connection of
   their own: `ScoreHistoryReader` and `SessionHistoryReader` read, and `SessionLabels` writes one
-  Session's name or tags in one transaction (`docs/history-design.md`).
+  Session's title or tags in one transaction (`docs/history-design.md`).
 - No DI registration is added. A container entry would claim an app-run lifetime the store does not
   have.
 
@@ -337,7 +337,7 @@ Added by later scripts:
 | Table | Script | Notes |
 |---|---|---|
 | `trimmed` | `0008_wire_heal_and_trim.sql` | rows `$trimdb trim` took out of `wire`: its columns, the same ids, plus `trimmed_ms` and `reason`. Empty until a trim runs |
-| `session_names`, `session_tags` | `0010_session_names_and_tags.sql` | the name and tags a player gives a Session in History (`SessionLabels`). Keyed on `persona_session_id` like the fact tables, so `RunTransfer` carries them by the same id rewrite; tags are rows, one per tag. Empty until a player names or tags something |
+| `session_names`, `session_tags` | `0010_session_names_and_tags.sql` | the title (`session_names.name`) and tags a player gives a Session in History (`SessionLabels`). Keyed on `persona_session_id` like the fact tables, so `RunTransfer` carries them by the same id rewrite; tags are rows, one per tag. Empty until a player titles or tags something |
 | `some_kinds` | `0005_some_kinds.sql` | one row per species: whether MUD2 calls it "someone" or "something" when unseen. Nothing in the client reads or writes it; it stays because shipped schema is frozen, and `RunTransfer` carries its rows between databases. The unseen book's class lookup is `SomeKindKnowledge.Known`, seeded and read-only |
 
 The seven encounter tables, which hold what the clog files used to:

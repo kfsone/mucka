@@ -246,10 +246,6 @@ public sealed class MuckaConnection : IAsyncDisposable
         catch (Exception ex) { CrashLog.Write("SweepStaleReplayStores", ex); }
     }
 
-    /// <summary>The account ID and password this connection logs in with, either of which may be
-    /// null: what <see cref="Muckrep.FromSession"/> replaces besides those it finds itself.</summary>
-    public (string? AccountId, string? Password) Login { get; }
-
     public bool InCombat => _session.InCombat;
     /// <summary>See <see cref="ClogWriter.IsTailOnly"/> - an encounter is still draining its tail
     /// (trailing prose captured up to the next prompt) even though none is actively live any
@@ -350,7 +346,6 @@ public sealed class MuckaConnection : IAsyncDisposable
     {
         _dreamwordCarry = dreamwordCarry ?? new DreamwordCarry();
         _windowCols = Math.Max(windowCols, Mucka.Terminal.TerminalColumns.Min);
-        Login = (accountId, password);
         // A replay is watched, not played: what it shows goes to a store of its own that is deleted
         // with the connection, so none of it reaches the player's history (docs/replay.md).
         IsReplay = Muckrep.IsReplayHost(host);

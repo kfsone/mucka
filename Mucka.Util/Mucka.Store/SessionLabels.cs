@@ -3,7 +3,8 @@ using Microsoft.Data.Sqlite;
 namespace Mucka.Store;
 
 /// <summary>
-/// The name and tags a player gives a Session (one login, a <c>persona_sessions</c> row) in History.
+/// The title and tags a player gives a Session (one login, a <c>persona_sessions</c> row) in History.
+/// The title is stored in <c>session_names.name</c>.
 /// Each edit is one short transaction on its own connection; another Mucka recording into the same
 /// file waits behind it for at most <c>busy_timeout</c>.
 ///
@@ -11,10 +12,10 @@ namespace Mucka.Store;
 /// </summary>
 public static class SessionLabels
 {
-    /// <summary>Sets the Session's name; a blank one removes it.</summary>
-    public static void SetName(string databasePath, long sessionId, string? name)
+    /// <summary>Sets the Session's title; a blank or null one removes it.</summary>
+    public static void SetTitle(string databasePath, long sessionId, string? title)
     {
-        name = name?.Trim() ?? string.Empty;
+        var name = title?.Trim() ?? string.Empty;
         using var connection = MuckaDb.Open(databasePath);
         using var transaction = connection.BeginTransaction();
         using var command = connection.CreateCommand();

@@ -17,10 +17,50 @@ and `.editorconfig` leaves it alone.
 A file never holds anything the client sent: Tx records are dropped whole. Annotation records - a
 `$MARK`, a reset note - are kept, and are not played.
 
-## Scrubbing
+## Masking the login
 
-Only the account ID and the password are scrubbed, and they are replaced rather than blanked, so a
-replay still reads like a login:
+A replay holds nothing the client sent: Tx records are dropped whole, so what was typed - the
+password included - never reaches a file. What the server sent back is kept, and the account ID in
+it is masked where the server printed it (`Muckrep.MaskLogin`), found by its context and never by
+its value.
+
+DECISION (operator) By context, not by value. Replacing a known account ID or password wherever it
+occurs marks every place it occurs: a password that is also a word said in play shows itself by
+being replaced, and a saved password says nothing about a session played before it was changed.
+Value-matching against the login, the profile's own credentials and the saved passwords was built
+and rejected for this.
+
+The contexts, as the server prints them:
+
+| Where | What |
+|---|---|
+| the account prompt | everything echoed after `Account ID:` (any case, anywhere on a line) to the end of its line, whatever was typed there |
+| FE code 95 block, or 95 00 | the account, its fourth line (`mud2_FE4.txt`: licence, min, max, account, privs); a line may end CR NUL LF, as `Mud2C1Decoder` allows |
+| FE code 95 02, 95 03 | the account ID they bracket: an account change, an account logout |
+| the login banner | `<id> logged in on pts/N.` |
+| logout | `<id> logged out.` |
+| a second login | `Account <id> is already logged in.` |
+| the account page (`E`) | `Account: <id>` |
+| EXAMINE's last games | `Last games for <id>:` |
+
+In prose the ID is held to its shape, a letter then digits, because the banner follows the
+screen-clear `ESC [ 2 J` with no space between.
+
+The password is guarded on its own line only: anything the server sent after `Password:` on that
+line is masked with asterisks. A line in play that holds `Password:` is masked the same way; that
+masks the line rather than pointing at any value.
+
+EVIDENCE On a copy of the operator's database, 2026-11-13 (520 runs naming an account, 4 distinct
+account IDs): every place the server sent one of those IDs falls in one of the contexts above; the
+line after `Password:` was empty in all 504 prompts, so the server was never seen to echo a
+password. With
+masking applied to all 853 Sessions, no case-blind occurrence of any of the 4 IDs remained, no
+record changed length, and nothing was masked after a password prompt.
+
+FACT An account ID the player types into play - said, told, shouted - is not masked: it is in none
+of the contexts. That is the cost of masking by context, and it is accepted.
+
+The account ID is replaced rather than blanked, so a replay still reads like a login:
 
 - `Muckrep.PlaceholderAccountId` (`M00010101`) stands for a valid account;
 - `Muckrep.PlaceholderPassword` (`passWord`) stands for a password the server accepts;
@@ -32,24 +72,23 @@ one. A real account ID or password never goes into the repo.
 
 Persona names, other players' among them, and what was said stay in a replay; a replay is a whole
 stretch of play, and cutting it down to what names nobody is not what one is for. A line that should
-not ship is edited with a substitution when the replay is made (`--sub` below).
+not ship is edited with a substitution when the replay is made (`--sub` below): that is by value,
+because the person making the replay chose the value.
 
-The password itself was a Tx record, so it is already gone. What remains is what the server echoed:
-on a mudii.co.uk telnet login the account ID comes back one keystroke at a time, split across
-records, and again in lower case in the setup block that follows. `Muckrep.FromSession` therefore
-hands each direction's records to `Muckrep.Substitute`, which searches them as one stream,
-case-blind, and lays the replacement over the match byte for byte, so a split echo stays split where
-it was; the lower-case repeat gets a lower-case placeholder. The secrets come from
-`Muckrep.FindLoginSecrets` - what was typed while the server's output ended at `Account ID:` or
-`Password:` - plus any the caller knows. A secret shorter than `Muckrep.MinScrubLength` is not
-searched for.
+On a mudii.co.uk telnet login the account ID comes back one keystroke at a time, split across
+records, and again in lower case in the code 95 block that follows. `Muckrep.MaskLogin` therefore
+searches what the server sent as one stream, over the whole recording before any range of it is
+cut, and lays the placeholder over the ID byte for byte, so a split echo stays split where it was
+and, where the ID is as long as the placeholder, every record keeps its length; a lower-case ID gets
+a lower-case placeholder.
 
 ## Making one
 
 - `$MAKEREPLAY [name]` in the client writes the session so far to the player's replays folder
-  (`MuckaPaths.GetReplayDirectory`, `~/.mucka/replays`), adding the profile's own account ID and
-  password (`MuckaConnection.Login`) to the secrets. The name defaults to the time, and an existing file is never overwritten.
-  Desktop only: there is no command on a phone or tablet.
+  (`MuckaPaths.GetReplayDirectory`, `~/.mucka/replays`). The name defaults to the time, and an
+  existing file is never overwritten. Desktop only: there is no command on a phone or tablet.
+- History's Save as Replay writes any Session as a replay, on every platform
+  (`docs/history-design.md`).
 - `scripts/make-muckrep.cs` makes one from any run in any `mucka.db`, optionally only a range of its
   records:
 
@@ -58,9 +97,9 @@ dotnet run --file scripts/make-muckrep.cs -- ~/.mucka/mucka.db
 dotnet run --file scripts/make-muckrep.cs -- <mucka.db> <run id> <out.muckrep> [first] [last] [--sub OLD=NEW]...
 ```
 
-`first` and `last` are the run's `seq` values, inclusive. The secrets are found over the whole run,
-so a range that starts after the login is still scrubbed. Each `--sub` replaces every case-blind
-`OLD` with `NEW` in the same way the login is replaced.
+`first` and `last` are the run's `seq` values, inclusive. The login is masked over the whole run
+before the range is cut, so a range whose edge falls inside a masked context is still masked. Each
+`--sub` replaces every case-blind `OLD` with `NEW`, laid over byte for byte as the mask is.
 
 ## Playing one
 
