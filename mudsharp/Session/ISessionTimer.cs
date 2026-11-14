@@ -20,6 +20,19 @@ internal interface ISessionTimer : IDisposable
     void Stop();
 }
 
+/// <summary>A timer that never fires: <see cref="MudSession.ForRecording"/>'s, where time is the
+/// recording's and nothing is sent.</summary>
+internal sealed class InertSessionTimer : ISessionTimer
+{
+    public static readonly InertSessionTimer Instance = new();
+
+    public void Change(TimeSpan due, TimeSpan period) { }
+
+    public void Stop() { }
+
+    public void Dispose() { }
+}
+
 /// <summary>The production <see cref="ISessionTimer"/>: a <see cref="System.Threading.Timer"/>.</summary>
 internal sealed class ThreadingSessionTimer : ISessionTimer
 {

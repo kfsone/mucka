@@ -71,6 +71,13 @@ public sealed class SessionRecorder : IAsyncDisposable
     {
     }
 
+    /// <summary>Writes to <paramref name="writer"/>, which it closes when it stops: a transcript made
+    /// after the fact, from a recording, rather than one armed live.</summary>
+    public SessionRecorder(TextWriter writer, string host, DateTime startedLocal)
+        : this(string.Empty, host, startedLocal, null, writer)
+    {
+    }
+
     /// <summary>Takes the writer instead of opening one, so a test can supply a writer that fails on
     /// demand. That path is the whole reason <see cref="Failure"/> and the <c>failed</c> callback
     /// exist, and it cannot be reached through a real file.</summary>
@@ -156,7 +163,12 @@ public sealed class SessionRecorder : IAsyncDisposable
     ///
     /// <para>Returns without waiting for the file to close - every line already reached disk as it
     /// was written. Use <see cref="DisposeAsync"/> when the handle must be released first.</para></summary>
-    public void Stop()
+    public void Stop() => Stop(DateTime.Now);
+
+    /// <summary><see cref="Stop()"/>, with the closing line saying the recording finished at
+    /// <paramref name="finishedLocal"/>: for a transcript made from a recording, where now is not
+    /// when it ended.</summary>
+    public void Stop(DateTime finishedLocal)
     {
         lock (_lock)
         {
@@ -174,12 +186,12 @@ public sealed class SessionRecorder : IAsyncDisposable
             // an unbounded channel - no I/O inside the lock.
             _queue.Writer.TryWrite(string.Empty);
             _queue.Writer.TryWrite(
-                $"Recording by Mucka from {_host} finished on {Stamp(DateTime.Now)}.");
+                $"Recording by Mucka from {_host} finished on {Stamp(finishedLocal)}.");
             _queue.Writer.TryComplete();
         }
     }
 
-    /// <summary>Ends the recording and waits for the file to close. <see cref="Stop"/> on its own is
+    /// <summary>Ends the recording and waits for the file to close. <see cref="Stop()"/> on its own is
     /// enough to make the transcript complete on disk; this is for callers that need the handle
     /// released before they return.</summary>
     public async ValueTask DisposeAsync()

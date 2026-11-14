@@ -299,6 +299,85 @@ public sealed class MudSession : IDisposable
     // never close and FilterSetupLine would eat combat frames for the rest of the capture.
     internal bool SetupInjectEnabled { get; set; } = true;
 
+    // -- Playing back a recording ------------------------------------------------
+
+    /// <summary>
+    /// A session that reads a recording instead of a socket. It runs no timer and opens a swallow
+    /// window only where the recording's own send opened one live: each of the recording's tx records
+    /// goes to <see cref="NoteRecordedSend"/> in its place among the rx records fed, and each rx
+    /// record's time to <see cref="NoteRecordedTime"/> before it is fed. Subscribe nothing to
+    /// <see cref="OutgoingBytes"/>: what it would send, nothing answers.
+    ///
+    /// <para>A window opened by the session's own detection instead (game entry opening the setup
+    /// swallow) would open where the recording never sent the batch - and only the batch's score
+    /// reply closes it - or stay shut where the recording did send one.</para>
+    /// </summary>
+    public static MudSession ForRecording()
+    {
+        var session = new MudSession(new MudSessionOptions { FesHeartbeatInterval = TimeSpan.Zero },
+            _ => InertSessionTimer.Instance)
+        {
+            SetupInjectEnabled = false,
+        };
+        session._recording = true;
+        return session;
+    }
+
+    private bool _recording;
+
+    // The recorded time a recorded creature value probe was sent: its timeout runs from here.
+    private long? _creatureProbeRecordedMs;
+
+    private const string ValueInterruptOpen = "\x1b-[value ";
+    private const string InterruptClose = "\x1b-]";
+
+    /// <summary>One send from the recording. Opens the window a live send of the same bytes opened:
+    /// the post-character-select setup batch, a creature value probe (<c>ESC-[value a and b ESC-]</c>
+    /// alone), or a sniff (<c>ESC-[value name ESC-]</c> at the front of a heartbeat). Anything else
+    /// opens nothing. <paramref name="tsMs"/> is the record's own time.</summary>
+    public void NoteRecordedSend(ReadOnlySpan<byte> data, long tsMs)
+    {
+        if (!_recording)
+            throw new InvalidOperationException("Only a session made by ForRecording takes recorded sends.");
+        var text = System.Text.Encoding.Latin1.GetString(data);
+        if (text == SetupBatch)
+        {
+            OpenSetupWindow();
+            return;
+        }
+        if (!text.StartsWith(ValueInterruptOpen, StringComparison.Ordinal))
+            return;
+        var close = text.IndexOf(InterruptClose, ValueInterruptOpen.Length, StringComparison.Ordinal);
+        if (close < 0)
+            return;
+        var command = text["\x1b-[".Length..close];
+        var target = text[ValueInterruptOpen.Length..close];
+        if (close + InterruptClose.Length < text.Length)
+        {
+            // Live, a sniff only ever goes out at the front of a heartbeat (SendFesSubscription).
+            _sniffInFlight = target;
+            return;
+        }
+        lock (_fesLock)
+        {
+            ArmCreatureValueProbeLocked(command, [.. target.Split(ValueNameSeparator)]);
+            _creatureProbeRecordedMs = tsMs;
+        }
+    }
+
+    /// <summary>The recording has reached <paramref name="tsMs"/>. A creature value probe window
+    /// still open <see cref="MudSessionOptions.CreatureValueProbeTimeout"/> after its recorded send
+    /// closes, as its timer closed it live.</summary>
+    public void NoteRecordedTime(long tsMs)
+    {
+        if (_creatureProbeRecordedMs is { } sent && _creatureProbeInFlight is not null
+            && tsMs - sent >= (long)_options.CreatureValueProbeTimeout.TotalMilliseconds)
+        {
+            _creatureProbeRecordedMs = null;
+            CloseCreatureValueProbeWindow();
+        }
+    }
+
     /// <summary>Testability seam: the tracker, for the wiring tests to read what the two
     /// cannot-see sources left it saying.</summary>
     internal CombatTracker Combat => _combat;
@@ -445,7 +524,16 @@ public sealed class MudSession : IDisposable
     public ResetEstimate ResetEstimate => _resetClock.Snapshot();
 
     public MudSession(MudSessionOptions? options = null)
+        : this(options, null)
     {
+    }
+
+    // timers, when given, replaces SessionTimerFactory before anything takes a timer from it: the
+    // reset clock takes its own here, in the constructor.
+    private MudSession(MudSessionOptions? options, Func<Action, ISessionTimer>? timers)
+    {
+        if (timers is not null)
+            SessionTimerFactory = timers;
         _options = options ?? new MudSessionOptions();
         _fesInterval = _options.FesHeartbeatInterval;
         _parser = new MudStreamParser();
@@ -1026,7 +1114,7 @@ public sealed class MudSession : IDisposable
         // The server echoes each command back on its own line, then executes them on subsequent
         // game turns - the outputs (auto-fex FEEXITS confirmation, then the score sheet) trickle
         // in over the next ~700ms. Both echoes and outputs are hidden (FilterSetupLine).
-        Send(System.Text.Encoding.Latin1.GetBytes(string.Join("\r\n", SetupCommands) + "\r\n"));
+        Send(System.Text.Encoding.Latin1.GetBytes(SetupBatch));
 
         // Request our first front-end exit list now (auto fex only arms it for future moves).
         Send(System.Text.Encoding.Latin1.GetBytes("\x1b-[FEX\x1b-]"));
@@ -1444,15 +1532,24 @@ public sealed class MudSession : IDisposable
         // feature's own carefully-timed spacing unpredictable.
         var names = new List<string>(_pendingCreatureNames);
         _pendingCreatureNames.Clear();
-        var command = "value " + string.Join(" and ", names);
+        var command = "value " + string.Join(ValueNameSeparator, names);
+        _creatureProbeTimeoutTimer ??= SessionTimerFactory(OnCreatureValueProbeTimeout);
+        _creatureProbeTimeoutTimer.Change(_options.CreatureValueProbeTimeout, Timeout.InfiniteTimeSpan);
+        ArmCreatureValueProbeLocked(command, names);
+        return ValueCommandBytes(command);
+    }
+
+    private const string ValueNameSeparator = " and ";
+
+    /// <summary>Opens the window that swallows <paramref name="command"/>'s echo and the replies for
+    /// <paramref name="names"/>. Caller holds <see cref="_fesLock"/>.</summary>
+    private void ArmCreatureValueProbeLocked(string command, List<string> names)
+    {
         _creatureProbeEcho = command;
         _creatureProbeUnresolved = new HashSet<string>(names, StringComparer.OrdinalIgnoreCase);
         _creatureProbeReadyToClose = false;
-        _creatureProbeTimeoutTimer ??= SessionTimerFactory(OnCreatureValueProbeTimeout);
-        _creatureProbeTimeoutTimer.Change(_options.CreatureValueProbeTimeout, Timeout.InfiniteTimeSpan);
         _creatureProbeInFlight = names;   // publish last - the Feed thread starts matching against
                                           // this the instant it becomes non-null
-        return ValueCommandBytes(command);
     }
 
     // `value` as a command interrupt (ESC-[ ... ESC-]): the server runs it without echoing it and
@@ -1634,6 +1731,9 @@ public sealed class MudSession : IDisposable
     // answers CTRL-T on receipt, ~500ms ahead of the queued command outputs, so it cannot mark
     // completion; verified from a live session recording.)
     private static readonly string[] SetupCommands = { "identify", "fightbrief", "auto fex", "score" };
+
+    // The batch as one write, as it goes on the wire and as a recording holds it.
+    private static readonly string SetupBatch = string.Join("\r\n", SetupCommands) + "\r\n";
 
     // Feed thread. Holds the lines of the current unclaimed frame while they could still be the
     // start of a setup reply; see FilterSetupLine.

@@ -137,6 +137,10 @@ The wart is file I/O in a library named for a buffer. If that is the wrong trade
 to split it - commit semantics stay here, the file half moves to `Mucka.WireLog` as a plain
 string sink - at the cost of the glue landing in `Core/`, where the MAUI-free suites cannot test it.
 
+The same recorder writes History's text log afterwards, from a Session's recording
+(`SessionTextLog`, through the constructor that takes a `TextWriter`), so a log made later and a
+transcript armed live agree on what a line is (`docs/history-design.md`, "Save as Text log").
+
 ## Tests
 
 The fixture pattern `WireLogTests` uses: captured bytes through the production parser into the

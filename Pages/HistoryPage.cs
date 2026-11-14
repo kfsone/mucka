@@ -499,8 +499,11 @@ internal sealed class HistoryPage : ContentPage
                 case TextFormat or ColourFormat when !OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst():
                     await AlertAsync(pick, "If you want this on your phone, send Ollie a mudmail.");
                     break;
+                case TextFormat:
+                    await SaveTextLogAsync(item);
+                    break;
                 // Placeholders: on the menu so the shape is visible, and each says it is not built.
-                case OpenChoice or TrimChoice or DeleteChoice or TextFormat or ColourFormat or WebFormat:
+                case OpenChoice or TrimChoice or DeleteChoice or ColourFormat or WebFormat:
                     await AlertAsync(pick, $"{pick} is not built yet.");
                     break;
             }
@@ -566,6 +569,137 @@ internal sealed class HistoryPage : ContentPage
             await AlertAsync(Heading, $"The replay could not be made: {ex.Message}");
         }
     }
+
+    /// <summary>Writes the Session's text log (<see cref="SessionTextLog"/>) where the player picks in
+    /// the system's save dialog. Desktop only: a phone or tablet never offers it.</summary>
+    private async Task SaveTextLogAsync(SessionItem item)
+    {
+        const string Heading = "Save as text log";
+        var summary = item.Summary;
+        var name = ReplayLibrary.OfferedName(summary.Title ?? summary.DefaultTitle);
+        string? path = null;
+        var opened = false;
+#if MACCATALYST
+        // The Mac's dialog exports a file that already exists, so the log is written first, to a
+        // folder of its own, and copied where the player picks.
+        var scratch = Path.Combine(FileSystem.CacheDirectory, "text-logs", Guid.NewGuid().ToString("N"));
+#endif
+        try
+        {
+#if MACCATALYST
+            Directory.CreateDirectory(scratch);
+            path = Path.Combine(scratch, name + ".txt");
+#elif WINDOWS
+            path = await TextLogPathAsync(name);
+#endif
+            if (path is null)
+                return;
+            var target = path;
+            var id = summary.Id;
+            var host = summary.Host;
+            var database = MuckaPaths.GetDatabasePath();
+            var written = await Task.Run(async () =>
+            {
+                if (SessionSlice.Read(database, id) is not { IsEmpty: false } slice)
+                    return false;
+                // The Windows picker has already asked about replacing a file; anywhere else one that
+                // exists is never touched.
+                var stream = new FileStream(target, OperatingSystem.IsWindows() ? FileMode.Create : FileMode.CreateNew,
+                    FileAccess.Write);
+                opened = true;
+                await SessionTextLog.WriteAsync(slice, host, new StreamWriter(stream, new System.Text.UTF8Encoding(false)));
+                return true;
+            });
+            if (!written)
+            {
+                DeleteUnwritten(path, opened);
+                await AlertAsync(Heading, "This Session has no recording left.");
+                return;
+            }
+#if MACCATALYST
+            var exported = await ExportAsync(path);
+            if (exported is null)
+                return;   // cancelled; the scratch copy goes below
+            path = exported;
+#endif
+            await AlertAsync(Heading, $"Saved as {path}");
+        }
+        // Whatever stopped it, the player is told, and no empty or half-written file is left behind.
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            if (path is not null)
+                DeleteUnwritten(path, opened);
+            await AlertAsync(Heading, $"The text log could not be saved: {ex.Message}");
+        }
+#if MACCATALYST
+        finally
+        {
+            try
+            {
+                Directory.Delete(scratch, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // The system clears its cache folder in time.
+            }
+        }
+#endif
+    }
+
+#if MACCATALYST
+    /// <summary>Shows the system's export dialog for <paramref name="file"/>, which it copies; returns
+    /// where the copy went, or null when the player cancelled.</summary>
+    private static Task<string?> ExportAsync(string file)
+    {
+        if (Microsoft.Maui.ApplicationModel.Platform.GetCurrentUIViewController() is not { } presenter)
+            throw new InvalidOperationException("There is no window to show the save dialog over.");
+        var chosen = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var picker = new UIKit.UIDocumentPickerViewController([Foundation.NSUrl.FromFilename(file)], asCopy: true);
+        picker.DidPickDocumentAtUrls += (_, e) => chosen.TrySetResult(e.Urls.FirstOrDefault()?.Path);
+        picker.WasCancelled += (_, _) => chosen.TrySetResult(null);
+        presenter.PresentViewController(picker, true, null);
+        return chosen.Task;
+    }
+#endif
+
+    /// <summary>Removes what a failed save left: the file it opened, or the empty one the Windows
+    /// picker makes when it returns. Never a file with anything in it that this save did not
+    /// write.</summary>
+    private static void DeleteUnwritten(string path, bool opened)
+    {
+        try
+        {
+            if (opened || (OperatingSystem.IsWindows() && new FileInfo(path) is { Exists: true, Length: 0 }))
+                File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Left where it is; the alert has already said the save failed.
+        }
+    }
+
+#if WINDOWS
+    /// <summary>Where a text log called <paramref name="name"/> goes, or null when the player
+    /// cancelled.</summary>
+    private async Task<string?> TextLogPathAsync(string name)
+    {
+        if (Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window window)
+        {
+            await AlertAsync("Save as text log", "The save dialog could not be opened.");
+            return null;
+        }
+        var picker = new Windows.Storage.Pickers.FileSavePicker
+        {
+            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+            SuggestedFileName = name,
+        };
+        picker.FileTypeChoices.Add("Text log", new List<string> { ".txt" });
+        // An unpackaged WinUI app's picker has no window of its own until it is given one.
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
+        var file = await picker.PickSaveFileAsync();
+        return file?.Path;
+    }
+#endif
 
     /// <summary>An alert over this page, or nothing once it has closed.</summary>
     private Task AlertAsync(string title, string message)

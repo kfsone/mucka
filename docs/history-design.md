@@ -59,9 +59,9 @@ while nothing was recording (between two Sessions) count toward the Session whos
 follows them, exactly as the graph draws that step.
 
 Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
-Text log, Colour log, Web page), **Trim**, and **Delete** last. Set title, Tags and Save as Replay
-work; every other entry is a placeholder that says it is not built, so the menu already has its
-final shape. On a phone or tablet, Text log and Colour log ask the player to send Ollie a mudmail.
+Text log, Colour log, Web page), **Trim**, and **Delete** last. Set title, Tags, Save as Replay and
+Save as Text log work; every other entry is a placeholder that says it is not built, so the menu
+already has its final shape. On a phone or tablet, Text log and Colour log ask the player to send Ollie a mudmail.
 
 DECISION (operator) Replays are saved on every platform, text and colour logs on desktop only.
 
@@ -136,6 +136,60 @@ DECISION Save as Replay writes to the player's replay folder (`ReplayLibrary.New
 Replays tab lists it and `replay:<name>` plays it; on a phone or tablet the share sheet then offers
 the file. The name offered is the Session's title (`SessionSummary.DefaultTitle` until one is set). A save-location picker on desktop was rejected: a replay saved elsewhere does not play by
 name and is not listed, and the Replays tab already shares one.
+
+## Save as Text log
+
+The Session's screen as plain text (`SessionTextLog`), written by the live transcript's own
+`SessionRecorder`, so a line means what it means in a transcript armed live
+(`docs/session-rec-design.md`). Desktop only, saved where the player picks in the system's save
+dialog, offered the Session's title as its name. On Windows the dialog comes first and the log is
+written where it says; a Mac's dialog exports a file that already exists, so there the log is
+written to a scratch folder first, copied where the player picks, and the scratch copy deleted.
+
+DECISION (operator) A log is the persona session: from the persona entering the game to it leaving,
+never the login, the character menu or the option menu around it. Those are in the Session's slice,
+because the slice partitions the recording, but they are not the Session's play. The bounds are the
+parser's own game entry and exit (`MudSession.GameModeEntered`, `MudSession.GameModeExited`): the
+first entry inside the slice - or the slice's start, when the persona is already in the game there,
+because a Session with no recorded end is cut at the next one's start and can take the record
+holding that one's entry - to the exit after it, or the slice's end when the recording stops
+first; the log's opening and closing lines carry those two records' times. Logging a whole login
+session, every persona in it, is a save option to come, not this.
+
+The run is fed from its first record through `MudSession.ForRecording`, so the parser's state at the
+game entry is what it was live. As live,
+the line in progress is emitted after each record read outside game mode; a record can hold more
+than one socket read, so a line before game mode may break where the live screen did not.
+
+DECISION What a live session hid on its own sends is hidden where the recording holds those sends:
+each tx record goes to `MudSession.NoteRecordedSend` in its place, and opens the swallow window a
+live send of the same bytes opened - the post-character-select setup batch, a creature value probe,
+a sniff. The timers that opened them live do not run; a creature probe's timeout runs on the
+records' own times (`MudSession.NoteRecordedTime`). Opening the setup window on game entry instead
+was rejected: only the batch's score reply closes it, so on a recording with no batch the player's
+own first score would be swallowed, and 15 of the 853 Sessions on the operator's database have no
+batch. Probe replies (FES, FEW, FEI, FEX) need nothing: the parser never makes them lines, whatever
+was sent, so a trimmed Session hides them as well as an untrimmed one.
+
+DECISION The account ID is masked as a replay's is (`Muckrep.MaskLogin`), unlike a live
+transcript's: a saved log is a file made to be passed on.
+
+FACT The client's own system lines and F-key notes are not in the recording, so they are not in
+the log.
+
+EVIDENCE On a copy of the operator's database, 2026-11-13, logs for all 853 Sessions on his Windows
+desktop by a Debug build: none failed, every one entered the game, and none held an account prompt,
+a character menu or an option menu; 918,522 lines in 125 s, the slowest Session 788 ms. What
+the server sent held 604 auto-fex confirmations and 835 setup-batch echoes; the logs held no
+confirmation, and the only setup words shown were help listings and commands the player typed in
+play. In the 44 Sessions recorded since the client began sending the creature probe as a command
+interrupt (`ESC-[value ... ESC-]`, first seen in run 506), every `value` line shown was one the
+player typed.
+
+FACT Earlier recordings hold the creature probe as an ordinary command (`value <name>`, 4,281 sends
+on that database), which cannot be told apart from the same command typed by the player, so its
+echo and replies show in those logs: 3,454 lines shaped like a `value` echo across all 853 logs,
+the player's own among them.
 
 ## The Replays tab
 

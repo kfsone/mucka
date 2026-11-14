@@ -144,6 +144,113 @@ public sealed class SessionSliceTests : IDisposable
         Assert.Null(SessionSlice.Read(Db, 999));
     }
 
+    // ------------------------------------------------------------------- the text log ----
+
+    private static string TextLog(SessionSlice slice)
+    {
+        var writer = new StringWriter();
+        Mucka.Combat.SessionTextLog.WriteAsync(slice, "mud2.com", writer).GetAwaiter().GetResult();
+        return writer.ToString();
+    }
+
+    private static string Stamp(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime
+        .ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+
+    // The parser's own game entry (a C1 game-mode prompt) and the colour reset before the option
+    // menu, whose prompt is what ends the game (GameModeExitTests).
+    private static readonly byte[] GameEntry = [0x9D, 0x9C, 0xFF, 0xFF];
+    private static readonly byte[] ColourReset = [0x9B, 0xFF, 0xFF];
+
+    /// <summary>One login, two personae played in turn; the second is still in the game when the
+    /// recording stops.</summary>
+    private (long First, long Second) SeedTwoPersonae(bool firstEndRecorded = true)
+    {
+        using var db = MuckaDb.Open(Db);
+        var run = Insert(db, "INSERT INTO mucka_runs (uid, started_ms, ended_ms, host) VALUES ('r', 0, 900, 'mud2.com');");
+        var seq = 0;
+        void Wire(long ms, WireDirection direction, params byte[][] parts)
+            => Insert(db, "INSERT INTO wire (mucka_run_id, seq, ts_ms, direction, data) VALUES ($r, $q, $t, $d, $b);",
+                ("$r", run), ("$q", seq++), ("$t", ms), ("$d", (int)direction), ("$b", parts.SelectMany(p => p).ToArray()));
+        static byte[] T(string text) => Encoding.Latin1.GetBytes(text);
+
+        Wire(10, WireDirection.Rx, T("Type QUIT to abort login.\r\nAccount ID: "));
+        Wire(11, WireDirection.Tx, T(AccountId + "\r\n"));
+        Wire(12, WireDirection.Rx, T(AccountId + "\r\nPassword: "));
+        Wire(13, WireDirection.Tx, T(Password + "\r\n"));
+        Wire(20, WireDirection.Rx, T("\r\nOK\r\nBy what name shall I call you (Q to quit)? "));
+        Wire(21, WireDirection.Tx, T("Ollie\r\n"));
+        Wire(30, WireDirection.Rx, T("Ollie\r\n"), GameEntry, T("Elizabethan tearoom.\r\n"));
+        Wire(40, WireDirection.Rx, T("first persona play\r\n"));
+        Wire(50, WireDirection.Rx, T("qq\r\nCheerio!\r\n \r\n"), ColourReset, T("Option (H for help): "));
+        Wire(51, WireDirection.Tx, T("p\r\n"));
+        Wire(60, WireDirection.Rx, T("p\r\nBy what name shall I call you (Q to quit)? "));
+        Wire(61, WireDirection.Tx, T("Derpster\r\n"));
+        Wire(70, WireDirection.Rx, T("Derpster\r\n"), GameEntry, T("second persona play\r\n"));
+        Wire(80, WireDirection.Rx, T("more second persona play\r\n"));
+
+        var first = Insert(db, "INSERT INTO persona_sessions (mucka_run_id, persona, host, started_ms, ended_ms) VALUES ($r, 'Ollie', 'mud2.com', 30, $e);",
+            ("$r", run), ("$e", firstEndRecorded ? 50 : null));
+        var second = Insert(db, "INSERT INTO persona_sessions (mucka_run_id, persona, host, started_ms) VALUES ($r, 'Derpster', 'mud2.com', 70);",
+            ("$r", run));
+        return (first, second);
+    }
+
+    [Fact]
+    public void ATextLog_IsThePersonasTimeInTheGame_NotTheLoginOrTheMenus()
+    {
+        var (first, _) = SeedTwoPersonae();
+        var lines = TextLog(SessionSlice.Read(Db, first)!).Split(Environment.NewLine);
+
+        Assert.Equal($"Recording by Mucka from mud2.com starting on {Stamp(30)}.", lines[0]);
+        Assert.Contains("Elizabethan tearoom.", lines);
+        Assert.Contains("first persona play", lines);
+        Assert.Contains("Cheerio!", lines);
+        foreach (var outside in new[] { "Account ID", "Password", "OK", "By what name", "Option (H for help)",
+                     "second persona", AccountId, Password })
+            Assert.DoesNotContain(lines, l => l.Contains(outside, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal($"Recording by Mucka from mud2.com finished on {Stamp(50)}.", lines.Last(l => l.Length > 0));
+    }
+
+    [Fact]
+    public void ALaterPersonasTextLog_StartsAtItsOwnEntry_AndEndsWithTheRecording()
+    {
+        var (_, second) = SeedTwoPersonae();
+        var lines = TextLog(SessionSlice.Read(Db, second)!).Split(Environment.NewLine);
+
+        Assert.Equal($"Recording by Mucka from mud2.com starting on {Stamp(70)}.", lines[0]);
+        Assert.Contains("second persona play", lines);
+        Assert.Contains("more second persona play", lines);
+        foreach (var outside in new[] { "first persona", "Cheerio", "Option (H for help)", "By what name" })
+            Assert.DoesNotContain(lines, l => l.Contains(outside, StringComparison.Ordinal));
+        Assert.Equal($"Recording by Mucka from mud2.com finished on {Stamp(80)}.", lines.Last(l => l.Length > 0));
+    }
+
+    [Fact]
+    public void APersonaWhoseEntryFellInThePreviousSlice_IsLoggedFromItsOwnSlicesStart()
+    {
+        // The first Session has no recorded end, so its slice runs to the second's start (70) and
+        // takes the record holding the second persona's entry.
+        var (_, second) = SeedTwoPersonae(firstEndRecorded: false);
+        var lines = TextLog(SessionSlice.Read(Db, second)!).Split(Environment.NewLine);
+
+        Assert.Equal($"Recording by Mucka from mud2.com starting on {Stamp(80)}.", lines[0]);
+        Assert.Contains("more second persona play", lines);
+        Assert.DoesNotContain(lines, l => l.Contains("first persona", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ARecordingThatNeverEntersTheGame_WritesNoLog_AndClosesTheWriter()
+    {
+        var (first, _) = SeedTwoLogins();
+        var writer = new StringWriter();
+
+        var refused = Assert.Throws<InvalidOperationException>(() =>
+            Mucka.Combat.SessionTextLog.WriteAsync(SessionSlice.Read(Db, first)!, "mud2.com", writer).GetAwaiter().GetResult());
+
+        Assert.Contains("never enters the game", refused.Message);
+        Assert.Throws<ObjectDisposedException>(() => writer.Write('x'));
+    }
+
     [Fact]
     public void WriteNewFile_NeverOverwrites_AndLeavesTheOldFileAlone()
     {

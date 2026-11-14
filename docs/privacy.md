@@ -29,6 +29,10 @@ Everything Mucka keeps, it keeps on the device it runs on:
   in the game yourself stays). Nothing you typed is in it, your password included, but what the
   server sent back is - your character's name, and other players' names and words.
   Watching a replay records nothing in the session database.
+- **Text logs** - a session you save as a text log in History (Windows and macOS), wherever you
+  choose: the screen from entering the game to leaving it, as plain text, with your account ID
+  replaced where the game prints it, as in a replay. It holds what the screen showed, so it holds
+  your commands as the game echoed them, and other players' names and words.
 
 None of it leaves the device unless you copy or share it yourself.
 
