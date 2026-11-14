@@ -73,17 +73,23 @@ public sealed class SessionRecorder : IAsyncDisposable
 
     /// <summary>Writes to <paramref name="writer"/>, which it closes when it stops: a transcript made
     /// after the fact, from a recording, rather than one armed live.</summary>
-    public SessionRecorder(TextWriter writer, string host, DateTime startedLocal)
-        : this(string.Empty, host, startedLocal, null, writer)
+    /// <param name="format">How a line of screen is written; its plain text when null.</param>
+    public SessionRecorder(TextWriter writer, string host, DateTime startedLocal,
+        Func<StyledLine, string>? format = null)
+        : this(string.Empty, host, startedLocal, null, writer, format)
     {
     }
+
+    // How a committed line, and a live prompt at the stop, are written.
+    private readonly Func<StyledLine, string> _format;
 
     /// <summary>Takes the writer instead of opening one, so a test can supply a writer that fails on
     /// demand. That path is the whole reason <see cref="Failure"/> and the <c>failed</c> callback
     /// exist, and it cannot be reached through a real file.</summary>
     internal SessionRecorder(string filePath, string host, DateTime startedLocal,
-        Action<string>? failed, TextWriter writer)
+        Action<string>? failed, TextWriter writer, Func<StyledLine, string>? format = null)
     {
+        _format = format ?? (line => line.PlainText);
         Location = filePath;
         _failed = failed;
         _host = string.IsNullOrWhiteSpace(host) ? "unknown" : host;
@@ -178,7 +184,7 @@ public sealed class SessionRecorder : IAsyncDisposable
             // the player was looking at it when they stopped recording. A form feed never strands
             // one: TerminalBuffer.Append commits the partial ahead of the clear.
             if (_screen.Partial is { } partial && partial.PlainText.Length > 0)
-                _queue.Writer.TryWrite(partial.PlainText);
+                _queue.Writer.TryWrite(_format(partial));
             // The footer and the completion are queued under the SAME lock the committing path holds,
             // and that is what puts the footer last. With them outside it, an Append waiting on the
             // lock would acquire it after the flag was set but before the queue closed, and its line
@@ -206,7 +212,7 @@ public sealed class SessionRecorder : IAsyncDisposable
     internal const string ClearRuleText = "[screen cleared]";
 
     private void OnLineCommitted(StyledLine line) =>
-        _queue.Writer.TryWrite(TerminalBuffer.IsClearRule(line) ? ClearRuleText : line.PlainText);
+        _queue.Writer.TryWrite(TerminalBuffer.IsClearRule(line) ? ClearRuleText : _format(line));
 
     private async Task PumpAsync()
     {

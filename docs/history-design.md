@@ -59,11 +59,12 @@ while nothing was recording (between two Sessions) count toward the Session whos
 follows them, exactly as the graph draws that step.
 
 Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
-Text log, Colour log, Web page), **Trim**, and **Delete** last. Set title, Tags, Save as Replay and
-Save as Text log work; every other entry is a placeholder that says it is not built, so the menu
-already has its final shape. On a phone or tablet, Text log and Colour log ask the player to send Ollie a mudmail.
+Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last. Set title,
+Tags, Save as Replay, Text log, Simple Color Log and Fancy Color Log work; every other entry is a
+placeholder that says it is not built, so the menu already has its final shape. On a phone or
+tablet, Text log, Simple Color Log and Fancy Color Log ask the player to send Ollie a mudmail.
 
-DECISION (operator) Replays are saved on every platform, text and colour logs on desktop only.
+DECISION (operator) Replays are saved on every platform, text and color logs on desktop only.
 
 Every Session has a title: until the player sets one it is `SessionSummary.DefaultTitle`, the
 character and the local start time, which is also the name a file saved from it is offered. The
@@ -139,14 +140,20 @@ Replays tab lists it and `replay:<name>` plays it; on a phone or tablet the shar
 the file. The name offered is the Session's title (`SessionSummary.DefaultTitle` until one is set). A save-location picker on desktop was rejected: a replay saved elsewhere does not play by
 name and is not listed, and the Replays tab already shares one.
 
-## Save as Text log
+## Save as Text log, Color Log
 
-The Session's screen as plain text (`SessionTextLog`), written by the live transcript's own
+The Session's screen as plain text (`SessionTextLog`) - or, as a Simple Color Log or a Fancy Color Log
+(`.log`), with each span in the colour and face the pane draws it in, as ANSI SGR (`SgrText`) - written
+by the live transcript's own
 `SessionRecorder`, so a line means what it means in a transcript armed live
 (`docs/session-rec-design.md`). Desktop only, saved where the player picks in the system's save
-dialog, offered the Session's title as its name. On Windows the dialog comes first and the log is
-written where it says; a Mac's dialog exports a file that already exists, so there the log is
-written to a scratch folder first, copied where the player picks, and the scratch copy deleted.
+dialog, which opens on Mucka's own folder (`MuckaPaths.GetDataDirectory`, beside the live
+transcripts) and offers the Session's title as its name. On Windows the dialog comes first and the
+log is written where it says (`WindowsSaveDialog`: WinRT's picker cannot open on a folder of our
+choosing); a Mac's dialog exports a file that already exists, so there the log is written to a
+scratch folder first, copied where the player picks, and the scratch copy deleted.
+
+DECISION (operator) The save dialog opens on Mucka's folder, `~/.mucka` on a desktop.
 
 DECISION (operator) A log is the persona session: from the persona entering the game to it leaving,
 never the login, the character menu or the option menu around it. Those are in the Session's slice,
@@ -175,6 +182,36 @@ was sent, so a trimmed Session hides them as well as an untrimmed one.
 
 DECISION The account ID is masked as a replay's is (`Muckrep.MaskLogin`), unlike a live
 transcript's: a saved log is a file made to be passed on.
+
+DECISION (operator) A Color Log, Simple or Fancy, leaves the terminal's own default foreground and
+background alone: a span in the pane's default text colour gets no colour code, and a background is
+written only for a span on a slot other than the pane's page colour. Game text arrives with explicit
+colours - white (slot 7), on black (slot 0) - which on screen are that default colour on that page,
+so they are the terminal's own look too (`SgrText`). Writing every span in the exact 24-bit pane
+colours, on the pane's background, was rejected: it forced a background, so the log looked wrong in
+a terminal. Every other colour is written as `SgrColours` says, below. A span with
+no chat colour keeps the pane's "bold = bright" promotion of slots 0-7
+(`CampbellPalette.ForegroundRgb`), so a bold red span is bright red and bold, and a bold span with
+the default foreground is bold alone. Bold and italic are the pane's faces
+(`ChatColorizer.Palette.FaceOf`), plus underline; reverse and blink are not written, as the pane
+draws neither. An escape is written only where the look changes from the span before it: spans of
+one look share one, plain default text has none, and a line ends in a reset only if it left an
+attribute set. When an attribute has to be switched off the escape is a reset followed by
+everything the new look sets; otherwise it carries only what changed. Stripping the escapes from a
+Color Log gives the text log exactly.
+
+DECISION (operator) The two Color Logs differ in colour depth only, by `SgrColours`. A Simple Color
+Log writes nothing but the 16 standard colour codes, which the terminal draws in its own theme:
+30-37 and 90-97 for a foreground, 40-47 and 100-107 for a background; a chat colour, Dim applied,
+is the nearest of the 16 slots in `CampbellPalette.Rgb` by squared RGB distance, the lowest slot of
+two equally near. A Fancy Color Log writes every colour it writes - all but the terminal's own,
+above - in 24-bit, exactly as the pane draws it, whatever the terminal's theme: a palette slot as its `CampbellPalette.Rgb` colour, a chat colour as
+the player set it, resolved as the pane resolves it (`ChatColorizer.ColourPartOf`,
+`ChatColorizer.Dim` for a Dim face). Writing a palette slot as its standard code in Fancy too was
+rejected (operator): the two logs then looked the same, differing only in chat colours. A chat colour is never promoted to a bright slot for bold, in
+either, because the pane never promotes one. Chat spans are drawn in the player's chat colours and faces as they are when the log is
+saved, marked as the persona's own or another's (`LogColours`, `ChatColorizer.ApplyAll`) over the
+whole Session at once.
 
 FACT The client's own system lines and F-key notes are not in the recording, so they are not in
 the log.

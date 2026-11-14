@@ -139,7 +139,7 @@ string sink - at the cost of the glue landing in `Core/`, where the MAUI-free su
 
 The same recorder writes History's text log afterwards, from a Session's recording
 (`SessionTextLog`, through the constructor that takes a `TextWriter`), so a log made later and a
-transcript armed live agree on what a line is (`docs/history-design.md`, "Save as Text log").
+transcript armed live agree on what a line is (`docs/history-design.md`, "Save as Text log, Color Log").
 
 ## Tests
 

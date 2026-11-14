@@ -5,6 +5,7 @@ using Microsoft.Maui.ApplicationModel.DataTransfer;
 using Mucka.Combat;
 using Mucka.Core;
 using Mucka.Store;
+using Mucka.Terminal;
 using Mucka.WireLog;
 
 namespace Mucka.Pages;
@@ -54,9 +55,10 @@ internal sealed class HistoryPage : ContentPage
     private const string TrimChoice = "Trim";
     private const string ReplayFormat = "Replay (.muckrep)";
     private const string TextFormat = "Text log (.txt)";
-    private const string ColourFormat = "Colour log (.log)";
+    private const string SimpleColorFormat = "Simple Color Log (.log)";
+    private const string FancyColorFormat = "Fancy Color Log (.log)";
     private const string WebFormat = "Web page (.html)";
-    private static readonly string[] SaveFormats = [ReplayFormat, TextFormat, ColourFormat, WebFormat];
+    private static readonly string[] SaveFormats = [ReplayFormat, TextFormat, SimpleColorFormat, FancyColorFormat, WebFormat];
     private const string PlayChoice = "Play";
     private const string ShareChoice = "Share";
     private const string DeleteChoice = "Delete";
@@ -537,14 +539,21 @@ internal sealed class HistoryPage : ContentPage
                 case ReplayFormat:
                     await MakeReplayAsync(item);
                     break;
-                case TextFormat or ColourFormat when !OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst():
+                case TextFormat or SimpleColorFormat or FancyColorFormat
+                    when !OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst():
                     await AlertAsync(pick, "If you want this on your phone, send Ollie a mudmail.");
                     break;
                 case TextFormat:
-                    await SaveTextLogAsync(item);
+                    await SaveLogAsync(item, null);
+                    break;
+                case SimpleColorFormat:
+                    await SaveLogAsync(item, SgrColours.Simple);
+                    break;
+                case FancyColorFormat:
+                    await SaveLogAsync(item, SgrColours.Fancy);
                     break;
                 // Placeholders: on the menu so the shape is visible, and each says it is not built.
-                case OpenChoice or TrimChoice or DeleteChoice or ColourFormat or WebFormat:
+                case OpenChoice or TrimChoice or DeleteChoice or WebFormat:
                     await AlertAsync(pick, $"{pick} is not built yet.");
                     break;
             }
@@ -611,11 +620,20 @@ internal sealed class HistoryPage : ContentPage
         }
     }
 
-    /// <summary>Writes the Session's text log (<see cref="SessionTextLog"/>) where the player picks in
-    /// the system's save dialog. Desktop only: a phone or tablet never offers it.</summary>
-    private async Task SaveTextLogAsync(SessionItem item)
+    /// <summary>Writes the Session's text log (<see cref="SessionTextLog"/>), or with
+    /// <paramref name="depth"/> its Color Log (ANSI SGR) in that many colours, the player's chat
+    /// colours among them, where the player picks in the system's save dialog. Desktop only: a phone
+    /// or tablet never offers it.</summary>
+    private async Task SaveLogAsync(SessionItem item, SgrColours? depth)
     {
-        const string Heading = "Save as text log";
+        var kind = depth switch
+        {
+            SgrColours.Simple => "Simple Color Log",
+            SgrColours.Fancy => "Fancy Color Log",
+            _ => "text log",
+        };
+        var heading = "Save as " + kind;
+        var extension = depth is null ? ".txt" : ".log";
         var summary = item.Summary;
         var name = ReplayLibrary.OfferedName(summary.Title ?? summary.DefaultTitle);
         string? path = null;
@@ -629,9 +647,9 @@ internal sealed class HistoryPage : ContentPage
         {
 #if MACCATALYST
             Directory.CreateDirectory(scratch);
-            path = Path.Combine(scratch, name + ".txt");
+            path = Path.Combine(scratch, name + extension);
 #elif WINDOWS
-            path = await TextLogPathAsync(name);
+            path = await LogPathAsync(name, heading, char.ToUpperInvariant(kind[0]) + kind[1..], extension);
 #endif
             if (path is null)
                 return;
@@ -639,6 +657,10 @@ internal sealed class HistoryPage : ContentPage
             var id = summary.Id;
             var host = summary.Host;
             var database = MuckaPaths.GetDatabasePath();
+            // The settings file is read off the UI thread, as everything on the save path is.
+            var colours = depth is { } colourDepth
+                ? new LogColours((await Task.Run(SettingsStore.LoadChatColoursAsync)).Palette, summary.Persona, colourDepth)
+                : null;
             var written = await Task.Run(async () =>
             {
                 if (SessionSlice.Read(database, id) is not { IsEmpty: false } slice)
@@ -648,13 +670,14 @@ internal sealed class HistoryPage : ContentPage
                 var stream = new FileStream(target, OperatingSystem.IsWindows() ? FileMode.Create : FileMode.CreateNew,
                     FileAccess.Write);
                 opened = true;
-                await SessionTextLog.WriteAsync(slice, host, new StreamWriter(stream, new System.Text.UTF8Encoding(false)));
+                await SessionTextLog.WriteAsync(slice, host, new StreamWriter(stream, new System.Text.UTF8Encoding(false)),
+                    colours);
                 return true;
             });
             if (!written)
             {
                 DeleteUnwritten(path, opened);
-                await AlertAsync(Heading, "This Session has no recording left.");
+                await AlertAsync(heading, "This Session has no recording left.");
                 return;
             }
 #if MACCATALYST
@@ -663,14 +686,14 @@ internal sealed class HistoryPage : ContentPage
                 return;   // cancelled; the scratch copy goes below
             path = exported;
 #endif
-            await AlertAsync(Heading, $"Saved as {path}");
+            await AlertAsync(heading, $"Saved as {path}");
         }
         // Whatever stopped it, the player is told, and no empty or half-written file is left behind.
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             if (path is not null)
                 DeleteUnwritten(path, opened);
-            await AlertAsync(Heading, $"The text log could not be saved: {ex.Message}");
+            await AlertAsync(heading, $"The {kind} could not be saved: {ex.Message}");
         }
 #if MACCATALYST
         finally
@@ -695,7 +718,11 @@ internal sealed class HistoryPage : ContentPage
         if (Microsoft.Maui.ApplicationModel.Platform.GetCurrentUIViewController() is not { } presenter)
             throw new InvalidOperationException("There is no window to show the save dialog over.");
         var chosen = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var picker = new UIKit.UIDocumentPickerViewController([Foundation.NSUrl.FromFilename(file)], asCopy: true);
+        var picker = new UIKit.UIDocumentPickerViewController([Foundation.NSUrl.FromFilename(file)], asCopy: true)
+        {
+            // Opens on Mucka's own folder, beside the live transcripts.
+            DirectoryUrl = Foundation.NSUrl.CreateFileUrl(MuckaPaths.GetDataDirectory(), isDir: true, relativeToUrl: null),
+        };
         picker.DidPickDocumentAtUrls += (_, e) => chosen.TrySetResult(e.Urls.FirstOrDefault()?.Path);
         picker.WasCancelled += (_, _) => chosen.TrySetResult(null);
         presenter.PresentViewController(picker, true, null);
@@ -703,14 +730,13 @@ internal sealed class HistoryPage : ContentPage
     }
 #endif
 
-    /// <summary>Removes what a failed save left: the file it opened, or the empty one the Windows
-    /// picker makes when it returns. Never a file with anything in it that this save did not
-    /// write.</summary>
+    /// <summary>Removes what a failed save left: the file it opened. Never a file this save did not
+    /// open.</summary>
     private static void DeleteUnwritten(string path, bool opened)
     {
         try
         {
-            if (opened || (OperatingSystem.IsWindows() && new FileInfo(path) is { Exists: true, Length: 0 }))
+            if (opened)
                 File.Delete(path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -720,25 +746,18 @@ internal sealed class HistoryPage : ContentPage
     }
 
 #if WINDOWS
-    /// <summary>Where a text log called <paramref name="name"/> goes, or null when the player
-    /// cancelled.</summary>
-    private async Task<string?> TextLogPathAsync(string name)
+    /// <summary>Where a log called <paramref name="name"/> goes, or null when the player cancelled.
+    /// </summary>
+    private async Task<string?> LogPathAsync(string name, string heading, string type, string extension)
     {
         if (Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window window)
         {
-            await AlertAsync("Save as text log", "The save dialog could not be opened.");
+            await AlertAsync(heading, "The save dialog could not be opened.");
             return null;
         }
-        var picker = new Windows.Storage.Pickers.FileSavePicker
-        {
-            SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
-            SuggestedFileName = name,
-        };
-        picker.FileTypeChoices.Add("Text log", new List<string> { ".txt" });
-        // An unpackaged WinUI app's picker has no window of its own until it is given one.
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
-        var file = await picker.PickSaveFileAsync();
-        return file?.Path;
+        // Opens on Mucka's own folder, beside the live transcripts.
+        return WindowsSaveDialog.Show(WinRT.Interop.WindowNative.GetWindowHandle(window),
+            MuckaPaths.GetDataDirectory(), name, type, extension);
     }
 #endif
 

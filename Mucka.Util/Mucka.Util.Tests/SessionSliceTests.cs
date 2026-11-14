@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Data.Sqlite;
 using Mucka.Store;
 using Mucka.WireLog;
+using MudSharp.Models;
 
 namespace Mucka.Util.Tests;
 
@@ -180,7 +181,10 @@ public sealed class SessionSliceTests : IDisposable
         Wire(20, WireDirection.Rx, T("\r\nOK\r\nBy what name shall I call you (Q to quit)? "));
         Wire(21, WireDirection.Tx, T("Ollie\r\n"));
         Wire(30, WireDirection.Rx, T("Ollie\r\n"), GameEntry, T("Elizabethan tearoom.\r\n"));
-        Wire(40, WireDirection.Rx, T("first persona play\r\n"));
+        Wire(40, WireDirection.Rx, T("first persona play\r\n\r\n"));
+        // A C09 say by the persona itself: speaker colour, said colour round the words, both popped.
+        Wire(45, WireDirection.Rx, [0xA4, 0x9B, 0xFF, 0xFF], T("Ollie says \""), [0xA4, 0x9D, 0xFF, 0xFF], T("hello"),
+            [0xFF, 0xFF], T("\"."), [0xFF, 0xFF], T("\r\n"));
         Wire(50, WireDirection.Rx, T("qq\r\nCheerio!\r\n \r\n"), ColourReset, T("Option (H for help): "));
         Wire(51, WireDirection.Tx, T("p\r\n"));
         Wire(60, WireDirection.Rx, T("p\r\nBy what name shall I call you (Q to quit)? "));
@@ -236,6 +240,45 @@ public sealed class SessionSliceTests : IDisposable
         Assert.Equal($"Recording by Mucka from mud2.com starting on {Stamp(80)}.", lines[0]);
         Assert.Contains("more second persona play", lines);
         Assert.DoesNotContain(lines, l => l.Contains("first persona", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(Mucka.Terminal.SgrColours.Simple)]
+    [InlineData(Mucka.Terminal.SgrColours.Fancy)]
+    public async Task AnAnsiLog_IsTheTextLog_WithEachLinesColours(Mucka.Terminal.SgrColours depth)
+    {
+        var (first, _) = SeedTwoPersonae();
+        var slice = SessionSlice.Read(Db, first)!;
+        var colour = new StringWriter();
+        await Mucka.Combat.SessionTextLog.WriteAsync(slice, "mud2.com", colour,
+            new Mucka.Combat.LogColours(ChatColorizer.DefaultPalette, "Ollie", depth));
+
+        var lines = colour.ToString().Split(Environment.NewLine);
+        Assert.Contains(lines, l => l.StartsWith((char)27 + "[", StringComparison.Ordinal)
+                                    && l.EndsWith(Mucka.Terminal.SgrText.Reset, StringComparison.Ordinal));
+        // The persona's own say is drawn in its own face - italic, by default - so the whole-Session
+        // restyle reached it. It follows the emote-coloured words of the line, so the escape before it
+        // holds only what changed: the say colour, then italic; and after it italic is switched off.
+        // The Lamplight emote colour 0xBFA36A is nearest slot 8 and its say colour 0xEDE6D0 slot 15.
+        static string Colour(int rgb, bool fancy, string slotCode)
+            => fancy ? $"38;2;{(rgb >> 16) & 0xFF};{(rgb >> 8) & 0xFF};{rgb & 0xFF}" : slotCode;
+        var fancy = depth == Mucka.Terminal.SgrColours.Fancy;
+        var emote = Colour(ChatColorizer.DefaultPalette.Emote, fancy, "90");
+        var say = Colour(ChatColorizer.DefaultPalette.Say, fancy, "97");
+        var esc = (char)27;
+        // The seeded lines all carry MUD2's explicit black background, which is the page colour, so
+        // no escape holds a background.
+        Assert.Contains($"{esc}[{emote}mOllie says \"{esc}[{say};3mhello{esc}[0;{emote}m\".{esc}[0m", lines);
+        // Only the Fancy log holds a 24-bit colour.
+        Assert.Equal(fancy, colour.ToString().Contains("38;2;", StringComparison.Ordinal));
+        // The seeded room text is parsed as bright green on black: one escape for the line - the slot's
+        // code in Simple, the pane's own green in Fancy.
+        var green = Colour(CampbellPalette.Rgb[10], fancy, "92");
+        Assert.Contains($"{(char)27}[{green}mfirst persona play{(char)27}[0m", lines);
+        var played = Array.FindIndex(lines, l => l.Contains("first persona play", StringComparison.Ordinal));
+        Assert.Equal(string.Empty, lines[played + 1]);   // a blank line stays blank
+        var stripped = System.Text.RegularExpressions.Regex.Replace(colour.ToString(), "\x1b\\[[0-9;]*m", "");
+        Assert.Equal(TextLog(slice), stripped);
     }
 
     [Fact]
