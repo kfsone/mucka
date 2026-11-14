@@ -83,7 +83,9 @@ because it implies a location the player chooses, and a replay goes to the repla
 DECISION (operator) A row's actions are on its "..." button, as on the profile cards. Opening the
 menu on a tap of the row was rejected: it would take the first click of a double-click, and tap and
 double-click are kept for opening a Session. A double-click on a desktop, or a tap on a phone or
-tablet, does what Open does; a single click on a desktop does nothing.
+tablet, does what Open does. A single click on a desktop selects the row, and opening it or its
+"..." menu selects it too: the selected row is highlighted, one at a time, and stays selected
+through the filter and the sort while it is listed.
 
 DECISION (operator) On Windows the menu is a drop-down under the button (`ActionMenu`), not a
 centred dialog. Where a dialog is used - the sheet on a phone, and the prompts every action opens -

@@ -20,6 +20,8 @@ internal sealed class HistoryPage : ContentPage
     private static readonly Color PageColor = Color.FromArgb("#0C0C0C");
     /// <summary>Every other row: <see cref="PageColor"/> plus 10 on each channel.</summary>
     private static readonly Color AlternateRow = Color.FromArgb("#161616");
+    /// <summary>The selected row: the page colour pulled toward <see cref="Accent"/>.</summary>
+    private static readonly Color SelectedRow = Color.FromArgb("#16263A");
     private static readonly Color Rule = Color.FromArgb("#222222");
     private static readonly Color Body = Color.FromArgb("#E6E6E6");
     private static readonly Color Muted = Color.FromArgb("#8B949E");
@@ -83,6 +85,8 @@ internal sealed class HistoryPage : ContentPage
     // Set from a row's menu opening until its action has finished: one action at a time, and Escape
     // belongs to the menu or prompt over the page meanwhile.
     private bool _busy;
+    // The selected Session's id, kept across the list being rebuilt by the filter and the sort.
+    private long? _selectedId;
 #if UIKIT
     private MacEscape.Registration? _macEscape;
 #endif
@@ -234,8 +238,10 @@ internal sealed class HistoryPage : ContentPage
 
     /// <summary>A row: its lines, its "..." menu of actions, and the rule under it. With
     /// <paramref name="open"/>, the row itself opens on a double-click, or a tap on a phone or tablet,
-    /// where there is no double-click; a single click on a desktop does nothing.</summary>
-    private static Grid Row(View content, string what, EventHandler more, EventHandler<TappedEventArgs>? open = null)
+    /// where there is no double-click; with <paramref name="select"/>, a single click on a desktop
+    /// selects it.</summary>
+    private static Grid Row(View content, string what, EventHandler more, EventHandler<TappedEventArgs>? open = null,
+        EventHandler<TappedEventArgs>? select = null)
     {
         var row = new Grid
         {
@@ -250,12 +256,18 @@ internal sealed class HistoryPage : ContentPage
             Padding = new Thickness(16, 8, 8, 8),
             BackgroundColor = Colors.Transparent,
         };
+        // By platform, not idiom: the Mac build runs as an iPad app and may report a tablet.
+        var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
         if (open is not null)
         {
-            // By platform, not idiom: the Mac build runs as an iPad app and may report a tablet.
-            var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
             var gesture = new TapGestureRecognizer { NumberOfTapsRequired = desktop ? 2 : 1 };
             gesture.Tapped += open;
+            padded.GestureRecognizers.Add(gesture);
+        }
+        if (select is not null && desktop)
+        {
+            var gesture = new TapGestureRecognizer { NumberOfTapsRequired = 1 };
+            gesture.Tapped += select;
             padded.GestureRecognizers.Add(gesture);
         }
         var button = new Button
@@ -311,12 +323,23 @@ internal sealed class HistoryPage : ContentPage
         var labels = Line(Accent, 12);
 
         var lines = new VerticalStackLayout { Spacing = 2, Children = { top, second, labels } };
-        var row = Row(lines, "More: open, set title, tags, save as, trim, delete", OnSessionMore, OnSessionOpen);
+        var row = Row(lines, "More: open, set title, tags, save as, trim, delete", OnSessionMore, OnSessionOpen,
+            OnSessionSelect);
+        // The row follows its item's selection in place: the item is never replaced to repaint it,
+        // which between the two clicks of a double-click would drop the second.
+        SessionItem? shown = null;
+        void Paint() => row.BackgroundColor = shown is { Selected: true } ? SelectedRow
+            : shown?.Index % 2 == 1 ? AlternateRow : PageColor;
+        void OnItemChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Paint();
         row.BindingContextChanged += (_, _) =>
         {
-            if (row.BindingContext is not SessionItem item)
+            if (shown is not null)
+                shown.PropertyChanged -= OnItemChanged;
+            shown = row.BindingContext as SessionItem;
+            if (shown is not { } item)
                 return;
-            row.BackgroundColor = item.Index % 2 == 0 ? PageColor : AlternateRow;
+            item.PropertyChanged += OnItemChanged;
+            Paint();
             when.Text = item.When;
             persona.Text = item.Persona;
             points.Text = item.Points;
@@ -425,7 +448,8 @@ internal sealed class HistoryPage : ContentPage
             _ => picked,
         };
 
-        _sessionItems = new ObservableCollection<SessionItem>(picked.Select((s, i) => new SessionItem(s, i)));
+        _sessionItems = new ObservableCollection<SessionItem>(
+            picked.Select((s, i) => new SessionItem(s, i) { Selected = s.Id == _selectedId }));
         _sessions.ItemsSource = _sessionItems;
         ShowEmpty(_allSessions.Count == 0 ? "No Sessions yet. Each time you play a character, it is listed here."
             : _sessionItems.Count == 0 ? "No Sessions match."
@@ -443,10 +467,26 @@ internal sealed class HistoryPage : ContentPage
     private static string? Outcome(string? endedNote)
         => endedNote == PersonaSessionEnd.Permadeath ? DeadDead : endedNote;
 
+    private void OnSessionSelect(object? sender, TappedEventArgs e)
+    {
+        if (sender is View { BindingContext: SessionItem item })
+            Select(item);
+    }
+
+    /// <summary>Highlights <paramref name="item"/> as the one selected Session, and no other. It
+    /// stays selected while the list is filtered or sorted, as long as it is listed.</summary>
+    private void Select(SessionItem item)
+    {
+        _selectedId = item.Summary.Id;
+        foreach (var other in _sessionItems)
+            other.Selected = ReferenceEquals(other, item);
+    }
+
     private async void OnSessionOpen(object? sender, TappedEventArgs e)
     {
-        if (_busy || sender is not View { BindingContext: SessionItem })
+        if (_busy || sender is not View { BindingContext: SessionItem item })
             return;
+        Select(item);
         _busy = true;
         try
         {
@@ -462,6 +502,7 @@ internal sealed class HistoryPage : ContentPage
     {
         if (_busy || sender is not View { BindingContext: SessionItem item } button)
             return;
+        Select(item);
         _busy = true;
         try
         {
@@ -717,7 +758,7 @@ internal sealed class HistoryPage : ContentPage
                 _allSessions[all] = after;
             var index = _sessionItems.IndexOf(item);
             if (index >= 0)
-                _sessionItems[index] = new SessionItem(after, item.Index);
+                _sessionItems[index] = new SessionItem(after, item.Index) { Selected = item.Selected };
         }
         // The write opens the store as the launch does, so it can also meet a failed schema upgrade
         // (InvalidOperationException) or a maintenance pass holding the file (OperationCanceledException).
@@ -898,9 +939,26 @@ internal sealed class HistoryPage : ContentPage
 
     /// <summary>What one Sessions row shows, worked out once. <paramref name="index"/> is its place in
     /// the list as shown, which picks its background.</summary>
-    private sealed class SessionItem(SessionSummary summary, int index)
+    private sealed class SessionItem(SessionSummary summary, int index) : System.ComponentModel.INotifyPropertyChanged
     {
         public SessionSummary Summary { get; } = summary;
+
+        private bool _selected;
+
+        /// <summary>The selected Session, highlighted (<see cref="SelectedRow"/>).</summary>
+        public bool Selected
+        {
+            get => _selected;
+            set
+            {
+                if (_selected == value)
+                    return;
+                _selected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Selected)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
 
         public int Index { get; } = index;
 
