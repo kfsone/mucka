@@ -282,6 +282,37 @@ public sealed class SessionSliceTests : IDisposable
     }
 
     [Fact]
+    public void TheViewersLines_AreTheTextLogsLines_MarkedForTheChatColours()
+    {
+        var (first, second) = SeedTwoPersonae();
+        foreach (var (id, persona) in new[] { (first, "Ollie"), (second, "Derpster") })
+        {
+            var slice = SessionSlice.Read(Db, id)!;
+            var shown = Mucka.Terminal.TerminalBuffer.ScreenOf(Mucka.Combat.SessionTextLog.Lines(slice, persona));
+
+            // The log is its opening line and a blank, the lines, then a blank and its closing line.
+            var log = TextLog(slice).Split(Environment.NewLine);
+            Assert.Equal(log[2..^3], shown.Select(l => Mucka.Terminal.TerminalBuffer.IsClearRule(l) ? "[screen cleared]" : l.PlainText));
+        }
+
+        // The persona's own say is marked as the pane marks it, so the viewer draws it in the say's
+        // own face (italic, by default).
+        var said = Mucka.Combat.SessionTextLog.Lines(SessionSlice.Read(Db, first)!, "Ollie")
+            .Single(l => l.PlainText.Contains("Ollie says", StringComparison.Ordinal))
+            .Spans.Single(s => s.Text == "hello");
+        Assert.True((ChatColorizer.DefaultPalette.FaceOf(said.Style) & ChatFace.Italic) != 0);
+    }
+
+    [Fact]
+    public void TheViewer_HasNoLines_ForARecordingThatNeverEntersTheGame()
+    {
+        var (first, _) = SeedTwoLogins();
+        var refused = Assert.Throws<InvalidOperationException>(() =>
+            Mucka.Combat.SessionTextLog.Lines(SessionSlice.Read(Db, first)!, null));
+        Assert.Contains("never enters the game", refused.Message);
+    }
+
+    [Fact]
     public void ARecordingThatNeverEntersTheGame_WritesNoLog_AndClosesTheWriter()
     {
         var (first, _) = SeedTwoLogins();

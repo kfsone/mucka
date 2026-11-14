@@ -120,6 +120,11 @@ public partial class GamePage : ContentPage
 
     private bool RailShowStats => _vm.SidePanel.IsCombatStatsEnabled;
 
+#if WINDOWS || MACCATALYST
+    // The mouse on the terminal (Rendering/TerminalPointer.cs).
+    private Mucka.Rendering.TerminalPointer? _terminalPointer;
+#endif
+
 #if WINDOWS
     // True once an auxiliary window (raw console, map) has been opened. WinUI's native
     // caret-follow breaks after focus leaves to another app window, so the UpdateLayout
@@ -203,7 +208,6 @@ public partial class GamePage : ContentPage
     private DateTime? _metronomeAnchorUtc;
     private Microsoft.UI.Xaml.Controls.TextBox? _inputTextBox;
     private Microsoft.UI.Xaml.Controls.ScrollViewer? _inputScroller;   // _inputTextBox's inner ScrollViewer
-    private Microsoft.UI.Xaml.UIElement? _terminalElement;   // SKXamlCanvas, for wheel scrollback
     private Microsoft.UI.Xaml.UIElement? _fnButtonElement;   // Fn button, for right-tap -> settings
     // Invariant #0's enforcement, entire. Built in AttachWindow, disposed in DetachWindow; see
     // Behaviors/FocusGuard.cs - and do NOT start a second list of "elements that must not steal
@@ -213,7 +217,6 @@ public partial class GamePage : ContentPage
     // scrollback, the temporary key handler. Kept so both can be torn down on disappear.
     private Microsoft.UI.Xaml.UIElement? _rootElement;
     private readonly List<Microsoft.UI.Xaml.Input.KeyboardAccelerator> _accelerators = new();
-    private readonly WheelNotches _wheelNotches = new();
     // -- Window minimum-size enforcement -------------------------------------
     // SidePanelWidthDp - the LEFT panel's (Online/Items/Map) authored width, unrelated to the combat
     // rail - lives in Mucka.Combat.CombatRailResize alongside the rest of this file's
@@ -421,9 +424,9 @@ public partial class GamePage : ContentPage
             // Apply now and on handler change, since platform views can be recreated.
             FnButton.HandlerChanged += OnFnButtonHandlerChanged;
             OnFnButtonHandlerChanged(FnButton, EventArgs.Empty);
-            // Hook the terminal canvas for mouse-wheel scrollback.
-            Terminal.HandlerChanged += OnTerminalHandlerChanged;
-            OnTerminalHandlerChanged(Terminal, EventArgs.Empty);
+            // The mouse on the terminal: wheel scrollback, selection, right-click copy.
+            _terminalPointer?.Detach();
+            _terminalPointer = new Mucka.Rendering.TerminalPointer(Terminal, ShowCopiedToast);
             // The play button must read the native TextBox like the Enter path does (no Text
             // binding on Windows): shadow the XAML SendCommand and send via Clicked, or it
             // sends a blank line and strands the typed text in the box.
@@ -700,15 +703,8 @@ public partial class GamePage : ContentPage
             _fnButtonElement.RightTapped -= OnFnButtonRightTapped;
             _fnButtonElement = null;
         }
-        Terminal.HandlerChanged -= OnTerminalHandlerChanged;
-        if (_terminalElement != null)
-        {
-            _terminalElement.PointerWheelChanged -= OnTerminalPointerWheel;
-            _terminalElement.PointerPressed  -= OnTerminalPointerPressed;
-            _terminalElement.PointerMoved    -= OnTerminalPointerMoved;
-            _terminalElement.PointerReleased -= OnTerminalPointerReleased;
-            _terminalElement = null;
-        }
+        _terminalPointer?.Detach();
+        _terminalPointer = null;
         TeardownWindowMinimumSize();
 #if INPUT_DIAG
         StopUiThreadProbe();
@@ -2441,8 +2437,7 @@ public partial class GamePage : ContentPage
 
     /// <summary>
     /// Fires once when the Combat Rail's glow layer's native platform view first exists (and again
-    /// if the handler is ever recreated) - mirrors OnTerminalHandlerChanged/OnFnButtonHandlerChanged
-    /// above. Creates the PulseLayer bound to that native FrameworkElement; PulseLayer needs a real
+    /// if the handler is ever recreated) - mirrors OnFnButtonHandlerChanged above. Creates the PulseLayer bound to that native FrameworkElement; PulseLayer needs a real
     /// WinUI element to attach a Composition visual to, which a MAUI BoxView only exposes once its
     /// handler has produced one.
     ///
@@ -3133,89 +3128,6 @@ public partial class GamePage : ContentPage
         if (_isFkeyEditorOpen) return;
         await OpenConfigAsync(initialTab: 2);   // straight to the Hotkeys tab
 
-    }
-
-    private void OnTerminalHandlerChanged(object? sender, EventArgs e)
-    {
-        if (_terminalElement != null)
-        {
-            _terminalElement.PointerWheelChanged -= OnTerminalPointerWheel;
-            _terminalElement.PointerPressed  -= OnTerminalPointerPressed;
-            _terminalElement.PointerMoved    -= OnTerminalPointerMoved;
-            _terminalElement.PointerReleased -= OnTerminalPointerReleased;
-            _terminalElement = null;
-        }
-        if (Terminal.Handler?.PlatformView is Microsoft.UI.Xaml.UIElement el)
-        {
-            _terminalElement = el;
-            el.PointerWheelChanged += OnTerminalPointerWheel;
-            // Drive mouse selection / click-to-enter from native pointer events (reliable on
-            // Windows). Turn off SkiaSharp's own pointer->Touch handling so the two don't fight;
-            // touch-pan via OnTouch is only needed on Android, where this hook never runs.
-            Terminal.EnableTouchEvents = false;
-            el.PointerPressed  += OnTerminalPointerPressed;
-            el.PointerMoved    += OnTerminalPointerMoved;
-            el.PointerReleased += OnTerminalPointerReleased;
-            // Drag-selecting in the terminal must not steal keyboard focus from the input box.
-            if (el is Microsoft.UI.Xaml.FrameworkElement fe)
-                fe.AllowFocusOnInteraction = false;
-            // WinUI elements with a NULL Background are not hit-test-visible, so pointer/wheel
-            // events never fire over the canvas (Skia still paints it - hence "see text, can't
-            // click"). A Transparent brush IS hit-testable; the canvas paints its own background.
-            var hitBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
-            switch (el)
-            {
-                case Microsoft.UI.Xaml.Controls.Panel p when p.Background is null:   p.Background = hitBrush; break;
-                case Microsoft.UI.Xaml.Controls.Control c when c.Background is null: c.Background = hitBrush; break;
-            }
-        }
-    }
-
-    private void OnTerminalPointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        var el = (Microsoft.UI.Xaml.UIElement)sender;
-        var pt = e.GetCurrentPoint(el);
-        if (pt.Properties.IsRightButtonPressed)           // right-click copies the selection
-        {
-            if (Terminal.CopySelectionToClipboard()) ShowCopiedToast();
-            e.Handled = true;
-            return;
-        }
-        if (!pt.Properties.IsLeftButtonPressed) return;   // selection / entry is the left button only
-        if (Terminal.TryActivateSpanInsert((float)pt.Position.X, (float)pt.Position.Y))
-        {
-            e.Handled = true;
-            return;
-        }
-        el.CapturePointer(e.Pointer);                     // keep getting moves if the cursor leaves the pane
-        Terminal.PointerPress((float)pt.Position.X, (float)pt.Position.Y);
-        e.Handled = true;
-    }
-
-    private void OnTerminalPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        var el = (Microsoft.UI.Xaml.UIElement)sender;
-        var pt = e.GetCurrentPoint(el);
-        Terminal.PointerDrag((float)pt.Position.X, (float)pt.Position.Y);   // no-op unless a drag is active
-    }
-
-    private void OnTerminalPointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        var el = (Microsoft.UI.Xaml.UIElement)sender;
-        el.ReleasePointerCapture(e.Pointer);
-        Terminal.PointerRelease();
-        e.Handled = true;
-    }
-
-    private void OnTerminalPointerWheel(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-    {
-        int delta = e.GetCurrentPoint((Microsoft.UI.Xaml.UIElement)sender).Properties.MouseWheelDelta;
-        if (delta == 0) return;
-        e.Handled = true;
-
-        var rows = _wheelNotches.RowsFor(delta);
-        if (rows != 0)
-            Terminal.ScrollByRows(rows);
     }
 
     /// <summary>

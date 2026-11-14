@@ -212,6 +212,26 @@ public sealed class TerminalBuffer
         return snap;
     }
 
+    /// <summary>
+    /// Every line of screen that <paramref name="lines"/> make, in order: each line as
+    /// <see cref="LineCommitted"/> raises it, after the sanitising and tab expansion the pane and
+    /// <see cref="SessionRecorder"/> apply, then the prompt left on screen at the end if it has text,
+    /// as the recorder writes it at its stop. A clear-screen stays a <see cref="ClearRule"/> line.
+    /// The lines a transcript of the same stream holds, kept as lines instead of written out.
+    /// </summary>
+    public static List<StyledLine> ScreenOf(IEnumerable<StyledLine> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        var screen = new TerminalBuffer(cap: 1);
+        var committed = new List<StyledLine>();
+        screen.LineCommitted += committed.Add;
+        foreach (var line in lines)
+            screen.Append(TerminalText.ExpandTabs(TerminalText.Sanitize(line)));
+        if (screen.Partial is { } partial && partial.PlainText.Length > 0)
+            committed.Add(Promote(partial));
+        return committed;
+    }
+
     private void Commit(StyledLine line)
     {
         _committed.Add(line);

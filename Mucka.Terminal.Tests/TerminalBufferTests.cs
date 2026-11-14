@@ -354,4 +354,31 @@ public class TerminalBufferTests
         Assert.Equal(new[] { "old one", "old two", "half", "---", "new" }, History(buf));
         Assert.Null(buf.Partial);
     }
+
+    // -- ScreenOf: a whole stream's lines, as a transcript holds them ------------
+
+    [Fact]
+    public void ScreenOf_IsEveryCommittedLine_ThenTheLastPrompt_AsATranscriptWritesThem()
+    {
+        var lines = TerminalBuffer.ScreenOf([
+            Complete("room"),
+            Partial("*"), Partial("*"), Complete("look"),   // a prompt redrawn, then its echo
+            Complete("a\tb"),
+            Complete("before\fafter"),
+            Blank(),
+            Partial("*"),                                     // still on screen at the end
+        ]);
+
+        Assert.Equal(new[] { "room", "*look", "a       b", "before", "\f", "after", "", "*" },
+            lines.Select(l => l.PlainText));
+        Assert.True(TerminalBuffer.IsClearRule(lines[4]));
+        Assert.All(lines, l => Assert.False(l.IsPartial));
+    }
+
+    [Fact]
+    public void ScreenOf_LeavesOutAnEmptyPromptAtTheEnd()
+    {
+        Assert.Equal(new[] { "room" },
+            TerminalBuffer.ScreenOf([Complete("room"), Partial("")]).Select(l => l.PlainText));
+    }
 }

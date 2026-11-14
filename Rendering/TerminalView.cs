@@ -18,6 +18,9 @@ namespace Mucka.Rendering;
 ///   keeps filling the buffer behind the frozen view. Scrolling back to the bottom (or Esc/End)
 ///   returns to live. While in history the host blocks the input buffer.</item>
 /// </list>
+/// A third, <b>document</b> mode (<see cref="ShowDocument"/>) is history that never returns to live:
+/// a fixed list of lines to read - the History page's Session viewer - with a search match drawn
+/// over it (<see cref="ShowMatch"/>).
 /// A clear-screen from the server empties the live view but not history: the snapshot holds the
 /// lines above it, with a drawn rule where the clear was (see <see cref="TerminalBuffer.ClearRule"/>).
 /// <see cref="Clear"/> is the client's own wipe and takes history with it.
@@ -53,6 +56,21 @@ public sealed class TerminalView : SKCanvasView
     private int _lastViewportRows = 1;            // updated each paint, used for paging
     private float _touchLastY;
     private float _touchAccum;
+
+    // -- Document mode, and the wrap of a frozen list ---------------------------
+    private bool _document;
+    private TextMatch? _match;
+    private bool _revealMatch;
+    // The frozen list wrapped at a column count, kept until either changes: a document can be many
+    // thousands of lines, and history repaints on every scroll step and selection move.
+    private IReadOnlyList<StyledLine>? _wrapSource;
+    private int _wrapColumns;
+    private List<StyledLine> _wrapRows = [];
+    private List<bool> _wrapContinues = [];
+    // The first visual row of each logical line of _wrapSource.
+    private List<int> _wrapLineRows = [];
+    // A search match: drawn over the glyphs, as the selection is, in a colour of its own.
+    private static readonly SKColor MatchColor = new(0xD2, 0x99, 0x22, 0x88);
 
     // A click that arrives within this window of the host window being activated is treated as
     // the click that focused the app (-> focus the input box) rather than a deliberate click on
@@ -186,6 +204,62 @@ public sealed class TerminalView : SKCanvasView
         if (!_historyMode) InvalidateSurface();
     }
 
+    /// <summary>Shows <paramref name="lines"/> to be read, from the top, in place of the live screen
+    /// and for good: scrolling and selection work as in scrollback, and nothing returns the view to
+    /// live. The lines are lines of screen already (<see cref="TerminalBuffer.ScreenOf"/>). UI thread
+    /// only.</summary>
+    public void ShowDocument(IReadOnlyList<StyledLine> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        _document = true;
+        _historyMode = true;
+        _frozen = lines;
+        ForgetWrap();
+        _scrollOffset = int.MaxValue / 2;   // clamped to the top in paint
+        _match = null;
+        _revealMatch = false;
+        _pendingPress = false;
+        ClearSelection();
+        InvalidateSurface();
+    }
+
+    /// <summary>Draws <paramref name="match"/> over the document and scrolls it to the middle of the
+    /// view; null takes the drawn match away and leaves the view where it is.</summary>
+    public void ShowMatch(TextMatch? match)
+    {
+        _match = match;
+        _revealMatch = match is not null;
+        InvalidateSurface();
+    }
+
+    /// <summary>The first and last logical lines of the document the view showed at its last paint,
+    /// or null before one.</summary>
+    public (int First, int Last)? ShownLines
+    {
+        get
+        {
+            if (!_document || _lastRows is null || !ReferenceEquals(_lastRows, _wrapRows)
+                || !ReferenceEquals(_wrapSource, _frozen) || _wrapLineRows.Count == 0)
+                return null;
+            return (LineOfRow(_lastFirst), LineOfRow(_lastBottomIndex));
+        }
+    }
+
+    // Lets the kept wrap go with the list it was made from, rather than at the next paint.
+    private void ForgetWrap()
+    {
+        _wrapSource = null;
+        _wrapRows = [];
+        _wrapContinues = [];
+        _wrapLineRows = [];
+    }
+
+    private int LineOfRow(int row)
+    {
+        var at = _wrapLineRows.BinarySearch(row);
+        return at >= 0 ? at : Math.Max(0, ~at - 1);
+    }
+
     public void Clear()
     {
         _buffer.Clear();
@@ -212,7 +286,12 @@ public sealed class TerminalView : SKCanvasView
             EnterHistory();
         }
         _scrollOffset += rowsTowardOlder;
-        if (_scrollOffset <= 0) ExitHistory();   // scrolled back to the bottom
+        if (_scrollOffset <= 0)
+        {
+            // Scrolled back to the bottom: live again, or a document's last line.
+            if (_document) _scrollOffset = 0;
+            else ExitHistory();
+        }
         InvalidateSurface();
     }
 
@@ -228,7 +307,8 @@ public sealed class TerminalView : SKCanvasView
 
     public void ScrollToBottom()
     {
-        ExitHistory();
+        if (_document) _scrollOffset = 0;
+        else ExitHistory();
         InvalidateSurface();
     }
 
@@ -244,9 +324,10 @@ public sealed class TerminalView : SKCanvasView
 
     private void ExitHistory()
     {
-        if (!_historyMode) return;
+        if (!_historyMode || _document) return;
         _historyMode = false;
         _frozen = null;
+        ForgetWrap();
         _scrollOffset = 0;
         ClearSelection();
         HistoryModeChanged?.Invoke(this, EventArgs.Empty);
@@ -465,6 +546,33 @@ public sealed class TerminalView : SKCanvasView
         return n;
     }
 
+    // The kept wrap's row holding the given column of the match's line (a line's rows concatenate
+    // back to its text, see LineWrapper); null when the wrap is not of the document, or the line is
+    // past its end.
+    private int? MatchRow(TextMatch match, int column)
+    {
+        if (!ReferenceEquals(_wrapSource, _frozen) || match.Line < 0 || match.Line >= _wrapLineRows.Count)
+            return null;
+        int first = _wrapLineRows[match.Line], last = first + RowsOfLine(match.Line) - 1, at = 0;
+        for (int r = first; r < last; r++)
+        {
+            at += RowLength(_wrapRows[r]);
+            if (column < at) return r;
+        }
+        return last;
+    }
+
+    private int RowsOfLine(int line)
+        => (line + 1 < _wrapLineRows.Count ? _wrapLineRows[line + 1] : _wrapRows.Count) - _wrapLineRows[line];
+
+    // The column of the line's text that the row starts at.
+    private int ColumnOfRow(int line, int row)
+    {
+        int at = 0;
+        for (int r = _wrapLineRows[line]; r < row; r++) at += RowLength(_wrapRows[r]);
+        return at;
+    }
+
     private void EnsureFont(float scale)
     {
         float sizePx = _fontSizeDip * scale;
@@ -497,12 +605,17 @@ public sealed class TerminalView : SKCanvasView
         int colsFit = Math.Max(1, (int)((pxW - leftPad - scrollbarPx) / cellW));
         int n = Columns > 0 ? Math.Min(Columns, colsFit) : colsFit;
 
-        var continues = new List<bool>();
-        var rows = BuildVisualRows(n, continues, out int liveFirstRow);
+        var rows = BuildVisualRows(n, out var continues, out int liveFirstRow);
 
         int viewportRows = Math.Max(1, (int)(pxH / cellH));
         _lastViewportRows = viewportRows;
         int maxOffset = Math.Max(0, rows.Count - viewportRows);
+        if (_revealMatch && _document && _match is { } reveal && MatchRow(reveal, reveal.Start) is { } matchRow)
+        {
+            // The match's first row half way down the view, as far as the ends allow.
+            _scrollOffset = rows.Count - 1 - matchRow - viewportRows / 2;
+            _revealMatch = false;
+        }
         int offset = _historyMode ? Math.Clamp(_scrollOffset, 0, maxOffset) : 0;
         if (_historyMode) _scrollOffset = offset;   // write back the clamped value
 
@@ -599,6 +712,20 @@ public sealed class TerminalView : SKCanvasView
                     x += runW;
                 }
 
+                // The search match, over the glyphs as the selection is: the part of it on this row.
+                if (_document && _match is { } match && MatchRow(match, match.Start) is { } matchFirst
+                    && r >= matchFirst && r < _wrapLineRows[match.Line] + RowsOfLine(match.Line))
+                {
+                    int rowStart = ColumnOfRow(match.Line, r);
+                    int a = Math.Max(0, match.Start - rowStart);
+                    int b = Math.Min(RowLength(row), match.Start + match.Length - rowStart);
+                    if (b > a)
+                    {
+                        _fillPaint.Color = MatchColor;
+                        canvas.DrawRect(leftPad + a * cellW, rowTop, (b - a) * cellW, cellH, _fillPaint);
+                    }
+                }
+
                 // Selection highlight as a translucent overlay ON TOP of the glyphs, so it is
                 // visible regardless of any span backgrounds underneath.
                 if (drawSel && r >= selA.Row && r <= selB.Row)
@@ -638,12 +765,30 @@ public sealed class TerminalView : SKCanvasView
     // from live seeds its selection from live geometry and then paints over the frozen rows.
     // liveFirstRow is where the live screen starts (the row after the latest clear-screen rule);
     // the live window is never drawn above it.
-    private List<StyledLine> BuildVisualRows(int n, List<bool>? continues, out int liveFirstRow)
+    //
+    // A frozen list is wrapped once per column count and the rows kept (_wrapRows): nothing in it
+    // changes until it is replaced. The rows and flags returned are then the kept ones, read only.
+    private List<StyledLine> BuildVisualRows(int n, out List<bool> continues, out int liveFirstRow)
     {
         liveFirstRow = 0;
         if (_historyMode && _frozen is not null)
-            return LineWrapper.WrapAll(_frozen, n, continues);
+        {
+            if (!ReferenceEquals(_wrapSource, _frozen) || _wrapColumns != n)
+            {
+                var wrapContinues = new List<bool>();
+                _wrapRows = LineWrapper.WrapAll(_frozen, n, wrapContinues);
+                _wrapContinues = wrapContinues;
+                _wrapLineRows = new List<int>(_frozen.Count);
+                for (int r = 0; r < wrapContinues.Count; r++)
+                    if (!wrapContinues[r]) _wrapLineRows.Add(r);
+                _wrapSource = _frozen;
+                _wrapColumns = n;
+            }
+            continues = _wrapContinues;
+            return _wrapRows;
+        }
 
+        continues = new List<bool>();
         var rows = new List<StyledLine>();
         var committed = _buffer.Committed;
         for (int i = 0; i < committed.Count; i++)

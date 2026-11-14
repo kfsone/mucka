@@ -1,7 +1,7 @@
 # History - design
 
 History is a modal page from the connect page's header (`HistoryPage`), on every platform. It lists
-the player's Sessions and the replays they can play.
+the player's Sessions, shows one as a log (the Viewer), and lists the replays they can play.
 
 ## What a Session is
 
@@ -59,8 +59,9 @@ while nothing was recording (between two Sessions) count toward the Session whos
 follows them, exactly as the graph draws that step.
 
 Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
-Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last. Set title,
-Tags, Save as Replay, Text log, Simple Color Log and Fancy Color Log work; every other entry is a
+Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last. Open (the
+Viewer, below), Set title, Tags, Save as Replay, Text log, Simple Color Log and Fancy Color Log
+work; every other entry is a
 placeholder that says it is not built, so the menu already has its final shape. On a phone or
 tablet, Text log, Simple Color Log and Fancy Color Log ask the player to send Ollie a mudmail.
 
@@ -229,6 +230,84 @@ FACT Earlier recordings hold the creature probe as an ordinary command (`value <
 on that database), which cannot be told apart from the same command typed by the player, so its
 echo and replies show in those logs: 3,454 lines shaped like a `value` echo across all 853 logs,
 the player's own among them.
+
+## The Viewer
+
+Opening a Session - Open on its menu, a double-click on a desktop, a tap on a phone or tablet -
+shows it in a card over History: History stays underneath on a dimmed backdrop, and the card has a
+border of the accent colour and a surface lighter than the page. On a desktop it leaves a margin of
+backdrop round it and is at most `HistoryPage.MaxCardWidth` wide; on a phone or tablet it is the
+whole screen, with no border. Its X, Escape, the system back button, or on a desktop a click on the
+backdrop close the card and nothing else, and the list is as it was left. Escape and back close the
+innermost thing open: the Find or Filters panel, then the card, then History.
+
+DECISION (operator) A card over History, not a tab of it, and not a second modal page. The tab was
+tried and rejected: opening a Session reconfigured the page in place, and Escape from the list it
+had replaced closed History. A second modal page would rebuild the list it returns to.
+
+The card's header is the Session's row, built by the same code as the list's (`HistoryPage`'s
+`SessionLines`), so the two read alike: the date, the character and the points; the title or the
+server, and how long it lasted and how it ended; its tags. Beside it are two icons, a magnifier for
+Find and a funnel for Filters, then the row's "..." menu without Open, and the X.
+
+DECISION (operator) Find and Filters are two modes, each an icon that opens its own small panel
+floating over the log under the icons, one at a time; neither pushes the log down. An always-shown
+toolbar beside the row - a Find box, its buttons and a Filters button - was built and rejected. An
+icon is drawn in the accent colour, with an outline, while its panel is open, and the funnel stays
+in the accent colour while any filter is set, so a filtered log is never mistaken for the whole
+Session. The icons are drawn as paths: no icon font is on every platform.
+
+The Session is shown as its text log: from the same feed (`SessionTextLog.Lines`), so the persona
+session only, masked as the log is, and with no filters the same lines (`TerminalBuffer.ScreenOf`).
+They are drawn by the game's own pane (`TerminalView.ShowDocument`), in the player's chat colours
+(read as a Color Log reads them) and game text size, a screen clear drawn as the pane's rule in
+scrollback. It is read only: no command box, no side panel, no stats, which a replay has. On Windows
+and the Mac, scrolling, selecting and copying are the game pane's scrollback's, with the same mouse
+(`TerminalPointer`); on a phone or tablet a finger scrolls it. The lines are filtered off the UI
+thread.
+
+EVIDENCE On a copy of the operator's database, 2026-11-13, a Debug build on his Windows desktop: all
+854 Sessions read, and with no filters each one's lines were its text log's exactly. The longest was
+13,028 lines, read in 327 ms; the slowest read took 957 ms, for 3,071 lines.
+
+### Find
+
+DECISION Search is on request, not as the player types: Enter in the Find box, or the down button, finds the next
+match, and Shift+Enter, or the up button, the one before (`LogSearch`). A match is within one line,
+ignoring case. Each search moves on from the current match; with none - a new search, or new text -
+it starts at the first line the view shows, or for one backward the last. Past either end it carries
+on from the other, as a browser's find does, and the Find panel says which match it is of how many. The
+match is drawn over the text and scrolled to the middle of the view. It searches what the filters
+leave.
+
+On Windows, F3 finds as Enter does, Ctrl+F opens Find, Page Up and Page Down scroll a
+page, Ctrl+Home and Ctrl+End go to the start and the end, and Ctrl+C copies the selection when the
+Find box has none of its own. The Mac and phones find forward with Enter and both ways with the
+buttons.
+
+### Filters
+
+The funnel's panel holds one row per filter, each a category, its Show / Hide / Only, and a remove
+button, then a button that adds a row (operator), while a category is left to add. A new row is
+Only, on the first category not filtered yet. The filters last for as long
+as History is open, across the Sessions opened in it, and a change shows the log from its start.
+
+DECISION The filters together, in any order (`LogFilter`): with an Only among them, a line is shown
+when it is in an Only's category; with none, every line is. A Hide takes its category away, and a
+Show puts its category back whatever an Only or a Hide said. Rows applied in turn, the last match
+winning, was rejected: two Onlys would show only the second.
+
+DECISION A filter judges the lines as the parser made them, before the pane's buffer merges a prompt
+onto the line that finishes it, which is where the game's chat filter judges them (`PaneHistory`);
+what it keeps then becomes lines of screen. So a merged line never loses its kind, Only Chat shows
+what the game's chat filter shows, prompts included in neither, and a prompt before a hidden line
+goes on to the next line shown.
+
+The categories are the kinds the parser marks a line with (`LineCategory`): Chat is what the game's
+chat filter shows (`PaneHistory.IsChat`), and Fights starting and ending are the lines the server
+codes as a fight starting (08 00) or ending (08 10, 08 11, 08 12). FACT Telling a say from a tell, a
+room's text, or a blow from other text needs the C1 code on the line, which the parser does not
+record.
 
 ## The Replays tab
 

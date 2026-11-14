@@ -37,11 +37,19 @@ public sealed class PaneHistory
     /// lines and prompts merged with the input that committed them. Excludes the live prompt.</summary>
     public IReadOnlyList<StyledLine> Committed => _main.Committed;
 
+    /// <summary>Whether the chat filter shows <paramref name="line"/>: a finished
+    /// <see cref="LineKind.Chat"/> line, as the parser made it. A prompt never is.</summary>
+    public static bool IsChat(StyledLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        return !line.IsPartial && line.Kind == LineKind.Chat;
+    }
+
     /// <summary>Record one line as the pane receives it.</summary>
     public void Append(StyledLine line)
     {
         _main.Append(Normalize(line));
-        if (!line.IsPartial && line.Kind == LineKind.Chat)
+        if (IsChat(line))
         {
             _chat.Add(line);
             if (_chat.Count > _chatCap) _chat.RemoveAt(0);

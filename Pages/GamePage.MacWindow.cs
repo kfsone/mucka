@@ -29,8 +29,9 @@ public partial class GamePage
         }
         FitMacWindow();
         SetUpMacCombatPanel();
-        SetUpMacScroll();
-        SetUpMacSelect();
+        _terminalPointer?.Detach();
+        _terminalPointer = new Mucka.Rendering.TerminalPointer(Terminal, () => ShowToast("* Copied to clipboard"),
+            RefocusAfterMacSelect);
         SetUpMacInput();
     }
 

@@ -33,6 +33,8 @@ public sealed record LogColours(ChatColorizer.Palette Palette, string? Persona, 
 /// <para>The account ID is masked as a replay's is (<see cref="Muckrep.MaskLogin"/>). The client's
 /// own system lines and F-key notes are not in the recording, so they are not in the log.</para>
 ///
+/// <para>The Session viewer starts from the same feed's lines (<see cref="Lines"/>).</para>
+///
 /// <para>Synchronous parsing, then the recorder's own write; off the UI thread.</para>
 /// </summary>
 public static class SessionTextLog
@@ -47,13 +49,11 @@ public static class SessionTextLog
     {
         ArgumentNullException.ThrowIfNull(writer);
         Func<StyledLine, string>? format = colours is { } c ? line => SgrText.Format(line, c.Palette, c.Colours) : null;
-        var play = new Play(writer, host, format);
+        var play = new Play(holds: format is not null,
+            ms => new SessionRecorder(writer, host, Local(ms), format));
         try
         {
-            ArgumentNullException.ThrowIfNull(slice);
-            if (slice.IsEmpty)
-                throw new ArgumentException("The Session has no recording.", nameof(slice));
-            Feed(Muckrep.MaskLogin(slice.Run), slice, play);
+            Feed(slice, play);
             // An ANSI log's lines were held back: whose message each chat span is, and its channel,
             // are marked as the pane marks them before drawing (ChatColorizer.ApplyAll) - over the
             // whole Session at once, so a wrapped message's earlier rows see the channel its later
@@ -84,14 +84,37 @@ public static class SessionTextLog
             throw new IOException(failure);
     }
 
-    private static void Feed(List<WireRecord> run, SessionSlice slice, Play play)
+    /// <summary>The lines the Session viewer starts from: the lines the parser made between the entry
+    /// and the exit, in order, as a pane is fed them - each chat span marked with its channel and
+    /// whose message it is as the pane marks them, so a pane draws them in the player's chat colours.
+    /// Each line still has the kind the parser gave it, which the viewer's filters judge
+    /// (<see cref="LogFilter"/>). <see cref="TerminalBuffer.ScreenOf"/> makes them the text log's
+    /// lines of screen. Synchronous; off the UI thread.</summary>
+    /// <param name="persona">The persona whose own messages are marked (<see cref="ChatColorizer.IsSelf"/>).</param>
+    /// <exception cref="InvalidOperationException">The recording never enters the game.</exception>
+    public static List<StyledLine> Lines(SessionSlice slice, string? persona)
     {
+        var play = new Play(holds: true, null);
+        Feed(slice, play);
+        if (!play.Began)
+            throw new InvalidOperationException("The Session's recording never enters the game.");
+        var carry = default(ChatColorizer.Carry);
+        ChatColorizer.ApplyAll(play.Held, persona, ref carry);
+        return play.Held;
+    }
+
+    private static void Feed(SessionSlice slice, Play play)
+    {
+        ArgumentNullException.ThrowIfNull(slice);
+        if (slice.IsEmpty)
+            throw new ArgumentException("The Session has no recording.", nameof(slice));
+        var run = Muckrep.MaskLogin(slice.Run);
         using var session = MudSession.ForRecording();
         var inSlice = false;
         var now = 0L;
         session.GameModeEntered += () =>
         {
-            if (inSlice && play.Recorder is null)
+            if (inSlice && !play.Began)
                 play.Begin(now);
         };
         session.GameModeExited += () =>
@@ -101,12 +124,8 @@ public static class SessionTextLog
         };
         session.LineReady += line =>
         {
-            if (!play.Writing)
-                return;
-            if (play.HoldsLines)
-                play.Held.Add(line);
-            else
-                play.Recorder!.Append(line);
+            if (play.Writing)
+                play.Take(line);
         };
         for (var i = 0; i <= slice.Last && !play.Ended; i++)
         {
@@ -116,7 +135,7 @@ public static class SessionTextLog
             // Already in the game where the slice starts: the entry was stamped into the slice before
             // (a Session with no recorded end is cut at the next one's start, and a record is stamped
             // when it is read, before the entry it holds is seen). The log starts here instead.
-            if (i == slice.First && session.InGameMode && play.Recorder is null)
+            if (i == slice.First && session.InGameMode && !play.Began)
                 play.Begin(now);
             switch (record.Direction)
             {
@@ -139,26 +158,39 @@ public static class SessionTextLog
     private static DateTime Local(long ms) => DateTimeOffset.FromUnixTimeMilliseconds(ms).LocalDateTime;
 
     /// <summary>The persona's time in the game, as the feed meets it.</summary>
-    private sealed class Play(TextWriter writer, string host, Func<StyledLine, string>? format)
+    /// <param name="holds">Keep the lines (<see cref="Held"/>) rather than streaming them to the
+    /// recorder: an ANSI log and the viewer's lines are marked over the whole Session once it is
+    /// read.</param>
+    /// <param name="recorder">Makes the recorder at the entry, given its time; null keeps the lines
+    /// only.</param>
+    private sealed class Play(bool holds, Func<long, SessionRecorder>? recorder)
     {
         public SessionRecorder? Recorder { get; private set; }
 
-        /// <summary>An ANSI log holds its lines back until the whole Session has been read.</summary>
-        public bool HoldsLines => format is not null;
-
-        /// <summary>Every line from the entry to the exit, in order, while <see cref="HoldsLines"/>.</summary>
+        /// <summary>Every line from the entry to the exit, in order, when it holds them.</summary>
         public List<StyledLine> Held { get; } = [];
 
         public long EndMs { get; private set; }
 
+        public bool Began { get; private set; }
+
         public bool Ended { get; private set; }
 
-        public bool Writing => Recorder is not null && !Ended;
+        public bool Writing => Began && !Ended;
 
         public void Begin(long ms)
         {
             EndMs = ms;   // until the end is met: a feed that fails still closes on a real time
-            Recorder = new SessionRecorder(writer, host, Local(ms), format);
+            Began = true;
+            Recorder = recorder?.Invoke(ms);
+        }
+
+        public void Take(StyledLine line)
+        {
+            if (holds)
+                Held.Add(line);
+            else
+                Recorder!.Append(line);
         }
 
         public void End(long ms)
