@@ -11,7 +11,7 @@ namespace Mucka.Store;
 ///
 /// <para><b>Why the received text and not what was sent.</b> What the client sent is not a reliable
 /// source: in the operator's database the records sent after the <c>Account ID:</c> prompt are in clear
-/// for runs of client 0.22.x, and a MuckaII-imported run has asterisks there. The server's side is in
+/// for runs of client 0.22.x. The server's side is in
 /// every login, twice - echoed after <c>Account ID:</c>, and printed in the
 /// <c>&lt;id&gt; logged in on pts/N.</c> banner. The banner is read first; the echo is the fallback,
 /// for a run whose banner never came.</para>

@@ -1801,9 +1801,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "SCORE", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("SCORE ", StringComparison.OrdinalIgnoreCase))
                 OpenScoreGraph(name.Length > 5 ? name[6..] : string.Empty);
-            else if (string.Equals(name, "IMPORT2", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("IMPORT2 ", StringComparison.OrdinalIgnoreCase))
-                ImportMuckaII(name.Length > 7 ? name[8..] : string.Empty);
             else if (string.Equals(name, "EXPORT", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("EXPORT ", StringComparison.OrdinalIgnoreCase))
                 ExportDatabase(name.Length > 6 ? name[7..] : string.Empty);
@@ -1968,8 +1965,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
         AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
-        AddSystemLine("  $import2 [path]       import finished MuckaII runs (default ~/.muckaii/muckaii.db)", 14);
-        AddSystemLine("  $import2 unclosed 2,4 also import those runs, which have no recorded end", 14);
         AddSystemLine("  $trimdb trim [days]   move probe traffic of runs older than days (default 30) to the trimmed table", 14);
         AddSystemLine("  $trimdb unwrap [days] join lines the server wrapped in runs older than days (default 30); run before trim", 14);
         AddSystemLine("  $trimdb expire [days] delete trimmed rows (and unwrap originals) older than days for good", 14);
@@ -2119,37 +2114,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private int _importing;
 
-    /// <summary>$import2 [path] - copies finished MuckaII runs into this database; see
-    /// <see cref="Mucka.Combat.MuckaIIImport"/>. Off the UI thread: the replay parses every byte.</summary>
-    private void ImportMuckaII(string argument)
-    {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var parsed = Mucka.Commands.ImportCommandArgs.Parse(argument, home,
-            OperatingSystem.IsWindows() ? Path.Combine(home, ".muckaii", "muckaii.db") : null, out var error);
-        if (parsed is null)
-        {
-            AddSystemLine($"[import2] {error}; usage: $import2 [path] [unclosed id,id]", 9);
-            return;
-        }
-        var source = parsed.Value.Path;
-        var unclosed = parsed.Value.Unclosed;
-        var destination = _conn.DatabasePath;
-
-        RunDatabaseJob("import2", $"importing from {source} ...", () =>
-        {
-            if (!File.Exists(source))
-                return ($"no such file: {source}", false);
-            var r = Mucka.Combat.MuckaIIImport.Run(destination, source, unclosed);
-            var message = $"{r.RunsImported} runs imported ({r.RunsAlreadyImported} already here), "
-                + $"{r.Sessions} logins, {r.ScoreEvents} score lines, {r.WireRows:N0} wire records";
-            if (r.RunsSkippedUnclosed.Count > 0)
-                message += $"; skipped unclosed runs {string.Join(",", r.RunsSkippedUnclosed)}";
-            if (r.ScoreEventsWithoutPersona > 0)
-                message += $"; {r.ScoreEventsWithoutPersona} score lines had no persona and will not graph";
-            return (message, true);
-        });
-    }
-
     /// <summary>$trimdb trim|unwrap|expire|revert|optimize - see <see cref="Mucka.Combat.WireTrim"/> and
     /// <see cref="Mucka.Store.MuckaStore.Optimize"/>. Off the UI thread, one database job at a time.</summary>
     private void TrimDatabase(string argument)
@@ -2227,14 +2191,8 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
     private void ExportDatabase(string argument)
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var parsed = Mucka.Commands.ImportCommandArgs.Parse(argument, home,
-            Path.Combine(MuckaPaths.GetDataDirectory(), "mucka-export.db"), out var error);
-        if (parsed is null || parsed.Value.Unclosed.Count > 0)
-        {
-            AddSystemLine($"[export] {error ?? "unclosed does not apply"}; usage: $EXPORT [path]", 9);
-            return;
-        }
-        var path = parsed.Value.Path;
+        var path = Mucka.Commands.ExportCommandArgs.Parse(argument, home,
+            Path.Combine(MuckaPaths.GetDataDirectory(), "mucka-export.db")).Path;
         var database = _conn.DatabasePath;
 
         RunDatabaseJob("export", $"writing {path} ...", () =>

@@ -267,7 +267,6 @@ public sealed class SessionCommandAliases
         if (name.Equals("SID", StringComparison.OrdinalIgnoreCase)
             || name.Equals("MARK", StringComparison.OrdinalIgnoreCase)
             || name.Equals("SCORE", StringComparison.OrdinalIgnoreCase)
-            || name.Equals("IMPORT2", StringComparison.OrdinalIgnoreCase)
             || name.Equals("EXPORT", StringComparison.OrdinalIgnoreCase)
             || name.Equals("CHATTEST", StringComparison.OrdinalIgnoreCase))
             return true;

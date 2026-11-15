@@ -46,11 +46,6 @@ public static class PersonaSessionBackfill
     /// how it finished.</summary>
     internal readonly record struct Login(long StartedMs, long? EndedMs, string? Persona, string? EndNote);
 
-    /// <summary>One score line seen while replaying, with the wire instant it arrived and the index
-    /// into the replay's login list of the login it happened in (the list's length at that moment, so
-    /// it indexes the login being built).</summary>
-    internal readonly record struct ReplayedScore(long Ms, ScoreSave Save, bool AfterTaskLine, int LoginIndex);
-
     /// <summary>
     /// Fills in every login the wire log can still account for, then attributes whatever fact rows
     /// are still unclaimed. Returns how many <c>persona_sessions</c> rows were created; zero when
@@ -223,7 +218,6 @@ public static class PersonaSessionBackfill
             JOIN mucka_runs r ON r.id = p.mucka_run_id
             WHERE r.ended_ms IS NOT NULL
               AND p.mucka_run_id IS NOT $live
-              AND COALESCE(r.client_version, '') NOT LIKE 'MuckaII %'
               AND COALESCE(r.client_version, '') NOT LIKE '%' || $imported
             ORDER BY p.started_ms, p.id;
             """;
@@ -243,7 +237,7 @@ public static class PersonaSessionBackfill
     /// than today's.
     /// </summary>
     private static List<Login> ReplayLogins(SqliteConnection connection, long runId)
-        => ReplayLogins(ReadReceived(connection, runId), scores: null);
+        => ReplayLogins(ReadReceived(connection, runId));
 
     private static IEnumerable<(long Ts, byte[] Data)> ReadReceived(SqliteConnection connection, long runId)
     {
@@ -257,16 +251,11 @@ public static class PersonaSessionBackfill
     }
 
     /// <summary>
-    /// The replay itself, over any source of received records: this client's own wire table, or
-    /// another client's log being imported. When <paramref name="scores"/> is given, every
-    /// <c>(Persona saved on ...)</c> line seen inside a login is added to it, stamped with the wire
-    /// record's instant.
+    /// The replay itself, over a run's received records.
     /// </summary>
-    internal static List<Login> ReplayLogins(IEnumerable<(long Ts, byte[] Data)> received,
-        List<ReplayedScore>? scores)
+    private static List<Login> ReplayLogins(IEnumerable<(long Ts, byte[] Data)> received)
     {
         var logins = new List<Login>();
-        var afterTask = false;
         long? openedAt = null;
         string? persona = null;
         var watcher = new SessionEndWatcher();
@@ -282,8 +271,8 @@ public static class PersonaSessionBackfill
         // The combat clock is left alone - it is internal to mudsharp, and nothing here reads a combat
         // event. Game mode and character identity come off the C1 stream and the score sheet, neither
         // of which consults a clock. Every instant recorded below is the WIRE record's own ts.
-        // A client that never asks for the score sheet (MuckaII) leaves CharacterIdentified silent, so
-        // the login is named from the persona menu and the slot number answered at it.
+        // A run that never asked for the score sheet leaves CharacterIdentified silent, so the login is
+        // named from the persona menu and the slot number answered at it.
         var menu = new System.Text.StringBuilder();
         IReadOnlyList<PersonaSlot>? slots = null;
         string? picked = null;
@@ -344,17 +333,6 @@ public static class PersonaSessionBackfill
             watcher.Begin();
         };
 
-        if (scores is not null)
-        {
-            session.TaskCompleted += _ => afterTask = true;
-            session.ScoreSaved += save =>
-            {
-                if (openedAt is not null)
-                    scores.Add(new ReplayedScore(ts, save, afterTask, logins.Count));
-                afterTask = false;
-            };
-        }
-
         foreach (var (recordTs, data) in received)
         {
             ts = recordTs;
@@ -376,7 +354,7 @@ public static class PersonaSessionBackfill
         return command.ExecuteScalar() as string;
     }
 
-    internal static long InsertSession(SqliteConnection connection, SqliteTransaction transaction,
+    private static long InsertSession(SqliteConnection connection, SqliteTransaction transaction,
         long runId, string? host, Login login)
     {
         using var command = connection.CreateCommand();

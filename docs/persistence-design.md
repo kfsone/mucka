@@ -328,7 +328,7 @@ The fact tables, and where each came from:
 | `fights` | the combat database | one row per per-NPC fight; the unseen group of an encounter (`AnonymousOpponent.Group`, `<unseen>`) is one row holding every anonymous blow, `Unresolved` unless the player's flight ended the encounter or the group killed the player (`Died`), plus one swing-less row per unseen conclusion with that ending's outcome (`FightHistoryRecorder`): under the Creature's name when a named line concluded the slot (`CombatEvent.ConcludedName`), else `<unseen>`; its points are the `score_events` row as for any kill. A conclusion row never has `narrative_mode` set: it carries no swings by construction, so its zero is not the signature of a character without fightbrief. A Creature whose outcome only counting placed stays `Unresolved`: counting is an inference, and with a start missed it can be wrong, so it never persists a kill. At the player's death only the killer's row (the named Creature, or the group's) is `Died`; every other fight open then is `Unresolved`, as at a force end. Rows written before the group carry "someone" / "something" as names |
 | `npc_stamina_reads` | the combat database | every `diagnose` reading |
 | `score_events` | the combat database | every `(Persona saved on ...)` line |
-| `mucka_runs` | the wire log | one row per run of the client - every login, logout and world reset inside one process - and one per run imported from MuckaII by `$import2` |
+| `mucka_runs` | the wire log | one row per run of the client - every login, logout and world reset inside one process - and one per run merged in from another database by `mucka -import` |
 | `persona_sessions` | added with the session key | one row per LOGIN, with its persona, host and how it ended; what every fact table above points at |
 | `wire` | the wire log | one row per read, or per prompt-bounded unit once joined: `ts_ms`, `direction`, and the bytes |
 
@@ -406,7 +406,7 @@ The uid is minted by the client, not assigned by the store, because it is needed
 at the instant combat starts and the store's single writer cannot be waited for. A row id would
 also be a local number, meaningless in the database a run is merged into.
 
-A run has a uid too (`mucka_runs.uid`, set by `MuckaStore`, `RunTransfer` and `MuckaIIImport`), and a
+A run has a uid too (`mucka_runs.uid`, set by `MuckaStore` and `RunTransfer`), and a
 run is identified by it. The one place a start time is still compared is the lookalike check in
 `RunTransfer` (below), which is a detection and never a key.
 
@@ -421,8 +421,6 @@ snapshot held no duplicate keys at all.
 
 What still uses time, and why nothing else is available there:
 
-- **A MuckaII run** (`MuckaIIImport`) is matched on tag, start and host, because MuckaII records no
-  identity for a run.
 - **Legacy rows with no login** are attributed by `PersonaSessionBackfill` to the login whose time
   window contains them. They carry no key of any kind, so position in time is all there is.
 - **Fights are paired with their swings** by `PoolObservationBuilder.BuildAll` on (login, instance
@@ -442,16 +440,6 @@ thread; the wire capture stamps `DateTimeOffset.UtcNow` on the read and write lo
 thread. Same clock, different threads - so a
 wire record and the swing parsed out of it are comparable to within the parse, which is what any
 cross-stream question needs.
-
-### Imported runs
-
-`$import2` (`MuckaIIImport`) copies finished runs from MuckaII's `muckaii.db` into `mucka_runs` and
-`wire`. Each such run has `client_version` beginning `MuckaII `, which is also the dedupe key
-together with `started_ms` and `host`; a run taken without a recorded end (`$import2 unclosed ids`)
-ends `(unclosed)`. The run's received bytes are replayed through `MudSession` to write
-`persona_sessions` and `score_events`, so those rows carry the wire record's timestamp rather than
-the import's, and they are tied to their login directly. `PersonaSessionBackfill` leaves imported
-runs out of its time-window attribution. Swings, fights and encounters are not imported.
 
 ### Runs that never ended
 
