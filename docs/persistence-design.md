@@ -46,13 +46,12 @@ The wire log is raw bytes (`wire.data`), one row per record. It is the ground tr
 running the client's own parsers over it offline is how the parsers get found to be wrong. A raw
 line is recoverable from it by decode.
 
-A table of every line with the C1 code that introduced it does not exist, and the reason is worth
-recording so it is not proposed as a small job: `StyledLine` does not carry the C1 code. It
-carries `LineKind` (`mudsharp/Models/LineKind.cs`), which is a four-value semantic reduction
-(`Normal`, `Chat`, `FightEnd`, `CreatureInvisible`), and
-`C1Scope` is internal to the parser. Storing the code means surfacing it from `Mud2C1Decoder`'s
-dispatch sites onto `StyledLine`, and per CLAUDE.md the code is the authority where the prose is not,
-so a `lines` table without it would be the weaker artifact sitting next to the stronger one.
+A table of every line with its C1 codes does not exist. The parser does put the codes on the line:
+`StyledLine.Codes` holds, once each, the code of the innermost colour frame each run of the line's
+text arrived in (`Mud2C1Decoder.OpenCode`, set by the dispatch that pushed the frame), beside
+`LineKind` (`mudsharp/Models/LineKind.cs`), a semantic reduction of a few codes. The History viewer's
+filters read them from a recording, parsed when a Session is opened; nothing stores them. Per
+CLAUDE.md the code is the authority where the prose is not, so a `lines` table would carry them.
 
 ### Why the wire log has no framing
 

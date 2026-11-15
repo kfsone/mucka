@@ -704,6 +704,8 @@ public sealed class MudStreamParser
     private void AbortPromptContext()
     {
         _inPromptContext = false;
+        if (_spans.Count == 0)
+            _lineCodes.Clear();
         _spans.AddRange(_promptSpans);
         _promptSpans.Clear();
         if (_promptText.Length > 0)
@@ -907,7 +909,7 @@ public sealed class MudStreamParser
             var lineKind = (_pendingKind == LineKind.Chat || _chatTextOnLine || InChatContext)
                 ? LineKind.Chat : _pendingKind;
             var line = new StyledLine(_spans.ToArray(), isPartial: false, kind: lineKind,
-                continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart);
+                continuesChat: lineKind == LineKind.Chat && chatOpenAtLineStart, codes: TakeLineCodes());
             var tellAlertRequested = _pendingTellSound;
             var plainTextLine = _plainTextOnLine;
             _spans.Clear();
@@ -1107,9 +1109,26 @@ public sealed class MudStreamParser
     {
         // Inside the prompt container, style boundaries flush into the prompt buffer.
         if (_inPromptContext) { FlushPromptText(); return; }
+        // A line's codes start with its first span: whatever a dropped line left goes with it, before
+        // a blank or clear-screen line can take them.
+        if (_spans.Count == 0)
+            _lineCodes.Clear();
         if (_text.Length == 0) return;
+        if (C1.OpenCode is { } code && !_lineCodes.Contains(code))
+            _lineCodes.Add(code);
         _spans.Add(new StyledSpan(_text.ToString(), Ansi.CurrentStyle));
         _text.Clear();
+    }
+
+    // The C1 codes of the frames holding the line's text so far (StyledLine.Codes).
+    private readonly List<C1Code> _lineCodes = new();
+
+    // The line's codes, handed to the line being made, and cleared for the next.
+    private C1Code[] TakeLineCodes()
+    {
+        var codes = _lineCodes.Count == 0 ? [] : _lineCodes.ToArray();
+        _lineCodes.Clear();
+        return codes;
     }
 
     internal void EmitPartialLine()
@@ -1119,7 +1138,7 @@ public sealed class MudStreamParser
         FlushPendingLineSounds();
         FlushSpan();
         if (_spans.Count == 0) return;
-        var line = new StyledLine(_spans.ToArray(), isPartial: true);
+        var line = new StyledLine(_spans.ToArray(), isPartial: true, codes: TakeLineCodes());
         _roomIdFrameAtLineStart = false;
         _roomIdPrefixLen = 0;
         _spans.Clear();   // snapshot: next text accumulates fresh so the complete line only holds new content
@@ -1134,7 +1153,7 @@ public sealed class MudStreamParser
     {
         FlushSpan();
         _spans.Add(new StyledSpan("\f", Ansi.CurrentStyle));
-        var line = new StyledLine(_spans.ToArray(), isPartial: false);
+        var line = new StyledLine(_spans.ToArray(), isPartial: false, codes: TakeLineCodes());
         _spans.Clear();
         LineReady?.Invoke(line);
     }

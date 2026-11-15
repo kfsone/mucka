@@ -40,8 +40,14 @@ alternate between the page colour and one 10 lighter on each channel. All the ro
 the UI font step.
 
 A filter box (character, server, title, tag or outcome, ignoring case and a leading `#`), a character
-picker and a sort (newest, oldest, most or fewest points, longest, shortest; a Session with no points
-or no recorded end sorts last) narrow the list in memory, without reading the store again.
+and a sort (newest, oldest, most or fewest points, longest, shortest; a Session with no points or no
+recorded end sorts last) narrow the list in memory, without reading the store again. Character and
+sort are icons beside the filter box, each opening a drop-down with the current choice ticked; the
+person icon is lit while one character is chosen, and the box's prompt names them, and the sort icon
+while the sort is not newest first.
+
+DECISION (operator) Icons, not labelled pickers: a picker's title sat above its box and broke the
+toolbar's line. A date range waits for the Search page.
 
 FACT (operator) The game's longest play session is 3 hours, so a duration never needs more than
 hours and minutes. EVIDENCE On the copy of the operator's database, 2026-11-13: the longest recorded
@@ -287,27 +293,66 @@ buttons.
 
 ### Filters
 
-The funnel's panel holds one row per filter, each a category, its Show / Hide / Only, and a remove
-button, then a button that adds a row (operator), while a category is left to add. A new row is
-Only, on the first category not filtered yet. The filters last for as long
-as History is open, across the Sessions opened in it, and a change shows the log from its start.
+The funnel's panel is a table of rules (`FilterRule`). A rule is up to three parts (operator): what
+it picks out, which of it where the kind has a choice, and a pattern the line must hold where the
+kind takes one; an eye on its left says whether what it matches is shown or hidden, its count says
+how many of the Session's lines it matches, and an x removes it, the x that closes elsewhere. On a desktop the
+table has a header (SHOW, WHAT, WHICH, MATCHING, LINES) and a row per rule; on a phone a rule takes
+two lines. "+ Add a rule" offers the kinds, each with how many of the Session's lines it holds, and
+a new rule shows what it matches. While any rule is set, a strip under the card's header says
+"Showing N of M lines" with the rules in words, and Show all removes them all. The rules last for as
+long as History is open, across the Sessions opened in it, and a change shows the log from its
+start. Typing in a pattern refilters once typing pauses.
 
-DECISION The filters together, in any order (`LogFilter`): with an Only among them, a line is shown
-when it is in an Only's category; with none, every line is. A Hide takes its category away, and a
-Show puts its category back whatever an Only or a Hide said. Rows applied in turn, the last match
-winning, was rejected: two Onlys would show only the second.
+DECISION (operator) The panel has no close button: its icon, the other icon, or Escape shuts it. Two
+earlier panels were rejected: rows of a category and Show / Hide / Only buttons with a close-like x
+("Show/Hide/Only is weird and confusing"; a row "looks like a ribbon in a window"), and a checklist
+of every kind, ticked, with an "only" link per row or presets.
 
-DECISION A filter judges the lines as the parser made them, before the pane's buffer merges a prompt
+DECISION The rules together, in any order (`LogFilter`): with no rule's eye open every line is shown;
+with any open, a line is shown when an open-eyed rule matches it. A closed-eyed rule then hides what
+it matches, whatever an open one said. So "only chat" is one rule, Chat with its eye open, and
+"everything but room text" is one rule, Room text with its eye closed.
+
+DECISION A rule judges the lines as the parser made them, before the pane's buffer merges a prompt
 onto the line that finishes it, which is where the game's chat filter judges them (`PaneHistory`);
-what it keeps then becomes lines of screen. So a merged line never loses its kind, Only Chat shows
-what the game's chat filter shows, prompts included in neither, and a prompt before a hidden line
-goes on to the next line shown.
+what is kept then becomes lines of screen. So a merged line never loses its kind or its codes, a
+Chat rule shows what the game's chat filter shows, prompts matched by no rule, and a prompt before a
+hidden line goes on to the next line shown.
 
-The categories are the kinds the parser marks a line with (`LineCategory`): Chat is what the game's
-chat filter shows (`PaneHistory.IsChat`), and Fights starting and ending are the lines the server
-codes as a fight starting (08 00) or ending (08 10, 08 11, 08 12). FACT Telling a say from a tell, a
-room's text, or a blow from other text needs the C1 code on the line, which the parser does not
-record.
+DECISION A rule's kind and its "which" are the server's own codes, never the prose; a pattern only
+narrows what they picked out (`RuleKind`):
+
+| Kind | Which | Pattern |
+|---|---|---|
+| Chat: what the game's chat filter shows (`PaneHistory.IsChat`) | any channel, say, shout, tell (`SpeechPart`, from the 09 code's inner frame; a wrapped row by the channel `ChatColorizer.ApplyAll` marked) | from: in the speaker's part of the message, a wrapped row by its message's first row |
+| Room text: the 02 family | Short (02 00, 02 01 names), Short + Long (and 02 02 descriptions), Long, All (and "Looking westward, you see ..." lines, 12 00 round a 02 01 name) | containing |
+| Combat: 07 (isolated hits) and 08 (the fight) | any, you attack (08 01, 08 02), attacking you (08 03, 08 04, 07) | with: a name |
+| Kills | any, you killed (08 08), killed you (08 09) | with: a name |
+| Flees: 08 11, a flee tried whether or not it got away | - | with: a name |
+| Weather: the 14 family | - | - |
+| Any text | - | containing |
+
+A name matches as a word, a creature's number after it allowed: "rat" matches "rat21", not
+"rattlesnake". Every pattern ignores case.
+
+DECISION (operator) Chat's choices are the channels the codes give. The server marks say, ask and
+whisper alike (09 02), and shout, yodel and scream alike (09 01), so a choice between those verbs
+would rest on the wording and is not offered.
+
+EVIDENCE On a copy of the operator's database, 2026-11-14, a Debug build: 1,243,221 lines over all
+854 Sessions; chat 22,517 lines, tells 4,033, shouts 838, room text 303,494, combat 72,492, kills
+3,754, flees 1,187. Eight lines sampled from each were all of their kind: tells included the
+wrapped rows of a long tell, shouts held yodels and hollers, flees held "has fled by trying to go"
+as well as "has fled by going", and room text held "Looking westward, you see a place known as ..."
+(12 00 holding a 02 01 room name).
+
+FACT A line's codes come from the same colour frames that colour its text: a frame carries both, and
+a pop takes both away (`Mud2C1Decoder`). So a frame whose pop never came would put its code on
+following lines only as it put its colour there, on screen.
+
+FACT Points has no category: mud2_FE4.txt lists no code for a gain or a loss of points. Its score
+codes (12 02 "SCORE information." and its kin) are the replies to asking for the score.
 
 ## The Replays tab
 

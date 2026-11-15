@@ -19,10 +19,20 @@ internal sealed class Mud2C1Decoder
     // One colour-stack entry: the style plus the semantic scopes this frame opened (C1Scope
     // doc explains the mechanism). Scope lifetime is frame lifetime - SettleScopes() reports
     // scopes whose frames have unwound. IsInitialise marks the frame C00 leaves at the bottom.
-    private readonly record struct ColorFrame(TextStyle Style, C1Scope Opens, bool IsInitialise = false);
+    // Code is the C1 code whose dispatch pushed the frame (StyledLine.Codes); null for C00's.
+    private readonly record struct ColorFrame(TextStyle Style, C1Scope Opens, bool IsInitialise = false,
+        C1Code? Code = null);
 
     // Color stack: tracks color history for bare FF FF pop()
     private readonly Stack<ColorFrame> _colorStack = new();
+
+    // The code being dispatched, while it is.
+    private C1Code? _dispatching;
+
+    /// <summary>The C1 code of the innermost colour frame open, or null when none is but C00's: what
+    /// text arriving now is held in (<see cref="StyledLine.Codes"/>).</summary>
+    internal C1Code? OpenCode
+        => _colorStack.Count > 0 && !_colorStack.Peek().IsInitialise ? _colorStack.Peek().Code : null;
 
     // Union of the Opens flags of every frame currently on the stack. Maintained by
     // Apply/MoveScopeToTop (set) and SettleScopes (recompute after unwinds).
@@ -135,7 +145,7 @@ internal sealed class Mud2C1Decoder
         // inner C09 around a quoted word inside a speaker message) must not re-anchor the scope
         // to the inner frame, or it would end at the inner pop - one level too early.
         opens &= ~_activeScopes;
-        _colorStack.Push(new ColorFrame(s, opens));
+        _colorStack.Push(new ColorFrame(s, opens, Code: _dispatching));
         _activeScopes |= opens;
         _parser.Ansi.SetStyle(s);
     }
@@ -319,8 +329,10 @@ internal sealed class Mud2C1Decoder
     {
         if (b == 0xFF)
         {
-            // C255 complete - dispatch and clear buf
+            // C255 complete - dispatch and clear buf. Every frame the dispatch pushes is that code's.
+            _dispatching = C1Code.Of(lead, buf.Count > 0 ? buf[0] : C1Code.FirstLead);
             var next = Dispatch(lead, buf);
+            _dispatching = null;
             buf.Clear();
             return next;
         }

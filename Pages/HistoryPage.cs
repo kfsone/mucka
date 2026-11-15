@@ -77,6 +77,19 @@ internal sealed class HistoryPage : ContentPage
     private const string MagnifierPath = "M 11,6.5 A 4.5,4.5 0 1 1 2,6.5 A 4.5,4.5 0 1 1 11,6.5 M 10,10 L 14.5,14.5";
     /// <summary>A funnel, on a 16-unit square: the Filters icon.</summary>
     private const string FunnelPath = "M 1.5,2.5 L 14.5,2.5 L 9.5,8.5 L 9.5,14 L 6.5,12.5 L 6.5,8.5 Z";
+    /// <summary>A head and shoulders, on a 16-unit square: the Sessions list's Character icon.</summary>
+    private const string PersonPath = "M 10.5,5 A 2.5,2.5 0 1 1 5.5,5 A 2.5,2.5 0 1 1 10.5,5 M 2.5,14.5 C 2.5,9.5 13.5,9.5 13.5,14.5";
+    /// <summary>An up arrow beside a down arrow, on a 16-unit square: the Sessions list's Sort icon.</summary>
+    private const string SortPath = "M 5,13.5 L 5,2.5 M 2.5,5 L 5,2.5 L 7.5,5 M 11,2.5 L 11,13.5 M 8.5,11 L 11,13.5 L 13.5,11";
+    /// <summary>Chevrons, on a 16-unit square: Find's previous and next match.</summary>
+    private const string ChevronUpPath = "M 3,10.5 L 8,5.5 L 13,10.5";
+    private const string ChevronDownPath = "M 3,5.5 L 8,10.5 L 13,5.5";
+    /// <summary>An open eye, on a 16-unit square: a rule shows what it matches.</summary>
+    private const string EyePath = "M 1.5,8 C 4,3.5 12,3.5 14.5,8 C 12,12.5 4,12.5 1.5,8 Z M 10,8 A 2,2 0 1 1 6,8 A 2,2 0 1 1 10,8";
+    /// <summary>The eye struck through: a rule hides what it matches.</summary>
+    private const string EyeClosedPath = EyePath + " M 2.5,13.5 L 13.5,2.5";
+    /// <summary>An x, on a 16-unit square: remove a rule, the x that closes and removes elsewhere.</summary>
+    private const string RemovePath = "M 4,4 L 12,12 M 12,4 L 4,12";
 
     private readonly Func<string?> _playRefusal;
     private readonly Func<string, Task> _playReplay;
@@ -104,9 +117,23 @@ internal sealed class HistoryPage : ContentPage
     /// <summary>How long the "Copied" note stays over the log.</summary>
     private const int CopiedNoteMs = 1500;
     private readonly List<FilterRule> _rules = [];
+    // Each rule row's count, and the counts last worked out, so a rebuilt table shows them at once.
+    private readonly List<Label> _ruleCounts = [];
+    private List<string> _ruleCountValues = [];
+    // How many of the opened Session's lines each kind holds, for "+ Add a rule".
+    private readonly Dictionary<RuleKind, int> _kindCounts = [];
+    // Counts typing in a rule's pattern box, so only the last pause refilters.
+    private int _patternVersion;
+    // While any rule is set: "Showing N of M lines - ..." and Show all, under the card's header.
+    private readonly Grid _filteredStrip;
+    private readonly Label _filteredText;
     private readonly Mucka.Rendering.TerminalView _log;
     // The opened Session's lines as the parser made them, and what the filters leave of them on screen.
     private List<MudSharp.Models.StyledLine> _fedLines = [];
+    // The opened Session has been read: until then a rule change waits, and counts nothing.
+    private bool _fedReady;
+    // How many lines of screen the opened Session has unfiltered, once worked out: the strip's "of M".
+    private int? _allLineCount;
     private List<MudSharp.Models.StyledLine> _logLines = [];
     private SessionItem? _opened;
     private TextMatch? _match;
@@ -122,8 +149,12 @@ internal sealed class HistoryPage : ContentPage
     private readonly Label _empty;
     private readonly Grid _sessionTools;
     private readonly Entry _filter;
-    private readonly Picker _character;
-    private readonly Picker _sort;
+    private readonly IconButton _characterIcon;
+    private readonly IconButton _sortIcon;
+    // The character the list shows, or null for all; and the sort, an index into SortChoices.
+    private string? _character;
+    private int _sort;
+    private List<string> _characters = [];
     private List<SessionSummary> _allSessions = [];
     private int _filterVersion;
 
@@ -215,23 +246,21 @@ internal sealed class HistoryPage : ContentPage
             if (typed == _filterVersion)
                 ShowSessions();
         };
-        _character = ToolPicker("Character");
-        _character.ItemsSource = new List<string> { AllCharacters };
-        _character.SelectedIndex = 0;
-        _character.SelectedIndexChanged += (_, _) => ShowSessions();
-        _sort = ToolPicker("Sort");
-        _sort.ItemsSource = SortChoices;
-        _sort.SelectedIndex = 0;
-        _sort.SelectedIndexChanged += (_, _) => ShowSessions();
+        // Character and sort are icons opening a drop-down, as the rows' "..." does: a labelled picker
+        // put its title above its box and pushed the toolbar out of line (operator).
+        _characterIcon = new IconButton(PersonPath, "Character: all characters");
+        _characterIcon.Tapped += async () => await PickCharacterAsync();
+        _sortIcon = new IconButton(SortPath, "Sort: " + SortChoices[0]);
+        _sortIcon.Tapped += async () => await PickSortAsync();
         _sessionTools = new Grid
         {
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto)],
-            ColumnSpacing = 8,
-            Padding = new Thickness(16, 6, 16, 6),
+            ColumnSpacing = 4,
+            Padding = new Thickness(16, 6, 12, 6),
         };
         _sessionTools.Add(_filter, 0);
-        _sessionTools.Add(_character, 1);
-        _sessionTools.Add(_sort, 2);
+        _sessionTools.Add(_characterIcon.View, 1);
+        _sessionTools.Add(_sortIcon.View, 2);
 
         var body = new Grid();
         body.Add(_sessions);
@@ -251,12 +280,11 @@ internal sealed class HistoryPage : ContentPage
         _cardLines = new SessionLines();
         _search = new Entry
         {
-            Placeholder = "Find",
+            Placeholder = "Find in this Session",
             TextColor = Body,
             PlaceholderColor = Muted,
             ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
             VerticalOptions = LayoutOptions.Center,
-            WidthRequest = 200,
         };
         _search.SetBinding(Entry.FontSizeProperty, ScaledFontBinding.For(13));
         // New text is a new search, from what the view shows.
@@ -265,18 +293,24 @@ internal sealed class HistoryPage : ContentPage
         // Windows takes Enter, and Shift+Enter, before the box does (OnWindowPreviewKeyDown).
         _search.Completed += (_, _) => Find(backward: false);
 #endif
+        // A fixed-width status, so "3 of 12" and "No match" never change the panel's width.
         _searchStatus = Line(Muted, 12);
         _searchStatus.VerticalOptions = LayoutOptions.Center;
-        _searchStatus.MinimumWidthRequest = 64;
+        _searchStatus.HorizontalTextAlignment = TextAlignment.End;
+        _searchStatus.WidthRequest = 84;
+        var previous = new IconButton(ChevronUpPath, "Previous match (Shift+Enter)");
+        previous.Tapped += () => Find(backward: true);
+        var next = new IconButton(ChevronDownPath, "Next match (Enter)");
+        next.Tapped += () => Find(backward: false);
         var searchRow = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)],
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)],
             ColumnSpacing = 2,
         };
         searchRow.Add(_search, 0);
-        searchRow.Add(SearchButton(Glyph.TriangleUp, "Previous match", backward: true), 1);
-        searchRow.Add(SearchButton(Glyph.TriangleDown, "Next match", backward: false), 2);
-        searchRow.Add(_searchStatus, 3);
+        searchRow.Add(_searchStatus, 1);
+        searchRow.Add(previous.View, 2);
+        searchRow.Add(next.View, 3);
         _searchPanel = Popup(searchRow);
 
         _filterPanel = new VerticalStackLayout { Spacing = 4 };
@@ -302,7 +336,6 @@ internal sealed class HistoryPage : ContentPage
             ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto),
                 new(GridLength.Auto)],
             ColumnSpacing = 4,
-            Padding = new Thickness(16, 8, 4, 8),
         };
         _cardHeader.Add(_cardLines.View, 0);
         _cardHeader.Add(_searchIcon.View, 1);
@@ -331,13 +364,34 @@ internal sealed class HistoryPage : ContentPage
             IsVisible = false,
         }.Scaled(12);
         logArea.Add(_copied);
+        // The filtered strip: always in sight while rules are set, whether or not their panel is open.
+        _filteredText = Line(Body, 12);
+        _filteredText.VerticalOptions = LayoutOptions.Center;
+        var showAll = ToolbarButton("Show all", "Remove every rule", size: 12);
+        showAll.TextColor = Accent;
+        showAll.Clicked += (_, _) =>
+        {
+            _rules.Clear();
+            RulesChanged();
+        };
+        _filteredStrip = new Grid
+        {
+            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
+            Padding = new Thickness(16, 0, 8, 0),
+            BackgroundColor = Color.FromArgb("#1F2A38"),
+            IsVisible = false,
+        };
+        _filteredStrip.Add(_filteredText, 0);
+        _filteredStrip.Add(showAll, 1);
+
         var cardContent = new Grid
         {
-            RowDefinitions = [new(GridLength.Auto), new(1), new(GridLength.Star)],
+            RowDefinitions = [new(GridLength.Auto), new(1), new(GridLength.Auto), new(GridLength.Star)],
         };
         cardContent.Add(_cardHeader, 0, 0);
         cardContent.Add(new BoxView { Color = Rule, HeightRequest = 1 }, 0, 1);
-        cardContent.Add(logArea, 0, 2);
+        cardContent.Add(_filteredStrip, 0, 2);
+        cardContent.Add(logArea, 0, 3);
         _card = new Border
         {
             Stroke = Accent,
@@ -387,15 +441,10 @@ internal sealed class HistoryPage : ContentPage
         return button;
     }
 
-    private Button SearchButton(string glyph, string what, bool backward)
-    {
-        var button = ToolbarButton(glyph, what);
-        button.Clicked += (_, _) => Find(backward);
-        return button;
-    }
 
     /// <summary>One of the viewer card's panels: floating over the log's top right, under the header's
-    /// icons, hidden until its icon opens it.</summary>
+    /// icons, hidden until its icon opens it. It shuts by its icon, the other icon, or Escape: it has
+    /// no close button of its own (operator).</summary>
     private static Border Popup(View content) => new()
     {
         Content = content,
@@ -406,8 +455,6 @@ internal sealed class HistoryPage : ContentPage
         StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
         HorizontalOptions = LayoutOptions.End,
         VerticalOptions = LayoutOptions.Start,
-        // Clear of the log's scrollbar on the right.
-        Margin = new Thickness(0, 6, 16, 0),
         IsVisible = false,
     };
 
@@ -453,7 +500,7 @@ internal sealed class HistoryPage : ContentPage
                 BackgroundColor = Colors.Transparent,
                 VerticalOptions = LayoutOptions.Center,
             };
-            SemanticProperties.SetDescription(_frame, what);
+            Describe(what);
             var tap = new TapGestureRecognizer();
             tap.Tapped += (_, _) => Tapped?.Invoke();
             _frame.GestureRecognizers.Add(tap);
@@ -463,6 +510,13 @@ internal sealed class HistoryPage : ContentPage
         public View View => _frame;
 
         public event Action? Tapped;
+
+        /// <summary>What it is and does, for a screen reader and as its tooltip.</summary>
+        public void Describe(string what)
+        {
+            SemanticProperties.SetDescription(_frame, what);
+            ToolTipProperties.SetText(_frame, what);
+        }
 
         /// <summary>Its panel is open.</summary>
         public bool Open
@@ -501,13 +555,6 @@ internal sealed class HistoryPage : ContentPage
         button.SetBinding(Button.FontSizeProperty, ScaledFontBinding.For(size));
         SemanticProperties.SetDescription(button, what);
         return button;
-    }
-
-    private static Picker ToolPicker(string title)
-    {
-        var picker = new Picker { Title = title, TextColor = Body, TitleColor = Muted, VerticalOptions = LayoutOptions.Center };
-        picker.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
-        return picker;
     }
 
     private static CollectionView List(DataTemplate template) => new()
@@ -720,15 +767,72 @@ internal sealed class HistoryPage : ContentPage
         _allSessions = [.. sessions];
 
         // The character list follows what was read; a character no longer there falls back to all.
-        var chosen = _character.SelectedItem as string;
-        var characters = new List<string> { AllCharacters };
-        characters.AddRange(sessions.Select(s => s.Persona).OfType<string>()
-            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase));
-        _character.ItemsSource = characters;
-        _character.SelectedIndex = Math.Max(0,
-            characters.FindIndex(c => string.Equals(c, chosen, StringComparison.OrdinalIgnoreCase)));
+        _characters = [.. sessions.Select(s => s.Persona).OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)];
+        if (_character is not null && !_characters.Contains(_character, StringComparer.OrdinalIgnoreCase))
+            SetCharacter(null);
 
         ShowSessions();
+    }
+
+    /// <summary>The character drop-down: All characters, then each character listed, the current one
+    /// ticked.</summary>
+    private async Task PickCharacterAsync()
+    {
+        if (_busy)
+            return;
+        string Mark(string name, bool current) => current ? Glyph.Check + " " + name : name;
+        var items = new List<string> { Mark(AllCharacters, _character is null) };
+        items.AddRange(_characters.Select(c => Mark(c, string.Equals(c, _character, StringComparison.OrdinalIgnoreCase))));
+        _busy = true;
+        try
+        {
+            var pick = await ActionMenu.ShowAsync(this, _characterIcon.View, "Character", "Cancel", null, [.. items]);
+            if (pick is null)
+                return;
+            var index = items.IndexOf(pick);
+            SetCharacter(index <= 0 ? null : _characters[index - 1]);
+            ShowSessions();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>The sort drop-down, the current sort ticked.</summary>
+    private async Task PickSortAsync()
+    {
+        if (_busy)
+            return;
+        var items = SortChoices.Select((s, i) => i == _sort ? Glyph.Check + " " + s : s).ToArray();
+        _busy = true;
+        try
+        {
+            var pick = await ActionMenu.ShowAsync(this, _sortIcon.View, "Sort", "Cancel", null, items);
+            if (pick is null)
+                return;
+            _sort = Array.IndexOf(items, pick);
+            // Lit while the sort is not the first, newest first: the list is not in its usual order.
+            _sortIcon.Set = _sort > 0;
+            _sortIcon.Describe("Sort: " + SortChoices[_sort]);
+            ShowSessions();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>Shows only <paramref name="character"/>'s Sessions, or all with null; the icon is lit,
+    /// and the filter box names the character, while one is chosen.</summary>
+    private void SetCharacter(string? character)
+    {
+        _character = character;
+        _characterIcon.Set = character is not null;
+        _characterIcon.Describe("Character: " + (character ?? "all characters"));
+        _filter.Placeholder = character is null ? "Filter: character, server, title, tag, outcome"
+            : $"Filter {character}'s Sessions: server, title, tag, outcome";
     }
 
     /// <summary>Lists the Sessions the filter, character and sort pick out. Cheap: the list is in
@@ -737,13 +841,13 @@ internal sealed class HistoryPage : ContentPage
     {
         if (_shown != Shown.Sessions)
             return;
-        var character = _character.SelectedIndex > 0 ? _character.SelectedItem as string : null;
+        var character = _character;
         var text = _filter.Text?.Trim().TrimStart('#') ?? string.Empty;
 
         var picked = _allSessions.Where(s =>
             (character is null || string.Equals(s.Persona, character, StringComparison.OrdinalIgnoreCase))
             && (text.Length == 0 || Matches(s, text)));
-        picked = _sort.SelectedIndex switch
+        picked = _sort switch
         {
             1 => picked.OrderBy(s => s.StartedMs).ThenBy(s => s.Id),
             2 => picked.OrderBy(s => s.Points is null).ThenByDescending(s => s.Points),
@@ -888,6 +992,14 @@ internal sealed class HistoryPage : ContentPage
         _opened = item;
         _cardLines.Show(item);
         _fedLines = [];
+        _fedReady = false;
+        _allLineCount = null;
+        // Counts are the Session's: the rules carry over to the next one opened, their counts do not.
+        _kindCounts.Clear();
+        _ruleCountValues = [];
+        foreach (var count in _ruleCounts)
+            count.Text = string.Empty;
+        _filteredStrip.IsVisible = false;
         _search.IsEnabled = false;
         ShowMatch(null, string.Empty);
         ShowNote("Reading the Session...");
@@ -928,6 +1040,7 @@ internal sealed class HistoryPage : ContentPage
             return;
         }
         _fedLines = lines;
+        _fedReady = true;
         _log.ChatPalette = palette;
         if (int.TryParse(fontSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var px))
             _log.SetFontSize(Mucka.Ui.FontSetup.ClampGameFont(px));
@@ -945,6 +1058,8 @@ internal sealed class HistoryPage : ContentPage
         ShowPanel(null);
         _opened = null;
         _fedLines = [];
+        _fedReady = false;
+        _allLineCount = null;
         _logLines = [];
         _log.ShowDocument(_logLines);
         _match = null;
@@ -965,112 +1080,300 @@ internal sealed class HistoryPage : ContentPage
         _card.StrokeThickness = desktop ? 1 : 0;
         _card.StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = desktop ? 8 : 0 };
         // A full-screen card's top clears Android's status bar, as the page's own header does.
-        _cardHeader.Padding = new Thickness(16, desktop ? 8 : 24, 4, 8);
+        // Less below than above: the panels hang close under their icons.
+        _cardHeader.Padding = new Thickness(16, desktop ? 8 : 24, 4, 4);
         foreach (var panel in new[] { _searchPanel, _filterPopup })
         {
             panel.HorizontalOptions = desktop ? LayoutOptions.End : LayoutOptions.Fill;
-            panel.Margin = desktop ? new Thickness(0, 6, 16, 0) : new Thickness(8, 6);
+            // On a desktop, clear of the log's scrollbar on the right.
+            panel.Margin = desktop ? new Thickness(0, 0, 16, 0) : new Thickness(8, 0, 8, 0);
         }
-        _search.WidthRequest = desktop ? 220 : 130;
+        // Find is one row: on a desktop as wide as a comfortable search, on a phone the log's width.
+        _searchPanel.WidthRequest = desktop ? 380 : -1;
+        // The rule table's six columns need a wide panel; never wider than the card leaves.
+        _filterPopup.WidthRequest = desktop ? Math.Min(700, width - 40) : -1;
     }
 
-    /// <summary>Shows the filters' rows: each a category, its Show / Hide / Only, and a remove button,
-    /// then a button that adds a row.</summary>
+    /// <summary>Shows the filter rules as a table - a header, then per rule its eye, what it picks out,
+    /// which of it, the pattern it must hold, how many lines it matches, and a remove button - then a
+    /// button that adds a rule. Operator rule: a rule is its kind, its "which" where the kind has one,
+    /// and its pattern where it takes one.</summary>
     private void ShowRules()
     {
         _filterPanel.Clear();
-        for (var i = 0; i < _rules.Count; i++)
-            _filterPanel.Add(RuleRow(i));
-        var add = ToolbarButton("+ Add a filter", "Add a filter");
-        add.HorizontalOptions = LayoutOptions.Start;
-        // One row per category: a second row for the same one would only contradict the first.
-        add.IsEnabled = _rules.Count < Enum.GetValues<LineCategory>().Length;
-        add.Clicked += (_, _) =>
+        _ruleCounts.Clear();
+        var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
+        if (_rules.Count == 0)
         {
-            // A new row starts on the first category not filtered yet, as Only: the commonest ask is one
-            // kind of line and nothing else.
-            var unused = Enum.GetValues<LineCategory>().FirstOrDefault(c => _rules.All(r => r.Category != c));
-            _rules.Add(new FilterRule(unused, FilterAction.Only));
-            RulesChanged();
-        };
+            var empty = Line(Muted, 13);
+            empty.Text = "No rules: every line of the Session is shown.";
+            empty.Margin = new Thickness(4, 4, 4, 2);
+            _filterPanel.Add(empty);
+        }
+        else
+        {
+            if (desktop)
+                _filterPanel.Add(RuleHeader());
+            for (var i = 0; i < _rules.Count; i++)
+            {
+                _filterPanel.Add(new BoxView { Color = Rule, HeightRequest = 1 });
+                _filterPanel.Add(RuleRow(i, desktop));
+            }
+            _filterPanel.Add(new BoxView { Color = Rule, HeightRequest = 1 });
+        }
+        var add = ToolbarButton("+ Add a rule", "Add a rule");
+        add.HorizontalOptions = LayoutOptions.Start;
+        add.TextColor = Accent;
+        add.Clicked += async (_, _) => await AddRuleAsync(add);
         _filterPanel.Add(add);
-        // The funnel stays lit while any filter is set, open or not, so a filtered log is never mistaken
+        // The funnel stays lit while any rule is set, open or not, so a filtered log is never mistaken
         // for the whole Session.
         _filterIcon.Set = _rules.Count > 0;
     }
 
-    private Grid RuleRow(int index)
+    // The rule table's columns on a desktop: eye, what, which, matching, lines, remove.
+    private static Grid RuleGrid() => new()
+    {
+        ColumnDefinitions = [new(36), new(140), new(GridLength.Auto), new(GridLength.Star), new(70), new(36)],
+        ColumnSpacing = 6,
+        Padding = new Thickness(0, 2),
+    };
+
+    private static Grid RuleHeader()
+    {
+        var header = RuleGrid();
+        string[] titles = ["SHOW", "WHAT", "WHICH", "MATCHING", "LINES"];
+        for (var i = 0; i < titles.Length; i++)
+        {
+            var title = Line(Muted, 11);
+            title.Text = titles[i];
+            title.VerticalOptions = LayoutOptions.Center;
+            if (i == 4)
+                title.HorizontalTextAlignment = TextAlignment.End;
+            header.Add(title, i);
+        }
+        return header;
+    }
+
+    /// <summary>One rule's row. On a phone it takes two lines: the eye, what, lines and remove, then
+    /// which and matching.</summary>
+    private Grid RuleRow(int index, bool desktop)
     {
         var rule = _rules[index];
-        var category = new Picker { TextColor = Body, VerticalOptions = LayoutOptions.Center, MinimumWidthRequest = 200 };
-        category.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
-        var categories = Enum.GetValues<LineCategory>();
-        category.ItemsSource = categories.Select(CategoryName).ToList();
-        category.SelectedIndex = Array.IndexOf(categories, rule.Category);
-        category.SelectedIndexChanged += (_, _) =>
+        var row = RuleGrid();
+        if (!desktop)
         {
-            if (category.SelectedIndex < 0)
+            row.ColumnDefinitions = [new(36), new(GridLength.Star), new(60), new(36)];
+            row.RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)];
+        }
+
+        var eye = new IconButton(rule.Show ? EyePath : EyeClosedPath,
+            rule.Show ? "Showing what this rule matches; click to hide it instead"
+                : "Hiding what this rule matches; click to show it instead") { Set = rule.Show };
+        // Every handler here checks its row still stands: a table rebuilt under a late event has fewer rows.
+        eye.Tapped += () =>
+        {
+            if (index >= _rules.Count)
                 return;
-            _rules[index] = _rules[index] with { Category = categories[category.SelectedIndex] };
+            _rules[index] = _rules[index] with { Show = !_rules[index].Show };
             RulesChanged();
         };
-        // On a phone the category takes a line of its own, above its buttons, so a row fits the width.
-        var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
-        var row = new Grid
+
+        var kinds = Enum.GetValues<RuleKind>();
+        var kind = new Picker { TextColor = Body, VerticalOptions = LayoutOptions.Center };
+        kind.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
+        kind.ItemsSource = kinds.Select(KindName).ToList();
+        kind.SelectedIndex = Array.IndexOf(kinds, rule.Kind);
+        kind.SelectedIndexChanged += (_, _) =>
         {
-            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto),
-                new(GridLength.Auto)],
-            RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)],
-            ColumnSpacing = 4,
+            if (index >= _rules.Count || kind.SelectedIndex < 0 || kinds[kind.SelectedIndex] == _rules[index].Kind)
+                return;
+            _rules[index] = NewRule(kinds[kind.SelectedIndex]) with { Show = _rules[index].Show };
+            // Its old count was the old kind's.
+            if (index < _ruleCountValues.Count)
+                _ruleCountValues[index] = string.Empty;
+            RulesChanged();
         };
+
+        var which = SubControl(index, rule);
+        View matching = LogFilter.PatternOf(rule.Kind) is { } hint ? PatternBox(index, rule, hint) : new ContentView();
+
+        var count = Line(Muted, 12);
+        count.HorizontalTextAlignment = TextAlignment.End;
+        count.VerticalOptions = LayoutOptions.Center;
+        count.Text = _ruleCountValues.Count > index ? _ruleCountValues[index] : string.Empty;
+        _ruleCounts.Add(count);
+
+        var remove = new IconButton(RemovePath, "Remove this rule");
+        remove.Tapped += () =>
+        {
+            if (index >= _rules.Count)
+                return;
+            _rules.RemoveAt(index);
+            // The rows below move up, and their counts with them.
+            if (index < _ruleCountValues.Count)
+                _ruleCountValues.RemoveAt(index);
+            RulesChanged();
+        };
+
         if (desktop)
-            row.Add(category, 0, 0);
+        {
+            row.Add(eye.View, 0);
+            row.Add(kind, 1);
+            row.Add(which, 2);
+            row.Add(matching, 3);
+            row.Add(count, 4);
+            row.Add(remove.View, 5);
+        }
         else
         {
-            category.MinimumWidthRequest = 0;
-            row.Add(category, 0, 0);
-            Grid.SetColumnSpan(category, 4);
-        }
-        var line = desktop ? 0 : 1;
-        var column = desktop ? 1 : 0;
-        foreach (var action in Enum.GetValues<FilterAction>())
-        {
-            var chosen = action == rule.Action;
-            var segment = new Button
+            row.Add(eye.View, 0, 0);
+            row.Add(kind, 1, 0);
+            row.Add(count, 2, 0);
+            row.Add(remove.View, 3, 0);
+            var second = new Grid
             {
-                Text = action.ToString(),
-                TextColor = chosen ? Colors.White : Body,
-                BackgroundColor = chosen ? Color.FromArgb("#1F6FEB") : Colors.Transparent,
-                BorderColor = Rule,
-                BorderWidth = 1,
-                CornerRadius = 4,
-                Padding = new Thickness(12, 0),
-                VerticalOptions = LayoutOptions.Center,
+                ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
+                ColumnSpacing = 6,
             };
-            segment.SetBinding(Button.FontSizeProperty, ScaledFontBinding.For(12));
-            segment.Clicked += (_, _) =>
-            {
-                _rules[index] = _rules[index] with { Action = action };
-                RulesChanged();
-            };
-            row.Add(segment, column++, line);
+            second.Add(which, 0);
+            second.Add(matching, 1);
+            row.Add(second, 1, 1);
+            Grid.SetColumnSpan(second, 3);
         }
-        var remove = ToolbarButton(Glyph.Close, "Remove this filter");
-        remove.Clicked += (_, _) =>
-        {
-            _rules.RemoveAt(index);
-            RulesChanged();
-        };
-        row.Add(remove, column, line);
         return row;
     }
 
-    private static string CategoryName(LineCategory category) => category switch
+    /// <summary>A rule's "which": the Room text sub as its four segments (operator), any other kind's
+    /// as a drop-down; nothing for a kind without one.</summary>
+    private View SubControl(int index, FilterRule rule)
     {
-        LineCategory.Chat => "Chat",
-        LineCategory.FightStartsAndEnds => "Fights starting and ending",
-        _ => category.ToString(),
+        var subs = LogFilter.SubsOf(rule.Kind);
+        if (subs.Count == 0)
+            return new ContentView();
+        if (rule.Kind == RuleKind.RoomText)
+        {
+            var segments = new HorizontalStackLayout { Spacing = 0, VerticalOptions = LayoutOptions.Center };
+            for (var i = 0; i < subs.Count; i++)
+            {
+                var sub = i;
+                var chosen = sub == rule.Sub;
+                var segment = new Button
+                {
+                    Text = subs[i],
+                    TextColor = chosen ? Colors.White : Body,
+                    BackgroundColor = chosen ? Color.FromArgb("#1F6FEB") : Colors.Transparent,
+                    BorderColor = Color.FromArgb("#30363D"),
+                    BorderWidth = 1,
+                    CornerRadius = 0,
+                    Padding = new Thickness(10, 0),
+                    MinimumHeightRequest = 30,
+                };
+                segment.SetBinding(Button.FontSizeProperty, ScaledFontBinding.For(12));
+                segment.Clicked += (_, _) =>
+                {
+                    if (index >= _rules.Count)
+                        return;
+                    _rules[index] = _rules[index] with { Sub = sub };
+                    RulesChanged();
+                };
+                segments.Add(segment);
+            }
+            return segments;
+        }
+        var picker = new Picker { TextColor = Body, VerticalOptions = LayoutOptions.Center, MinimumWidthRequest = 110 };
+        picker.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
+        picker.ItemsSource = subs.ToList();
+        picker.SelectedIndex = Math.Clamp(rule.Sub, 0, subs.Count - 1);
+        picker.SelectedIndexChanged += (_, _) =>
+        {
+            if (index >= _rules.Count || picker.SelectedIndex < 0 || picker.SelectedIndex == _rules[index].Sub)
+                return;
+            _rules[index] = _rules[index] with { Sub = picker.SelectedIndex };
+            RulesChanged();
+        };
+        return picker;
+    }
+
+    /// <summary>A rule's pattern box. Typing does not rebuild the table, which would take the box's
+    /// focus; it refilters once typing pauses.</summary>
+    private Entry PatternBox(int index, FilterRule rule, string hint)
+    {
+        var box = new Entry
+        {
+            Text = rule.Pattern,
+            Placeholder = hint,
+            TextColor = Body,
+            PlaceholderColor = Muted,
+            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        box.SetBinding(Entry.FontSizeProperty, ScaledFontBinding.For(13));
+        box.TextChanged += async (_, e) =>
+        {
+            if (index >= _rules.Count)
+                return;
+            _rules[index] = _rules[index] with { Pattern = e.NewTextValue ?? string.Empty };
+            var typed = ++_patternVersion;
+            await Task.Delay(FilterPauseMs);
+            if (typed == _patternVersion)
+                await ShowFilteredAsync();
+        };
+        return box;
+    }
+
+    /// <summary>"+ Add a rule": a drop-down of the kinds, each with how many of the Session's lines it
+    /// holds.</summary>
+    private async Task AddRuleAsync(View anchor)
+    {
+        if (_busy)
+            return;
+        var kinds = Enum.GetValues<RuleKind>();
+        var items = kinds.Select(k => _kindCounts.TryGetValue(k, out var n)
+            ? string.Create(CultureInfo.CurrentCulture, $"{KindName(k)}   ({n:N0})")
+            : KindName(k)).ToArray();
+        _busy = true;
+        try
+        {
+            var pick = await ActionMenu.ShowAsync(this, anchor, "Add a rule", "Cancel", null, items);
+            if (pick is null)
+                return;
+            _rules.Add(NewRule(kinds[Array.IndexOf(items, pick)]));
+            RulesChanged();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    /// <summary>A new rule of <paramref name="kind"/>, showing what it matches; Room text starts on All.</summary>
+    private static FilterRule NewRule(RuleKind kind)
+        => new(kind, kind == RuleKind.RoomText ? LogFilter.DefaultRoomSub : 0);
+
+    private static string KindName(RuleKind kind) => kind switch
+    {
+        RuleKind.Chat => "Chat",
+        RuleKind.RoomText => "Room text",
+        RuleKind.Combat => "Combat",
+        RuleKind.Kills => "Kills",
+        RuleKind.Flees => "Flees",
+        RuleKind.Weather => "Weather",
+        RuleKind.Text => "Any text",
+        _ => kind.ToString(),
     };
+
+    /// <summary>The rules in a few words, for the strip under the header.</summary>
+    private string RulesSummary() => string.Join("; ", _rules.Select(r =>
+    {
+        var subs = LogFilter.SubsOf(r.Kind);
+        var text = (r.Show ? string.Empty : "hiding ") + KindName(r.Kind).ToLowerInvariant();
+        if (subs.Count > 0 && r.Sub > 0 && r.Sub < subs.Count)
+            text += " (" + subs[r.Sub] + ")";
+        if (r.Pattern.Trim().Length > 0 && LogFilter.PatternOf(r.Kind) is { } hint)
+            text += " " + hint.Split(' ')[0] + " \"" + r.Pattern.Trim() + "\"";
+        return text;
+    }));
 
     private void RulesChanged()
     {
@@ -1078,23 +1381,47 @@ internal sealed class HistoryPage : ContentPage
         _ = ShowFilteredAsync();
     }
 
-    /// <summary>Shows what the filters leave of the opened Session, from its start; a search starts
-    /// again from there. Filtered off the UI thread; a later change or opening wins.</summary>
+    /// <summary>Shows what the rules leave of the opened Session, from its start, with each rule's
+    /// count and the strip saying how much is shown; a search starts again from there. Filtered and
+    /// counted off the UI thread; a later change or opening wins.</summary>
     private async Task ShowFilteredAsync()
     {
-        if (_opened is null)
+        // While the Session is still being read there is nothing to filter: OpenAsync filters once it is.
+        if (_opened is null || !_fedReady)
             return;
         var version = ++_filterRun;
         var fed = _fedLines;
         var rules = _rules.ToArray();
-        var screen = await Task.Run(() => TerminalBuffer.ScreenOf(LogFilter.Apply(fed, rules)));
+        var countKinds = _kindCounts.Count == 0;
+        var known = _allLineCount;
+        var (screen, all, counts, kindCounts) = await Task.Run(() =>
+        {
+            var filtered = TerminalBuffer.ScreenOf(LogFilter.Apply(fed, rules));
+            var total = known ?? (rules.Length == 0 ? filtered.Count : TerminalBuffer.ScreenOf(fed).Count);
+            var each = rules.Select(r => LogFilter.Count(fed, r)).ToArray();
+            var kinds = countKinds
+                ? Enum.GetValues<RuleKind>().Where(k => k != RuleKind.Text)
+                    .ToDictionary(k => k, k => LogFilter.Count(fed, NewRule(k)))
+                : null;
+            return (filtered, total, each, kinds);
+        });
         if (version != _filterRun || !ReferenceEquals(fed, _fedLines))
             return;
+        _allLineCount = all;
+        if (kindCounts is not null)
+            foreach (var (kind, n) in kindCounts)
+                _kindCounts[kind] = n;
+        _ruleCountValues = [.. counts.Select(n => n.ToString("N0", CultureInfo.CurrentCulture))];
+        for (var i = 0; i < _ruleCounts.Count && i < _ruleCountValues.Count; i++)
+            _ruleCounts[i].Text = _ruleCountValues[i];
+        _filteredStrip.IsVisible = rules.Length > 0;
+        _filteredText.Text = string.Create(CultureInfo.CurrentCulture,
+            $"Showing {screen.Count:N0} of {all:N0} lines - {RulesSummary()}");
         _logLines = screen;
         _log.ShowDocument(_logLines);
         ShowMatch(null, string.Empty);
         if (_logLines.Count == 0)
-            ShowNote(fed.Count == 0 ? "This Session has no lines in the game." : "No lines are left by these filters.");
+            ShowNote(fed.Count == 0 ? "This Session has no lines in the game." : "No lines are left by these rules.");
     }
 
     /// <summary>A note in place of the log: while it is read, or why it cannot be shown.</summary>
@@ -1118,6 +1445,7 @@ internal sealed class HistoryPage : ContentPage
         if (match is null)
         {
             ShowMatch(null, "No match");
+            _searchStatus.TextColor = Loss;
             return;
         }
         var (index, count) = LogSearch.Place(_logLines, text, match);
@@ -1129,6 +1457,7 @@ internal sealed class HistoryPage : ContentPage
         _match = match;
         _log.ShowMatch(match);
         _searchStatus.Text = status;
+        _searchStatus.TextColor = Muted;
     }
 
     /// <summary>Says a copy was made, over the log's foot for a moment: the panels may all be shut.</summary>

@@ -28,6 +28,8 @@ public static class Glyph
     public const string Minus = "\u2212";
     /// <summary>Multiplication X: a close button.</summary>
     public const string Close = "\u2715";
+    /// <summary>Check mark: the current choice in a drop-down.</summary>
+    public const string Check = "\u2713";
     /// <summary>Midline horizontal ellipsis: a row's menu of actions.</summary>
     public const string More = "\u22ef";
     /// <summary>Leftwards arrow: bytes received from the server.</summary>
