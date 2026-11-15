@@ -49,21 +49,21 @@ public sealed record SessionSummary(
 /// <summary>
 /// A Session's points, taken from the same readings the score graph draws (<see cref="ScoreHistory"/>,
 /// a permadeath's step to zero included) so the two can never disagree: the last reading inside the
-/// Session less the reading before it. A Session with no earlier reading of its character starts from
-/// its own first reading. A gap between two Sessions - points made where nothing recorded them - is
-/// counted in the Session whose first reading follows it, as the graph's step is.
+/// Session less the last at or before its start, which is the Session's opening when it has a reading.
+/// Points made where nothing recorded them - another client, another machine - are the step up to
+/// that opening, and no Session's.
 /// </summary>
 public static class SessionPoints
 {
     /// <param name="series">One character's readings, in time order.</param>
-    /// <param name="startMs">The Session's start.</param>
+    /// <param name="startMs">The Session's start, where its opening is stamped.</param>
     /// <param name="endMs">The Session's end, inclusive: a permadeath's zero is stamped at it.</param>
     public static long? Of(IReadOnlyList<ScorePoint> series, long startMs, long endMs)
     {
         ScorePoint? before = null, first = null, last = null;
         foreach (var point in series)
         {
-            if (point.Ms < startMs)
+            if (point.Ms <= startMs)
                 before = point;
             else if (point.Ms <= endMs)
             {
@@ -86,21 +86,13 @@ public static class SessionHistoryReader
 {
     // The end the score graph gives a Session (ScoreHistoryReader's SessionsSql, with no current run):
     // its own, else its run's, else its last score reading, else its start.
-    private const string SessionsSql = """
-        SELECT ps.id, ps.started_ms, ps.ended_ms, COALESCE(ps.host, r.host, ''), ps.persona, ps.ended_note,
-               COALESCE(ps.ended_ms, r.ended_ms,
-                        (SELECT MAX(e.ts) FROM score_events e WHERE e.persona_session_id = ps.id),
-                        ps.started_ms),
-               n.name
-        FROM persona_sessions ps
-        JOIN mucka_runs r ON r.id = ps.mucka_run_id
-        LEFT JOIN session_names n ON n.persona_session_id = ps.id
-        ORDER BY ps.started_ms DESC, ps.id DESC;
-        """;
-
-    private static readonly string UnlabelledSessionsSql = SessionsSql
-        .Replace("n.name", "NULL", StringComparison.Ordinal)
-        .Replace("LEFT JOIN session_names n ON n.persona_session_id = ps.id", "", StringComparison.Ordinal);
+    private static string SessionsSql(bool labelled, bool sheets) =>
+        "SELECT ps.id, ps.started_ms, ps.ended_ms, COALESCE(ps.host, r.host, ''), ps.persona, ps.ended_note, " +
+        "COALESCE(ps.ended_ms, r.ended_ms, " + ScoreHistoryReader.LastReadingSql(sheets) + ", ps.started_ms), " +
+        (labelled ? "n.name " : "NULL ") +
+        "FROM persona_sessions ps JOIN mucka_runs r ON r.id = ps.mucka_run_id " +
+        (labelled ? "LEFT JOIN session_names n ON n.persona_session_id = ps.id " : "") +
+        "ORDER BY ps.started_ms DESC, ps.id DESC;";
 
     private const string TagsSql = "SELECT persona_session_id, tag FROM session_tags;";
 
@@ -146,7 +138,7 @@ public static class SessionHistoryReader
         var result = new List<SessionSummary>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = labelled ? SessionsSql : UnlabelledSessionsSql;
+            command.CommandText = SessionsSql(labelled, ScoreHistoryReader.HasScoreSheets(connection));
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {

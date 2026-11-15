@@ -860,6 +860,11 @@ public sealed class MuckaConnection : IAsyncDisposable
 
             CharacterIdentified?.Invoke(n);
         };
+        _session.ScoreSheetRead += (total, raw) =>
+        {
+            if (_personaSessionId is long id)
+                _store.RecordScoreSheet(id, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), total, raw);
+        };
         // The ledger writes the event row; the recorder takes the total as the authoritative score for
         // any fight still open. Ledger first, so the row exists even if a consumer downstream throws.
         _session.ScoreSaved         += save =>

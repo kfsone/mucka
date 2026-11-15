@@ -217,6 +217,7 @@ public sealed class MudSession : IDisposable
     private volatile bool _setupWindowActive;  // window open (game-entry -> score frame closed)
     private bool _setupSwallowingFrame;   // inside a setup frame we've claimed - swallow its lines
     private bool _setupCloseAfterFrame;   // the score frame is in progress; close when it ends
+    private bool _setupScoreSheetRead;    // ScoreSheetRead has fired for this game-mode entry
     private string? _currentCharName;
 
     private GameStatsSnapshot _currentStats = GameStatsSnapshot.Empty;
@@ -482,6 +483,10 @@ public sealed class MudSession : IDisposable
     /// tracking and the window title.
     /// </summary>
     public event Action<string>? CharacterIdentified;
+    /// <summary>The post-character-select setup <c>score</c> reply printed the character's total:
+    /// payload is the total, 0 included, and the line as printed. At most once per game-mode entry,
+    /// after <see cref="CharacterIdentified"/>, on the Feed thread.</summary>
+    public event Action<int, string>? ScoreSheetRead;
     /// <summary>The reset-time projection changed. Optional immediate UI-refresh hint; the countdown
     /// also polls <see cref="ResetEstimate"/> on its own 1 Hz tick. Fires off the UI thread.</summary>
     public event Action? ResetEstimateChanged;
@@ -1770,7 +1775,11 @@ public sealed class MudSession : IDisposable
 
         // Inside a setup frame we have claimed: swallow the rest of it until the next prompt.
         if (_setupSwallowingFrame)
+        {
+            if (_setupCloseAfterFrame)
+                NoteScoreSheetLine(line);
             return;
+        }
 
         _setupHeld.Add(line);
         // A frame prompt can glue onto the first line ("*name: ...").
@@ -1778,6 +1787,7 @@ public sealed class MudSession : IDisposable
         switch (SetupReplies.Classify(text, SetupCommands, out var characterName))
         {
             case SetupReplies.Verdict.Ours:
+                var held = _setupHeld.ToArray();
                 _setupHeld.Clear();
                 _setupSwallowingFrame = true;
                 if (characterName is not null)
@@ -1785,6 +1795,8 @@ public sealed class MudSession : IDisposable
                     // The score sheet is the LAST frame we claim: the window closes at its prompt.
                     SetCurrentCharacter(characterName);
                     _setupCloseAfterFrame = true;
+                    foreach (var l in held)
+                        NoteScoreSheetLine(l);
                 }
                 break;
             case SetupReplies.Verdict.NotOurs:
@@ -1792,6 +1804,29 @@ public sealed class MudSession : IDisposable
                 break;
             // Undecided: keep holding.
         }
+    }
+
+    // "score:  27,296 points   this game:      0 points        value:  5,534 points" - the sheet's
+    // first figure, which a new character prints as 0.
+    private static readonly System.Text.RegularExpressions.Regex ScoreSheetTotal = new(
+        @"^score:\s*(?<total>[\d,]+)\s+points",
+        System.Text.RegularExpressions.RegexOptions.Compiled
+        | System.Text.RegularExpressions.RegexOptions.IgnoreCase
+        | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    // Feed thread, on the rows of the setup score frame. Raises ScoreSheetRead for the first row that
+    // carries the total.
+    private void NoteScoreSheetLine(StyledLine line)
+    {
+        if (_setupScoreSheetRead)
+            return;
+        var text = StripLeadingPrompt(line.PlainText.Trim('\r', '\n', '\0', ' '));
+        var m = ScoreSheetTotal.Match(text);
+        if (!m.Success || !int.TryParse(m.Groups["total"].Value.Replace(",", ""),
+                System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var total))
+            return;
+        _setupScoreSheetRead = true;
+        ScoreSheetRead?.Invoke(total, text);
     }
 
     // Feed thread. Passes on, in order, the rows an unclaimed frame was holding.
@@ -1816,7 +1851,8 @@ public sealed class MudSession : IDisposable
         _setupHeld.Clear();
         _setupSwallowingFrame = false;
         _setupCloseAfterFrame = false;
-        _setupWindowActive    = true;   // volatile store - publishes the two writes above
+        _setupScoreSheetRead  = false;
+        _setupWindowActive    = true;   // volatile store - publishes the writes above
     }
 
     // Strip a leading frame prompt ("*", "(*)", surrounding spaces) that the server glues onto the

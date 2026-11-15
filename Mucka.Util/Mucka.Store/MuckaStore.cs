@@ -161,6 +161,32 @@ public sealed class MuckaStore : IDisposable
             "UPDATE persona_sessions SET persona = $value WHERE id = $id;", persona,
             "MuckaStore.NamePersonaSession");
 
+    /// <summary>Records the total the post-login score sheet printed on an open persona session: what
+    /// the character's score is as the Session starts, whatever it earned where nothing recorded it
+    /// (<c>score_sheets</c>).</summary>
+    public void RecordScoreSheet(long personaSessionId, long ts, int total, string rawText)
+    {
+        if (_disposed || _faulted) return;
+        try
+        {
+            using var connection = new SqliteConnection(MuckaDb.ConnectionString(_path));
+            connection.Open();
+            Execute(connection, "PRAGMA busy_timeout=5000;");
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "INSERT INTO score_sheets (persona_session_id, ts, total, raw_text) VALUES ($id, $ts, $total, $raw);";
+            command.Parameters.AddWithValue("$id", personaSessionId);
+            command.Parameters.AddWithValue("$ts", ts);
+            command.Parameters.AddWithValue("$total", total);
+            command.Parameters.AddWithValue("$raw", rawText);
+            command.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            _onError?.Invoke("MuckaStore.RecordScoreSheet", ex);
+        }
+    }
+
     /// <summary>Closes a persona session. <paramref name="note"/> is advisory only - see the column
     /// comment in 0003_persona_sessions.sql; a crash leaves both it and ended_ms empty.</summary>
     public void EndPersonaSession(long personaSessionId, long endedMs, string? note)

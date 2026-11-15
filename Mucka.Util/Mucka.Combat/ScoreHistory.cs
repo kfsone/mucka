@@ -3,7 +3,9 @@ using Mucka.Store;
 
 namespace Mucka.Combat;
 
-/// <summary>One "Persona saved on ... = total" reading: when, and what the game said the score IS.</summary>
+/// <summary>One reading of a character's score: when, and what the score IS. A "Persona saved on ...
+/// = total" line, a post-login score sheet, or a Session's opening worked out from its first
+/// reading.</summary>
 public readonly record struct ScorePoint(long Ms, long Total);
 
 /// <summary>A span of time on the time axis - a persona session or a Mucka run.</summary>
@@ -25,9 +27,12 @@ public readonly record struct PersonaKey(string Host, string Persona)
 /// Everything the score graph draws, read in one pass so every control the panel offers - server,
 /// character, days, scale, squeeze, zero - is answered from memory without going back to the database.
 ///
-/// <para>Points come from <c>score_events.total</c>, the game's own figure, and never from summing
-/// <c>delta</c>: a step is the difference between consecutive totals. Rows without a persona session
-/// cannot be placed on a character and are not read.</para>
+/// <para>Points come from <c>score_events.total</c> and <c>score_sheets.total</c>, the game's own
+/// figures, and never from summing <c>delta</c>: a step is the difference between consecutive totals.
+/// Each persona session also gets a reading at its start, its opening: its first reading's total less
+/// that reading's own delta - one save line's two figures, never a sum - so a gain the Session made is
+/// inside it and a gain made where nothing recorded is the step up to its start. Rows without a persona session cannot be placed on a
+/// character and are not read.</para>
 /// </summary>
 public sealed class ScoreHistory
 {
@@ -95,32 +100,45 @@ public sealed class ScoreHistory
 public static class ScoreHistoryReader
 {
     // persona_sessions.host can be NULL on existing databases. A persona session belongs to one run,
-    // and the run's host names the same server, so it stands in.
-    private const string PointsSql = """
-        SELECT COALESCE(ps.host, r.host, ''), ps.persona, e.ts, e.total
-        FROM score_events e
-        JOIN persona_sessions ps ON ps.id = e.persona_session_id
-        JOIN mucka_runs r        ON r.id  = ps.mucka_run_id
-        WHERE e.ts >= $since AND ps.persona IS NOT NULL
-        ORDER BY e.ts, e.id;
-        """;
+    // and the run's host names the same server, so it stands in. A score sheet has no delta, and sorts
+    // ahead of a save line stamped at the same instant.
+    private static string PointsSql(bool sheets) =>
+        "SELECT COALESCE(ps.host, r.host, ''), ps.persona, x.ts, x.total, x.delta, ps.id, ps.started_ms " +
+        "FROM (SELECT persona_session_id, ts, total, delta, 1 AS kind, id FROM score_events" +
+        (sheets ? " UNION ALL SELECT persona_session_id, ts, total, NULL, 0, id FROM score_sheets" : "") +
+        ") x " +
+        "JOIN persona_sessions ps ON ps.id = x.persona_session_id " +
+        "JOIN mucka_runs r ON r.id = ps.mucka_run_id " +
+        "WHERE ps.persona IS NOT NULL " +
+        "ORDER BY x.ts, x.kind, x.id;";
+
+    /// <summary>A persona session's last score reading, as an SQL expression over <c>ps</c>: the
+    /// fallback end of a Session nothing closed. Shared with <see cref="SessionHistoryReader"/>, which
+    /// gives a Session the same end the graph does.</summary>
+    internal static string LastReadingSql(bool sheets) =>
+        "(SELECT MAX(ts) FROM (SELECT ts FROM score_events WHERE persona_session_id = ps.id" +
+        (sheets ? " UNION ALL SELECT ts FROM score_sheets WHERE persona_session_id = ps.id" : "") +
+        "))";
+
+    /// <summary>Whether the file has <c>score_sheets</c>. A read-only open migrates nothing, and the
+    /// launch can leave a file un-upgraded.</summary>
+    internal static bool HasScoreSheets(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'score_sheets';";
+        return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) == 1;
+    }
 
     // An open end is either the session still in progress (its run is this one) or a client that
     // died without closing it. The run's end, then the session's last score reading, bound the
     // second; a session with neither is drawn as an instant.
-    private const string SessionsSql = """
-        SELECT COALESCE(ps.host, r.host, ''), ps.persona, ps.started_ms,
-               COALESCE(ps.ended_ms,
-                        CASE WHEN r.id = $current THEN $now END,
-                        r.ended_ms,
-                        (SELECT MAX(e.ts) FROM score_events e WHERE e.persona_session_id = ps.id),
-                        ps.started_ms) AS end_ms,
-               ps.ended_note
-        FROM persona_sessions ps
-        JOIN mucka_runs r ON r.id = ps.mucka_run_id
-        WHERE ps.persona IS NOT NULL AND end_ms >= $since
-        ORDER BY ps.started_ms;
-        """;
+    private static string SessionsSql(bool sheets) =>
+        "SELECT COALESCE(ps.host, r.host, ''), ps.persona, ps.started_ms, " +
+        "COALESCE(ps.ended_ms, CASE WHEN r.id = $current THEN $now END, r.ended_ms, " +
+        LastReadingSql(sheets) + ", ps.started_ms) AS end_ms, ps.ended_note " +
+        "FROM persona_sessions ps JOIN mucka_runs r ON r.id = ps.mucka_run_id " +
+        "WHERE ps.persona IS NOT NULL AND end_ms >= $since " +
+        "ORDER BY ps.started_ms;";
 
     private const string RunsSql = """
         SELECT COALESCE(host, ''), started_ms,
@@ -144,22 +162,40 @@ public static class ScoreHistoryReader
             return ScoreHistory.Empty;
         using var connection = MuckaDb.OpenRead(path);
 
+        var sheets = HasScoreSheets(connection);
+
         var points = new Dictionary<PersonaKey, List<ScorePoint>>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = PointsSql;
-            command.Parameters.AddWithValue("$since", sinceMs);
+            // Every reading is read, not only those since sinceMs, so a Session that straddles the
+            // window's start still opens from its own first reading.
+            command.CommandText = PointsSql(sheets);
             using var reader = command.ExecuteReader();
+            var openings = new Dictionary<long, long>();
+            var opened = new HashSet<long>();
             while (reader.Read())
-                Add(points, new PersonaKey(reader.GetString(0), reader.GetString(1)),
-                    new ScorePoint(reader.GetInt64(2), reader.GetInt64(3)));
+            {
+                var session = reader.GetInt64(5);
+                var total = reader.GetInt64(3);
+                // A Session's opening: its first reading less what that reading said was just gained
+                // ("(Persona saved on +200 = 200)" opened on 0), at the Session's start. What the
+                // character earned where nothing recorded it is the step up to it, before the Session.
+                openings.TryAdd(session, total - (reader.IsDBNull(4) ? 0 : reader.GetInt64(4)));
+                var ms = reader.GetInt64(2);
+                if (ms < sinceMs)
+                    continue;
+                var key = new PersonaKey(reader.GetString(0), reader.GetString(1));
+                if (opened.Add(session))
+                    Add(points, key, new ScorePoint(reader.GetInt64(6), openings[session]));
+                Add(points, key, new ScorePoint(ms, total));
+            }
         }
 
         var sessions = new Dictionary<PersonaKey, List<TimeSpanMs>>();
         var wipes = new Dictionary<PersonaKey, List<long>>();
         using (var command = connection.CreateCommand())
         {
-            command.CommandText = SessionsSql;
+            command.CommandText = SessionsSql(sheets);
             Bind(command, sinceMs, nowMs, currentRunId);
             using var reader = command.ExecuteReader();
             while (reader.Read())
@@ -191,7 +227,8 @@ public static class ScoreHistoryReader
                 continue;
             // Looked up in the readings as read, so one wipe's zero is never taken for a later wipe's
             // last reading; the stable sort keeps a zero after a reading stamped at the same instant.
-            var read = series.ToArray();
+            // Openings went in at their Session's start, out of time order.
+            var read = series.OrderBy(p => p.Ms).ToArray();
             foreach (var ms in instants)
                 if (read.LastOrDefault(p => p.Ms <= ms) is { Total: > 0 })
                     series.Add(new ScorePoint(ms, 0));
@@ -199,7 +236,7 @@ public static class ScoreHistoryReader
         }
 
         return new ScoreHistory(nowMs,
-            points.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
+            points.ToDictionary(kv => kv.Key, kv => kv.Value.OrderBy(p => p.Ms).ToArray()),
             sessions.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()),
             runs,
             wipes.ToDictionary(kv => kv.Key, kv => kv.Value.ToArray()));

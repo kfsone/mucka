@@ -65,16 +65,35 @@ public sealed class ScoreGraphTests : IDisposable
             Score(c, a, 300, 900);
             Score(c, b, 250, 50);
             Score(c, null, 260, 77);   // no persona session: cannot be placed on a character
-            Score(c, a, 10, 5);        // before the window
+            var early = Session(c, uk, null, "Ollie", 5, 20);
+            Score(c, early, 10, 5);    // a Session wholly before the window
         }
 
         var history = ScoreHistoryReader.Read(DbPath, sinceMs: 100, nowMs: 1000, currentRunId: -1);
 
-        Assert.Equal([new ScorePoint(200, 1000), new ScorePoint(300, 900)],
+        // Each Session's opening at its start: these rows say no gain, so it is the first reading.
+        Assert.Equal([new ScorePoint(100, 1000), new ScorePoint(200, 1000), new ScorePoint(300, 900)],
             history.Points[new PersonaKey("MUD2.co.uk", "Ollie")]);
-        Assert.Equal([new ScorePoint(250, 50)], history.Points[new PersonaKey("www.mud2.com", "Ollie")]);
+        Assert.Equal([new ScorePoint(100, 50), new ScorePoint(250, 50)], history.Points[new PersonaKey("www.mud2.com", "Ollie")]);
         Assert.Equal(2, history.Points.Count);
         Assert.Equal(["mud2.co.uk", "www.mud2.com"], history.Hosts());
+    }
+
+    [Fact]
+    public void Reader_opens_a_session_that_straddles_the_window_from_its_own_first_reading()
+    {
+        using (var c = MuckaDb.Open(DbPath))
+        {
+            var run = Run(c, "h", 100, 900);
+            var s = Session(c, run, "h", "A", 100, 500);
+            Scalar(c, "INSERT INTO score_events (ts, encounter_open, total, delta, persona_session_id) VALUES (150,0,1010,10,$s), (250,0,1030,20,$s); SELECT 0;",
+                ("$s", s));
+        }
+
+        var history = ScoreHistoryReader.Read(DbPath, sinceMs: 200, nowMs: 1000, currentRunId: -1);
+
+        // Opened on 1,000 (+10 = 1,010), not on 1,010 from the first reading inside the window.
+        Assert.Equal([new ScorePoint(100, 1000), new ScorePoint(250, 1030)], history.Points[new PersonaKey("h", "A")]);
     }
 
     [Fact]
@@ -585,6 +604,19 @@ public sealed class ScoreGraphTests : IDisposable
     }
 
     [Fact]
+    public void The_step_up_to_a_Sessions_opening_is_a_climb_of_its_own()
+    {
+        // The opening is stamped at the Session's start, 100: the +500 to it was made where nothing
+        // recorded, and the Session's own +50 two ms later is not part of it.
+        ScorePoint[] points = [new(0, 1000), new(100, 1500), new(102, 1550)];
+        TimeSpanMs[] sessions = [new(100, 500)];
+        var scene = new ScoreGraphScene(0, 1000, false, 0, [new ScoreGraphSeries("A", points, sessions)], [], []);
+        var plot = ScoreGraphPlot.Build(scene, 1000 + ScoreGraphPlot.LeftMargin + ScoreGraphPlot.RightMargin, 300, TimeZoneInfo.Utc);
+
+        Assert.Equal([500L, 50], plot.Moves.Select(m => m.Change));
+    }
+
+    [Fact]
     public void A_wipe_is_marked_where_the_line_stood_and_its_drops_are_ordinary()
     {
         // A small drop in the wiped login's last frame, the wipe at 200, and the restart at 200 points
@@ -660,7 +692,8 @@ public sealed class ScoreGraphTests : IDisposable
         var history = ScoreHistoryReader.Read(DbPath, 0, 1000, -1);
         var key = new PersonaKey("h", "A");
 
-        Assert.Equal([new ScorePoint(200, 2161), new ScorePoint(300, 2684), new ScorePoint(500, 0)], history.Points[key]);
+        Assert.Equal([new ScorePoint(100, 2161), new ScorePoint(200, 2161), new ScorePoint(300, 2684), new ScorePoint(500, 0)],
+            history.Points[key]);
 
         ScoreGraphSeries[] series = [new("A", history.Points[key], history.PersonaSessions[key], history.Permadeaths[key])];
         var plot = ScoreGraphPlot.Build(new ScoreGraphScene(0, 1000, false, 0, series, [], [], Zero: true), 600, 300, TimeZoneInfo.Utc);
@@ -687,8 +720,8 @@ public sealed class ScoreGraphTests : IDisposable
         var history = ScoreHistoryReader.Read(DbPath, 0, 1000, -1);
 
         Assert.Equal(
-            [new ScorePoint(200, 300), new ScorePoint(500, 400), new ScorePoint(500, 0),
-                new ScorePoint(700, 250), new ScorePoint(800, 0)],
+            [new ScorePoint(100, 300), new ScorePoint(200, 300), new ScorePoint(500, 400), new ScorePoint(500, 0),
+                new ScorePoint(600, 250), new ScorePoint(700, 250), new ScorePoint(800, 0)],
             history.Points[new PersonaKey("h", "A")]);
     }
 
@@ -735,6 +768,8 @@ public sealed class ScoreGraphTests : IDisposable
         // Nothing before: measured from the first reading inside.
         Assert.Equal(200, plot.NetChange(0, new TimeSpanMs(0, 150)));
         Assert.Null(plot.NetChange(0, new TimeSpanMs(600, 700)));
+        // A reading stamped at the span's start - a Session's opening - is what it held going in.
+        Assert.Equal(1050, plot.NetChange(0, new TimeSpanMs(300, 600)));
 
         var x = ScoreGraphPlot.LeftMargin;
         Assert.Equal([PlotMarkKind.Run, PlotMarkKind.Switch], plot.Marks.Select(m => m.Kind));

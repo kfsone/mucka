@@ -33,6 +33,7 @@ public class PostSelectSetupTests : IDisposable
     private readonly MudSession _session;
     private readonly List<string> _visible = new();      // completed (non-prompt) lines shown
     private readonly List<string> _identified = new();   // CharacterIdentified payloads
+    private readonly List<int> _sheets = new();          // ScoreSheetRead totals
     private readonly List<string> _outgoing = new();
 
     public PostSelectSetupTests()
@@ -44,6 +45,7 @@ public class PostSelectSetupTests : IDisposable
         // Prompts render as transient IsPartial lines; assert on the completed content lines.
         _session.LineReady          += l => { if (!l.IsPartial) _visible.Add(l.PlainText); };
         _session.CharacterIdentified += n => _identified.Add(n);
+        _session.ScoreSheetRead      += (total, _) => _sheets.Add(total);
         _session.OutgoingBytes      += b => _outgoing.Add(Encoding.Latin1.GetString(b));
     }
 
@@ -129,6 +131,7 @@ public class PostSelectSetupTests : IDisposable
 
         Assert.Equal(["You warm your hands by the fire."], _visible);
         Assert.Equal(["Ollie"], _identified);
+        Assert.Equal([47297], _sheets);
     }
 
     [Fact]
@@ -152,6 +155,7 @@ public class PostSelectSetupTests : IDisposable
 
         Assert.Equal(["A raven caws overhead."], _visible);
         Assert.Equal(["Ollie"], _identified);
+        Assert.Equal([47297], _sheets);
     }
 
     [Fact]
@@ -205,6 +209,7 @@ public class PostSelectSetupTests : IDisposable
 
         Assert.Equal(["A raven caws overhead."], _visible);
         Assert.Equal(["Newbie"], _identified);
+        Assert.Equal([0], _sheets);   // a new character's opening, which the stats parser drops
     }
 
     [Fact]
@@ -236,6 +241,7 @@ public class PostSelectSetupTests : IDisposable
 
         Prompt(); Feed(ScoreSheet);                 // the player's own `score`
         Assert.Contains(_visible, l => l.Contains("Ollie") && l.Contains("name:"));
+        Assert.Equal([47297], _sheets);             // only the setup sheet is a Session's opening
     }
 
     [Fact]
@@ -267,6 +273,7 @@ public class PostSelectSetupTests : IDisposable
         Prompt(); Feed("The fire crackles.\r\n");
 
         Assert.Equal(["The fire crackles."], _visible);
+        Assert.Equal([47297, 47297], _sheets);   // one per entry
     }
 
     /// <summary>

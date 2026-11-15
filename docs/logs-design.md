@@ -60,14 +60,28 @@ Session was 171.8 minutes; none of the 838 with an end exceeded 3 hours.
 
 **Points match the score graph by construction.** They are computed from the readings
 `ScoreHistoryReader` builds for the graph, including the step to zero at a permadeath, as the last
-reading inside the Session less the reading before it (the Session's own first reading when its
-character has none earlier). Summing `score_events.delta` is rejected: it is nullable, and the graph
-never uses it. EVIDENCE: on the operator's database, 2026-11-13, the sum of `delta` disagreed with
-the difference of `total`s in 115 of the 474 Sessions that had readings. EVIDENCE: on a copy of the
-same database, 2026-11-13 (853 Sessions, 15 with no recorded end), each character's Session points
-summed to its graph's last reading less its first for all 13 characters. A consequence: points made
-while nothing was recording (between two Sessions) count toward the Session whose first reading
-follows them, exactly as the graph draws that step.
+reading inside the Session less its opening. The readings are the `(Persona saved on ...)` lines
+(`score_events`) and the post-login score sheet (`score_sheets`, `MudSession.ScoreSheetRead`). The
+opening is a reading the graph places at the Session's start: its first reading's total less that
+reading's own delta, so "(Persona saved on +200 = 200)" opens on 0 and a sheet opens on what it
+printed. Summing `score_events.delta` is rejected: it is nullable, and the graph never uses it.
+EVIDENCE: on the operator's database, 2026-11-13, the sum of `delta` disagreed with the difference of
+`total`s in 115 of the 474 Sessions that had readings. The opening takes one line's two figures, never
+a sum, and the 428 of 452 below is its check. The graph's card for a Session reads the same
+`SessionPoints.Of`, so the card and the row agree.
+
+EVIDENCE The sheet's `score:` is the same quantity as a save line's total. Ollie, 12 Sep 2026: the
+sheet after the 12:48 login printed "score:  36,791 points", and the next Session's first save line
+was "(Persona saved on +38 = 36,829)." - 36,829 - 38 = 36,791.
+
+DECISION (operator) Points made where nothing recorded them (another client, another machine) count
+toward no Session: they are the graph's step up to the next Session's opening. The rejected rule
+counted them in the next Session with a reading. It put 9,495 points made elsewhere (11 Sep 16:14 to
+12 Sep 12:48) into Ollie's 12 Sep 12:54 Session, which showed +11,087, and it put a new character's
+first gain outside every Session. EVIDENCE: on a copy of the operator's database, 2026-11-14, the
+opening from the first reading equalled the reading before the Session in 428 of the 452 Sessions
+that had both; the other 24 are points made elsewhere. Rows recorded before `score_sheets` have no
+sheet: a Session with no save line has no opening and its points are blank.
 
 Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
 Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last (below). Web

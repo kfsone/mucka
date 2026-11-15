@@ -112,6 +112,89 @@ public sealed class SessionHistoryTests : IDisposable
         Assert.Equal(["pk", "Quest"], named.Tags);
     }
 
+    /// <summary>One character's Sessions, each in a run of its own with a row of recording.</summary>
+    private long[] SeedOpenings(params (long Start, long? End, (long Ts, long Total, long? Delta)[] Saves, (long Ts, long Total)? Sheet)[] sessions)
+    {
+        using var db = MuckaDb.Open(Db);
+        var ids = new List<long>();
+        foreach (var (start, end, saves, sheet) in sessions)
+        {
+            var run = Insert(db, "INSERT INTO mucka_runs (uid, started_ms, ended_ms, host) VALUES ($u, $s, $e, 'mud2.co.uk');",
+                ("$u", $"r{start}"), ("$s", start), ("$e", end));
+            var id = Insert(db,
+                "INSERT INTO persona_sessions (mucka_run_id, persona, host, started_ms, ended_ms) VALUES ($r, 'Derpster', 'mud2.co.uk', $s, $e);",
+                ("$r", run), ("$s", start), ("$e", end));
+            Insert(db, "INSERT INTO wire (mucka_run_id, seq, ts_ms, direction, data) VALUES ($r, 1, $t, 0, X'2A');",
+                ("$r", run), ("$t", start + 1));
+            foreach (var (ts, total, delta) in saves)
+                Insert(db, "INSERT INTO score_events (ts, encounter_open, total, delta, persona_session_id) VALUES ($t, 0, $v, $d, $p);",
+                    ("$t", ts), ("$v", total), ("$d", delta), ("$p", id));
+            if (sheet is { } read)
+                Insert(db, "INSERT INTO score_sheets (persona_session_id, ts, total, raw_text) VALUES ($p, $t, $v, 'score: ...');",
+                    ("$p", id), ("$t", read.Ts), ("$v", read.Total));
+            ids.Add(id);
+        }
+        return [.. ids];
+    }
+
+    private long? PointsOf(long id) => SessionHistoryReader.Read(Db, 1_000_000).Single(s => s.Id == id).Points;
+
+    [Fact]
+    public void ANewCharactersFirstSave_CountsInFull_BecauseTheGainSaysWhatItHadBefore()
+    {
+        // "(Persona saved on +200 = 200)." after "sip dj": it had 200 - 200 = 0.
+        var ids = SeedOpenings((1000, 2000, [(1500, 200, 200)], null));
+
+        Assert.Equal(200, PointsOf(ids[0]));
+    }
+
+    [Fact]
+    public void PointsMadeWhereNothingRecorded_AreNoSessions_WithOrWithoutAScoreSheet()
+    {
+        var ids = SeedOpenings(
+            (1000, 2000, [(1500, 27296, 25)], null),
+            // 9,495 made elsewhere, then +38 here.
+            (5000, 6000, [(5500, 36829, 38)], null),
+            // 1,000 made elsewhere; the sheet at the start reads it, then +12 here.
+            (8000, 9000, [(8500, 37883, 12)], (8010, 37871)));
+
+        Assert.Equal(25, PointsOf(ids[0]));
+        Assert.Equal(38, PointsOf(ids[1]));
+        Assert.Equal(12, PointsOf(ids[2]));
+    }
+
+    [Fact]
+    public void ASessionWithOnlyAScoreSheet_MadeNothing_EvenWhenTheSheetShowsPointsMadeElsewhere()
+    {
+        var ids = SeedOpenings(
+            (1000, 2000, [(1500, 500, 100)], null),
+            (5000, 6000, [], (5010, 900)));
+
+        Assert.Equal(0, PointsOf(ids[1]));
+    }
+
+    [Fact]
+    public void TheScoreSheet_OpensTheSession_WhenItIsTheFirstReading_EvenAtTheSameInstantAsASave()
+    {
+        // The sheet reads 37,871 and the save says +12 = 37,900: the Session made 29, not the 12 the
+        // save alone would open on.
+        var ids = SeedOpenings(
+            (8000, 9000, [(8500, 37900, 12)], (8010, 37871)),
+            (10000, 11000, [(10500, 37950, 20)], (10500, 37900)));
+
+        Assert.Equal(29, PointsOf(ids[0]));
+        Assert.Equal(50, PointsOf(ids[1]));
+    }
+
+    [Fact]
+    public void ASessionNothingClosed_WithOnlyAScoreSheet_EndsAtTheSheet_AndMadeNothing()
+    {
+        // No end on the Session or its run: the last reading bounds it, and the sheet is one.
+        var ids = SeedOpenings((5000, null, [], (5010, 900)));
+
+        Assert.Equal(0, PointsOf(ids[0]));
+    }
+
     [Fact]
     public void ABlankTitle_RemovesIt_AndNewTagsReplaceTheOld()
     {
@@ -159,7 +242,7 @@ public sealed class SessionHistoryTests : IDisposable
         var (first, _, _) = Seed();
         using (var db = MuckaDb.Open(Db))
         {
-            Insert(db, "DROP TABLE session_names; DROP TABLE session_tags;");
+            Insert(db, "DROP TABLE session_names; DROP TABLE session_tags; DROP TABLE score_sheets;");
         }
 
         var list = SessionHistoryReader.Read(Db, 30000);

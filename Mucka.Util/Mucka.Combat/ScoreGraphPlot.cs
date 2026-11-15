@@ -780,9 +780,11 @@ public sealed class ScoreGraphPlot
     private static List<PlotMove> GroupMoves(int series, List<(ScoreStep Step, long[] Parts)> frames, ScoreTimeAxis axis,
         Func<long, double> y, long[] sessionStarts)
     {
+        // A start at afterMs itself counts: the step stamped there is the step up to a Session's
+        // opening, points made where nothing recorded them, and joins none of that Session's own.
         bool SessionStartsBetween(long afterMs, long uptoMs)
         {
-            var at = Array.BinarySearch(sessionStarts, afterMs + 1);
+            var at = Array.BinarySearch(sessionStarts, afterMs);
             if (at < 0) at = ~at;
             return at < sessionStarts.Length && sessionStarts[at] <= uptoMs;
         }
@@ -898,22 +900,11 @@ public sealed class ScoreGraphPlot
         return best;
     }
 
-    /// <summary>How far series <paramref name="series"/>'s score moved across <paramref name="span"/>:
-    /// its last reading in the span against the reading it held going in (or, with none before,
-    /// its first reading in the span). Null when it has no reading inside the span.</summary>
+    /// <summary>How far series <paramref name="series"/>'s score moved across <paramref name="span"/>,
+    /// by the Logs list's own rule (<see cref="SessionPoints.Of"/>), so a Session's card and its row
+    /// agree. Null when it has no reading inside the span.</summary>
     public long? NetChange(int series, TimeSpanMs span)
-    {
-        ScorePoint? before = null, first = null, last = null;
-        foreach (var p in Points[series])
-        {
-            if (p.Ms < span.StartMs) { before = p; continue; }
-            if (p.Ms > span.EndMs) break;
-            first ??= p;
-            last = p;
-        }
-        if (last is not { } l) return null;
-        return l.Total - (before ?? first)!.Value.Total;
-    }
+        => SessionPoints.Of(Points[series], span.StartMs, span.EndMs);
 
     /// <summary>The reading series <paramref name="series"/> held at <paramref name="ms"/>: the last
     /// one at or before it, or null when it had none yet.</summary>

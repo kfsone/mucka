@@ -84,6 +84,8 @@ public sealed class RunTransferTests : IDisposable
                 ("$t", key), ("$k", uid), ("$p", session));
             Exec(db, "INSERT INTO score_events (ts, encounter_open, total, delta, persona_session_id) VALUES ($t,0,19214,38,$p);",
                 ("$t", key), ("$p", session));
+            Exec(db, "INSERT INTO score_sheets (persona_session_id, ts, total, raw_text) VALUES ($p,$t,19176,'score: 19,176 points');",
+                ("$t", startedMs + 1), ("$p", session));
             Exec(db, "INSERT INTO npc_stamina_reads (ts, npc, npc_group, pool_key, printed_low, printed_high, persona_session_id) "
                 + "VALUES ($t,'rat0','rat','rat',90,99,$p);", ("$t", key), ("$p", session));
             Exec(db, "INSERT INTO encounters (uid, started_at_ms, persona_session_id, room) VALUES ($k,$t,$p,'cellar');",
@@ -127,7 +129,7 @@ public sealed class RunTransferTests : IDisposable
         var run = Scalar(b, "SELECT id FROM mucka_runs WHERE started_ms = 1000000");
         var session = Scalar(b, $"SELECT id FROM persona_sessions WHERE mucka_run_id = {run}");
         Assert.Equal(3, Scalar(b, $"SELECT COUNT(*) FROM wire WHERE mucka_run_id = {run}"));
-        foreach (var table in new[] { "swings", "score_events", "npc_stamina_reads", "encounters" })
+        foreach (var table in new[] { "swings", "score_events", "npc_stamina_reads", "encounters", "score_sheets" })
             Assert.Equal(1, Scalar(b, $"SELECT COUNT(*) FROM {table} WHERE persona_session_id = {session}"));
 
         // The contents list's item follows the contents row's NEW id.
