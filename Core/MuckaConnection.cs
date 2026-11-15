@@ -285,25 +285,6 @@ public sealed class MuckaConnection : IAsyncDisposable
         await _fightHistory.LoadAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>Compacts the database - see <see cref="MuckaStore.Optimize"/>. Off the UI thread, and it
-    /// pauses the store's writer for as long as it runs. Held under <see cref="DatabaseLock"/>, which it
-    /// waits for. Null, and nothing done, while a trim or another pass holds
-    /// <see cref="WireMaintenance.Gate"/>; while this runs they wait for it.</summary>
-    public MuckaStore.OptimizeResult? OptimizeDatabase()
-    {
-        using var held = DatabaseLock.Acquire(_store.Path, Maintenance.Current, canGiveUp: false);
-        if (!Monitor.TryEnter(WireMaintenance.Gate))
-            return null;
-        try
-        {
-            return _store.Optimize();
-        }
-        finally
-        {
-            Monitor.Exit(WireMaintenance.Gate);
-        }
-    }
-
     /// <summary>The accumulated per-creature incoming-damage record, for the rail's "how hard does
     /// this thing hit" column. Fed by the swing ledger, which sees every blow already.</summary>
     public MudSharp.Combat.SwingDamageIndex SwingDamage => _swingLedger.Damage;

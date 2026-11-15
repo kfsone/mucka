@@ -144,6 +144,32 @@ public sealed class RunTransferTests : IDisposable
     }
 
     [Fact]
+    public void ARunTheSourceUnwrappedOrTrimmed_ArrivesMarkedUnwrapped_AndAnyOtherDoesNot()
+    {
+        AddRun("a.db", "www.mud2.com", 1_000_000, 1_100_000);
+        AddRun("a.db", "www.mud2.com", 2_000_000, 2_100_000);
+        AddRun("a.db", "www.mud2.com", 3_000_000, 3_100_000);
+        using (var a = MuckaDb.Open(PathOf("a.db")))
+        {
+            Exec(a, "INSERT INTO wire_unwrapped (mucka_run_id, unwrapped_ms) "
+                + "SELECT id, 1234 FROM mucka_runs WHERE started_ms = 1000000;");
+            // A trim moves rows out of wire; one moved row is enough for the run to have a gap.
+            Exec(a, "INSERT INTO trimmed (id, mucka_run_id, seq, ts_ms, direction, data, trimmed_ms, reason) "
+                + "SELECT w.id, w.mucka_run_id, w.seq, w.ts_ms, w.direction, w.data, 1, 'send' FROM wire w "
+                + "JOIN mucka_runs r ON r.id = w.mucka_run_id WHERE r.started_ms = 2000000 AND w.seq = 1;");
+            Exec(a, "DELETE FROM wire WHERE id IN (SELECT id FROM trimmed);");
+        }
+        RunTransfer.Export(PathOf("a.db"), PathOf("a.export"));
+
+        Assert.Equal(3, RunTransfer.Import(PathOf("b.db"), PathOf("a.export")).RunsImported);
+
+        const string Marked = "SELECT u.unwrapped_ms FROM wire_unwrapped u JOIN mucka_runs r ON r.id = u.mucka_run_id WHERE r.started_ms = ";
+        Assert.Equal(1234, Count("b.db", Marked + "1000000"));
+        Assert.True(Count("b.db", Marked + "2000000") > 1234);
+        Assert.Equal(0, Count("b.db", "SELECT COUNT(*) FROM wire_unwrapped u JOIN mucka_runs r ON r.id = u.mucka_run_id WHERE r.started_ms = 3000000"));
+    }
+
+    [Fact]
     public void TwoLoginsWhoseEncountersBeganInTheSameMillisecond_EachKeepTheirOwnChildren()
     {
         // The case the old millisecond key could not express: both logins' encounters carry the same

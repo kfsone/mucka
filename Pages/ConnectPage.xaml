@@ -72,7 +72,7 @@
                            Padding="0,0,0,2" />
                 </Grid>
 
-                <!-- History, Score and Settings; narrow puts a small logo at the start -->
+                <!-- Logs, Score and Settings; narrow puts a small logo at the start -->
                 <Grid Grid.Row="1"
                       IsEnabled="{Binding IsNotConnecting}"
                       Opacity="{Binding IdleOpacity}"
@@ -85,9 +85,9 @@
                            HeightRequest="46"
                            Aspect="AspectFit" />
                     <Button Grid.Column="2"
-                            Text="History"
+                            Text="Logs"
                             Style="{StaticResource HeaderButton}"
-                            Clicked="OnHistoryClicked"
+                            Clicked="OnLogsClicked"
                             SemanticProperties.Description="Session history" />
                     <!-- The highlighted profile's server: its score history, without connecting -->
                     <Button Grid.Column="3"

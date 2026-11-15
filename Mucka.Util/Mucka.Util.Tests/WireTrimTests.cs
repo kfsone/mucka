@@ -406,11 +406,12 @@ public sealed class WireTrimTests : IDisposable
     private static long Ms(DateTimeOffset at) => at.ToUnixTimeMilliseconds();
 
     private static long AddRun(SqliteConnection connection, DateTimeOffset started, DateTimeOffset? ended,
-        bool healed = true)
+        bool healed = true, bool? unwrapped = null)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
             "INSERT INTO mucka_runs (uid, started_ms, ended_ms, host, wire_healed_ms) VALUES ($uid, $s, $e, 'test', $h); " +
+            ((unwrapped ?? healed) ? "INSERT INTO wire_unwrapped (mucka_run_id, unwrapped_ms) VALUES (last_insert_rowid(), 1); " : "") +
             "SELECT last_insert_rowid();";
         command.Parameters.AddWithValue("$h", healed ? 1 : DBNull.Value);
         command.Parameters.AddWithValue("$uid", Guid.NewGuid().ToString("N"));
@@ -485,6 +486,62 @@ public sealed class WireTrimTests : IDisposable
             Rows(after, "SELECT data FROM trimmed WHERE id IN (2, 4, 5);").Order());
     }
 
+    // Two logins over ThreeProbes: the first's slice is rows 1-6 (stamped up to 1,000,006), the
+    // second's rows 7-11.
+    private (long Run, long First, long Second) SeedTwoLogins(bool ended = true, bool healed = true)
+    {
+        using var connection = MuckaDb.Open(DbPath);
+        var run = AddRun(connection, Now.AddDays(-100), ended ? Now.AddDays(-90) : null, healed);
+        Seed(connection, run, ThreeProbes());
+        long Login(long started, long? end)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO persona_sessions (mucka_run_id, started_ms, ended_ms) VALUES ($r, $s, $e); SELECT last_insert_rowid();";
+            command.Parameters.AddWithValue("$r", run);
+            command.Parameters.AddWithValue("$s", started);
+            command.Parameters.AddWithValue("$e", end is { } e ? e : DBNull.Value);
+            return Convert.ToInt64(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        return (run, Login(1_000_000, 1_000_006), Login(1_000_007, null));
+    }
+
+    [Fact]
+    public void ASessionTrim_TakesTheRunsPlan_OnlyInsideItsOwnSlice()
+    {
+        var (run, first, second) = SeedTwoLogins();
+
+        var result = WireTrim.TrimSession(DbPath, first, Now);
+
+        using (var after = MuckaDb.Open(DbPath))
+        {
+            Assert.Equal(4, result.RowsMoved);   // the sends 2, 4, 6 and the repeat 5
+            Assert.Equal(4, Scalar(after, "SELECT COUNT(*) FROM trimmed;"));
+            Assert.Equal(4, Scalar(after, "SELECT COUNT(*) FROM trimmed WHERE id IN (2, 4, 5, 6);"));
+            Assert.Equal(11 - 4, Wire(after, run).Count);
+        }
+
+        // The second takes the rest of what a whole-run trim would have.
+        Assert.Equal(2, WireTrim.TrimSession(DbPath, second, Now).RowsMoved);
+    }
+
+    [Fact]
+    public void ASessionTrim_RefusesARunWithNoEnd()
+    {
+        var (_, first, _) = SeedTwoLogins(ended: false);
+
+        Assert.Throws<InvalidOperationException>(() => WireTrim.TrimSession(DbPath, first, Now));
+        Assert.Equal((0L, 0L), WireTrim.Waiting(DbPath));
+    }
+
+    [Fact]
+    public void ASessionTrim_RefusesARunTheHealHasNotBeenOver()
+    {
+        var (_, first, _) = SeedTwoLogins(healed: false);
+
+        Assert.Throws<InvalidOperationException>(() => WireTrim.TrimSession(DbPath, first, Now));
+        Assert.Equal((0L, 0L), WireTrim.Waiting(DbPath));
+    }
+
     private static List<string> Rows(SqliteConnection connection, string sql)
     {
         using var command = connection.CreateCommand();
@@ -519,7 +576,19 @@ public sealed class WireTrimTests : IDisposable
         var result = WireTrim.Trim(DbPath, WireTrim.DefaultDays, Now);
 
         Assert.Equal(0, result.RunsExamined);
-        Assert.Equal(0, WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now).RunsExamined);
+    }
+
+    [Fact]
+    public void ARunTheHealHasJoinedButNotUnwrapped_IsLeftAlone()
+    {
+        using (var connection = MuckaDb.Open(DbPath))
+        {
+            var run = AddRun(connection, Now.AddDays(-100), Now.AddDays(-90), unwrapped: false);
+            Seed(connection, run, ThreeProbes());
+        }
+
+        Assert.Equal(0, WireTrim.Trim(DbPath, WireTrim.DefaultDays, Now).RunsExamined);
+        Assert.Equal((0L, 0L), WireTrim.Waiting(DbPath));
     }
 
     [Fact]
@@ -676,17 +745,6 @@ public sealed class WireTrimTests : IDisposable
     }
 
     [Fact]
-    public void AnUnwrap_TakesNoBackup_BecauseRevertPutsTheOriginalsBack()
-    {
-        SeedWrappedRun(Now.AddDays(-90));
-
-        var result = WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
-
-        Assert.True(result.RowsChanged > 0);
-        Assert.False(File.Exists(BackupPath));
-    }
-
-    [Fact]
     public void AnExpire_TakesTheBackupBeforeItDeletes_AndNoneWhenNothingIsOldEnough()
     {
         var run = SeedOldRun();
@@ -709,7 +767,7 @@ public sealed class WireTrimTests : IDisposable
         Assert.Equal(1, BackupScalar(BackupPath, "SELECT COUNT(*) FROM trimmed;"));
     }
 
-    // -- Unwrap, through the same table -------------------------------------------------------------------
+    // -- The heal's unwrap, and what $trimdb unwrap left in trimmed ----------------------------------------
 
     private static readonly string[] Description =
     [
@@ -719,10 +777,14 @@ public sealed class WireTrimTests : IDisposable
         "decorum prevails. ",
     ];
 
-    private long SeedWrappedRun(DateTimeOffset ended)
+    private static readonly string Joined = string.Join(" ", Description) + "\r\r\n";
+
+    // A run the heal has joined but not unwrapped: the state every run recorded with a width is in
+    // when this release first starts.
+    private long SeedWrappedRun(DateTimeOffset? ended)
     {
         using var connection = MuckaDb.Open(DbPath);
-        var run = AddRun(connection, Now.AddDays(-100), ended);
+        var run = AddRun(connection, Now.AddDays(-100), ended, unwrapped: false);
         Seed(connection, run,
         [
             Tx(1, Latin1("\x1b-[\x1b\x06\x1b-N/T90\x1b-]")),
@@ -732,24 +794,176 @@ public sealed class WireTrimTests : IDisposable
         return run;
     }
 
+    // What $trimdb unwrap did to a run: each changed row's original copied into trimmed under
+    // ReasonUnwrap, and the row rewritten in place.
+    private void LegacyUnwrap(long run)
+    {
+        using var connection = MuckaDb.Open(DbPath);
+        var rows = Wire(connection, run).Select(r => new WireTrim.Row(r.Id, r.Seq, r.Direction, Latin1(r.Data))).ToList();
+        foreach (var change in WireUnwrap.Plan(rows)!)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "INSERT INTO trimmed (id, mucka_run_id, seq, ts_ms, direction, data, trimmed_ms, reason) " +
+                "SELECT id, mucka_run_id, seq, ts_ms, direction, data, 1, $reason FROM wire WHERE id = $id; " +
+                "UPDATE wire SET data = $data WHERE id = $id;";
+            command.Parameters.AddWithValue("$reason", WireTrim.ReasonUnwrap);
+            command.Parameters.AddWithValue("$id", change.Id);
+            command.Parameters.AddWithValue("$data", change.Data);
+            command.ExecuteNonQuery();
+        }
+    }
+
+    private static long? Unwrapped(SqliteConnection connection, long run)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT unwrapped_ms FROM wire_unwrapped WHERE mucka_run_id = $r;";
+        command.Parameters.AddWithValue("$r", run);
+        return command.ExecuteScalar() is long ms ? ms : null;
+    }
+
     [Fact]
-    public void AnUnwrap_JoinsTheLinesTheServerWrapped_AndRevertPutsTheOriginalBytesBack()
+    public void TheHeal_UnwrapsARunItHasAlreadyJoined_InPlace_AndKeepsNoCopy()
     {
         var run = SeedWrappedRun(Now.AddDays(-90));
         List<(long Id, long Seq, int Direction, string Data)> before;
         using (var connection = MuckaDb.Open(DbPath)) before = Wire(connection, run);
+        Assert.Equal(1, WireHeal.PendingRuns(DbPath));
 
-        var result = WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
+        var result = WireHeal.Run(DbPath);
 
+        using var after = MuckaDb.Open(DbPath);
+        var rows = Wire(after, run);
+        Assert.Equal(1, result.RowsUnwrapped);
+        Assert.Equal(0, result.GroupsJoined);
+        Assert.Equal(before.Count, rows.Count);   // changed in place, none removed
+        Assert.Equal(Joined, rows.Single(r => r.Id == 3).Data);
+        Assert.Equal(0, Scalar(after, "SELECT COUNT(*) FROM trimmed;"));
+        Assert.NotNull(Unwrapped(after, run));
+        Assert.Equal(0, WireHeal.PendingRuns(DbPath));
+    }
+
+    [Fact]
+    public void ASecondHeal_HasNothingToUnwrap()
+    {
+        var run = SeedWrappedRun(Now.AddDays(-90));
+        WireHeal.Run(DbPath);
         using (var connection = MuckaDb.Open(DbPath))
         {
-            var after = Wire(connection, run);
-            Assert.Equal(1, result.RunsUnwrapped);
-            Assert.Equal(1, result.RowsChanged);
-            Assert.Equal(before.Count, after.Count);   // changed in place, none removed
-            Assert.Equal(string.Join(" ", Description) + "\r\r\n", after.Single(r => r.Id == 3).Data);
-            Assert.Equal(1, Scalar(connection, "SELECT COUNT(*) FROM trimmed WHERE reason = 'unwrap';"));
+            // Put the wrapped bytes back: only the mark can keep a second pass off the run now.
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE wire SET data = $d WHERE id = 3;";
+            command.Parameters.AddWithValue("$d", Latin1(string.Concat(Description.Select(l => l + "\r\r\n"))));
+            command.ExecuteNonQuery();
         }
+
+        var again = WireHeal.Run(DbPath);
+
+        Assert.Equal(0, again.RunsHealed);
+        Assert.Equal(0, again.RowsUnwrapped);
+    }
+
+    [Fact]
+    public void TheHeal_PassesOverARunATrimHasBeenOver_AndMarksItSoItIsNotReplayedAtEveryLaunch()
+    {
+        var run = SeedWrappedRun(Now.AddDays(-90));
+        List<(long Id, long Seq, int Direction, string Data)> before;
+        using (var connection = MuckaDb.Open(DbPath))
+        {
+            before = Wire(connection, run);
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "INSERT INTO trimmed (id, mucka_run_id, seq, ts_ms, direction, data, trimmed_ms, reason) " +
+                "VALUES (1000, $run, 1000, 1, 1, x'00', 1, $reason);";
+            command.Parameters.AddWithValue("$run", run);
+            command.Parameters.AddWithValue("$reason", WireTrim.ReasonSend);
+            command.ExecuteNonQuery();
+        }
+
+        var result = WireHeal.Run(DbPath);
+
+        using var after = MuckaDb.Open(DbPath);
+        Assert.Equal(0, result.RowsUnwrapped);
+        Assert.Equal(before, Wire(after, run));
+        Assert.NotNull(Unwrapped(after, run));
+        Assert.Equal(0, WireHeal.PendingRuns(DbPath));
+    }
+
+    [Fact]
+    public void ARunPassedOverForItsTrim_IsUnwrappedByTheHealAfterARestore()
+    {
+        var run = SeedWrappedRun(Now.AddDays(-90));
+        using (var connection = MuckaDb.Open(DbPath))
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "INSERT INTO trimmed (id, mucka_run_id, seq, ts_ms, direction, data, trimmed_ms, reason) " +
+                "VALUES (1000, $run, 1000, 1, 1, x'00', 1, $reason);";
+            command.Parameters.AddWithValue("$run", run);
+            command.Parameters.AddWithValue("$reason", WireTrim.ReasonSend);
+            command.ExecuteNonQuery();
+        }
+        WireHeal.Run(DbPath);
+
+        WireTrim.Revert(DbPath);
+        Assert.Equal(1, WireHeal.PendingRuns(DbPath));
+        var result = WireHeal.Run(DbPath);
+
+        using var after = MuckaDb.Open(DbPath);
+        Assert.Equal(1, result.RowsUnwrapped);
+        Assert.Equal(Joined, Wire(after, run).Single(r => r.Id == 3).Data);
+    }
+
+    [Fact]
+    public void ARunWhoseLegacyUnwrapIsRestored_IsUnwrappedByTheNextHeal_WithNoCopy()
+    {
+        var run = SeedWrappedRun(Now.AddDays(-90));
+        LegacyUnwrap(run);
+        WireHeal.Run(DbPath);   // already joined: nothing to change, and the run is marked
+
+        WireTrim.Revert(DbPath);
+        var result = WireHeal.Run(DbPath);
+
+        using var after = MuckaDb.Open(DbPath);
+        Assert.Equal(1, result.RowsUnwrapped);
+        Assert.Equal(Joined, Wire(after, run).Single(r => r.Id == 3).Data);
+        Assert.Equal(0, Scalar(after, "SELECT COUNT(*) FROM trimmed;"));
+    }
+
+    [Fact]
+    public void TheHeal_LeavesARunThatHasNotEnded()
+    {
+        var run = SeedWrappedRun(ended: null);
+        List<(long Id, long Seq, int Direction, string Data)> before;
+        using (var connection = MuckaDb.Open(DbPath)) before = Wire(connection, run);
+
+        WireHeal.Run(DbPath);
+
+        using var after = MuckaDb.Open(DbPath);
+        Assert.Equal(before, Wire(after, run));
+        Assert.Null(Unwrapped(after, run));
+    }
+
+    [Fact]
+    public void ARunThisClientRecords_IsWrittenUnwrapped()
+    {
+        long run;
+        using (var store = new MuckaStore(DbPath, "test")) run = store.SessionId;
+
+        using var connection = MuckaDb.Open(DbPath);
+        Assert.Equal(1, Scalar(connection, "SELECT COUNT(*) FROM mucka_runs;"));
+        Assert.NotNull(Unwrapped(connection, run));
+    }
+
+    [Fact]
+    public void ALegacyUnwrapOriginal_IsWrittenBackOverItsRowByRevert()
+    {
+        var run = SeedWrappedRun(Now.AddDays(-90));
+        List<(long Id, long Seq, int Direction, string Data)> before;
+        using (var connection = MuckaDb.Open(DbPath)) before = Wire(connection, run);
+        LegacyUnwrap(run);
+        using (var connection = MuckaDb.Open(DbPath))
+            Assert.Equal(Joined, Wire(connection, run).Single(r => r.Id == 3).Data);
 
         var (restored, skipped) = WireTrim.Revert(DbPath);
 
@@ -761,47 +975,6 @@ public sealed class WireTrimTests : IDisposable
     }
 
     [Fact]
-    public void AnUnwrap_RefusesARunATrimHasBeenOver_UntilTheTrimIsReverted()
-    {
-        SeedOldRun();
-        WireTrim.Trim(DbPath, WireTrim.DefaultDays, Now);
-
-        var refused = WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
-
-        Assert.Equal(1, refused.RunsExamined);
-        Assert.Equal(1, refused.RunsRefused);
-        Assert.Equal(0, refused.RunsUnwrapped);
-
-        WireTrim.Revert(DbPath);
-
-        Assert.Equal(0, WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now).RunsRefused);
-    }
-
-    [Fact]
-    public void AnUnwrap_OfARunThatEndedRecently_ChangesNothing()
-    {
-        var run = SeedWrappedRun(Now.AddDays(-2));
-        List<(long Id, long Seq, int Direction, string Data)> before;
-        using (var connection = MuckaDb.Open(DbPath)) before = Wire(connection, run);
-
-        WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
-
-        using var after = MuckaDb.Open(DbPath);
-        Assert.Equal(before, Wire(after, run));
-    }
-
-    [Fact]
-    public void AnUnwrap_ThatIsRunTwice_ChangesNothingTheSecondTime()
-    {
-        SeedWrappedRun(Now.AddDays(-90));
-        WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
-
-        var again = WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
-
-        Assert.Equal(0, again.RowsChanged);
-    }
-
-    [Fact]
     public void ARowTrimmedAfterItWasUnwrapped_RevertsToItsOriginalBytes()
     {
         // The row is in trimmed twice over in intent - once as the unwrap's original, once as a probe
@@ -809,7 +982,7 @@ public sealed class WireTrimTests : IDisposable
         var run = SeedWrappedRun(Now.AddDays(-90));
         List<(long Id, long Seq, int Direction, string Data)> before;
         using (var connection = MuckaDb.Open(DbPath)) before = Wire(connection, run);
-        WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
+        LegacyUnwrap(run);
         using (var connection = MuckaDb.Open(DbPath))
         {
             using var command = connection.CreateCommand();
@@ -830,7 +1003,7 @@ public sealed class WireTrimTests : IDisposable
         // Row 3 was unwrapped, then left the table, and a new row took id 3. The original bytes of
         // the old row 3 must not be written over the new one.
         var run = SeedWrappedRun(Now.AddDays(-90));
-        WireTrim.Unwrap(DbPath, WireTrim.DefaultDays, Now);
+        LegacyUnwrap(run);
         using (var connection = MuckaDb.Open(DbPath))
         {
             using var delete = connection.CreateCommand();

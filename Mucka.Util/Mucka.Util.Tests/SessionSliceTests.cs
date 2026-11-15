@@ -6,7 +6,7 @@ using MudSharp.Models;
 
 namespace Mucka.Util.Tests;
 
-/// <summary>A Session's recording as a slice of its run, and the replay History makes from it.</summary>
+/// <summary>A Session's recording as a slice of its run, and the replay Logs makes from it.</summary>
 public sealed class SessionSliceTests : IDisposable
 {
     private readonly string _directory =

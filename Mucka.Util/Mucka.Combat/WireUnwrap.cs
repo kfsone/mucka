@@ -16,11 +16,12 @@ namespace Mucka.Combat;
 /// that does not end in a space, when the next word would not have fitted. Two consecutive lines
 /// that meet that test, with nothing sent between them and nothing but the second line's own text
 /// after the first line's terminator, are one line the server wrapped. A line the server ended on
-/// purpose just before a word that happened not to fit is joined too; it is rare and it is why this
-/// is a command and not something the client does on its own.</para>
+/// purpose just before a word that happened not to fit is joined too, and nothing in the bytes can
+/// tell it apart. <see cref="WireHeal"/> joins them all the same (operator).</para>
 ///
-/// <para>The width is the last <c>/T</c> the client sent before the row. A run with none, and a row
-/// before the first, is left alone. Only game-mode lines that carry no C1 kind are joined: the splash
+/// <para>The width is the last <c>/T</c> the client sent before the row, and none from the first
+/// <c>/F+</c> (local formatting) on, after which the server wraps nothing. A run with no width, and
+/// a row before the first, is left alone. Only game-mode lines that carry no C1 kind are joined: the splash
 /// and the menus before the game are laid out on purpose, and chat is not wrapped by the rule.</para>
 ///
 /// <para><b>The gate.</b> The rewritten stream is parsed again, and its lines must be exactly the
@@ -37,6 +38,9 @@ public static class WireUnwrap
         @"^(?:\x1b-\[)?(?:\x1b\x06)?(?:\x1b-T)?(?:\x1b-N)?/T(\d{1,3})(?:\x1b-\])?(?:\r?\n)?$",
         RegexOptions.CultureInvariant);
 
+    // Local formatting on: from this send the server wraps nothing, whatever width was sent before it.
+    private const string LocalFormatting = "/F+";
+
     private readonly record struct Line(int Row, int Offset, string Text, LineKind Kind, int Width, bool InGame);
 
     /// <summary>The changed rows of one run, or null when the gate refused the plan. Empty when there
@@ -51,6 +55,7 @@ public static class WireUnwrap
         var rowWidth = new List<int>();
         var nonRxBefore = new List<int>();   // how many non-rx rows precede each rx row
         var width = 0;
+        var localFormatting = false;
         var nonRx = 0;
         foreach (var row in rows)
         {
@@ -66,8 +71,13 @@ public static class WireUnwrap
             else
             {
                 nonRx++;
-                if (row.Direction == (int)WireDirection.Tx
-                    && WidthCommand.Match(Encoding.Latin1.GetString(row.Data)) is { Success: true } sent
+                if (row.Direction != (int)WireDirection.Tx) continue;
+                var text = Encoding.Latin1.GetString(row.Data);
+                if (text.Contains(LocalFormatting, StringComparison.Ordinal))
+                    localFormatting = true;
+                if (localFormatting)
+                    width = 0;
+                else if (WidthCommand.Match(text) is { Success: true } sent
                     && int.TryParse(sent.Groups[1].Value, out var w))
                     width = w;
             }

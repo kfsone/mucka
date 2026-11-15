@@ -60,6 +60,20 @@ public class WireUnwrapTests
         Assert.Equal([string.Join(" ", Description)], LinesOf(Apply(rows, changes)));
     }
 
+    [Theory]
+    [InlineData("\x1b-[\x1b\x06\x1b-N/F+\x1b-]")]   // what the client sends now
+    [InlineData("\x1b-[/F+\r\nE\r\n\x1b-]")]        // as typed into a command interrupt
+    public void AfterLocalFormattingIsTurnedOn_NothingIsJoined_EvenWithAWidthSentBefore(string localFormatting)
+    {
+        var rows = new List<WireTrim.Row>
+        {
+            Tx(1, EntryAt90), Tx(2, Latin1(localFormatting)), Rx(3, GameModeEntry), Rx(4, Rows(Description)),
+            Tx(5, EntryAt90), Rx(6, Rows(Description)),
+        };
+
+        Assert.Empty(WireUnwrap.Plan(rows)!);
+    }
+
     [Fact]
     public void AParagraphSplitOverSeveralRows_IsJoinedAcrossThem()
     {

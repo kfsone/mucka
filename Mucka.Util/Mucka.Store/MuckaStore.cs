@@ -76,7 +76,8 @@ public sealed class MuckaStore : IDisposable
     /// <param name="wireHealedAtStart">Writes the run with <c>wire_healed_ms</c> already set, for a
     /// writer that joins the reads of each prompt-bounded unit as it records, so the heal at launch has
     /// nothing to do for it. A crash leaves the few rows of the unit open as the reads they arrived in,
-    /// and they stay that way.</param>
+    /// and they stay that way. Every run is written with its <c>wire_unwrapped</c> row: the client sends
+    /// no width (<c>ClientModeEntry</c>), so the server wraps nothing in it.</param>
     public MuckaStore(string path, string host, string? clientVersion = null,
         Action<string, Exception>? onError = null, string? accountId = null, bool wireHealedAtStart = false)
     {
@@ -417,6 +418,8 @@ public sealed class MuckaStore : IDisposable
         command.CommandText =
             "INSERT INTO mucka_runs (uid, started_ms, host, client_version, account_id, wire_healed_ms) " +
             "VALUES ($uid, $started, $host, $version, $account, $healed); " +
+            // wire_unwrapped's rowid is the run's id, so the last rowid is still the run's.
+            "INSERT INTO wire_unwrapped (mucka_run_id, unwrapped_ms) VALUES (last_insert_rowid(), $started); " +
             "SELECT last_insert_rowid();";
         command.Parameters.AddWithValue("$healed", wireHealed ? (object)startedMs : DBNull.Value);
         command.Parameters.AddWithValue("$account", (object?)accountId ?? DBNull.Value);

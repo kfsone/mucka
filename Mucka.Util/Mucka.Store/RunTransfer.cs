@@ -75,7 +75,7 @@ public static class RunTransfer
     private static readonly string[] EncounterChildTables =
         ["encounter_lines", "encounter_stats", "creature_values", "encounter_events"];
 
-    /// <summary>What the player wrote about a login in History. Keyed on the login, as the fact tables
+    /// <summary>What the player wrote about a login in Logs. Keyed on the login, as the fact tables
     /// are, and kept out of <see cref="SessionTables"/>, whose rows are the counted facts.</summary>
     private static readonly string[] SessionLabelTables = ["session_names", "session_tags"];
 
@@ -186,6 +186,7 @@ public static class RunTransfer
             }
 
             var runId = InsertRun(destination, transaction, run);
+            CarryUnwrapped(source, destination, transaction, run.Id, runId);
             var copiedWire = copier.Copy(transaction, "wire", "mucka_run_id = $p", run.Id, "mucka_run_id", runId);
             wireRows += copiedWire;
             counts.Destination.Add(runId, copiedWire, transaction);
@@ -328,6 +329,37 @@ public static class RunTransfer
         command.Parameters.AddWithValue("$version", version);
         command.Parameters.AddWithValue("$account", (object?)run.AccountId ?? DBNull.Value);
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>Marks the copied run unwrapped when the source had unwrapped it, or when a trim in the
+    /// source took rows from it: <c>trimmed</c> is not copied, so the heal here could not see that the
+    /// sends and prompts the unwrap reads as boundaries are gone.</summary>
+    private static void CarryUnwrapped(SqliteConnection source, SqliteConnection destination,
+        SqliteTransaction transaction, long sourceRun, long runId)
+    {
+        using var read = source.CreateCommand();
+        read.CommandText = """
+            SELECT (SELECT unwrapped_ms FROM wire_unwrapped WHERE mucka_run_id = $run),
+                   EXISTS (SELECT 1 FROM trimmed WHERE mucka_run_id = $run);
+            """;
+        read.Parameters.AddWithValue("$run", sourceRun);
+        long? unwrapped;
+        bool trimmed;
+        using (var reader = read.ExecuteReader())
+        {
+            reader.Read();
+            unwrapped = reader.IsDBNull(0) ? null : reader.GetInt64(0);
+            trimmed = reader.GetInt64(1) != 0;
+        }
+        if (unwrapped is null && !trimmed)
+            return;
+
+        using var mark = destination.CreateCommand();
+        mark.Transaction = transaction;
+        mark.CommandText = "INSERT INTO wire_unwrapped (mucka_run_id, unwrapped_ms) VALUES ($run, $at);";
+        mark.Parameters.AddWithValue("$run", runId);
+        mark.Parameters.AddWithValue("$at", unwrapped ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        mark.ExecuteNonQuery();
     }
 
     /// <summary>One row per species and a later reading replaces an earlier one, so the row with the

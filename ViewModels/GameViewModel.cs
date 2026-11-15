@@ -1804,9 +1804,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             else if (string.Equals(name, "EXPORT", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("EXPORT ", StringComparison.OrdinalIgnoreCase))
                 ExportDatabase(name.Length > 6 ? name[7..] : string.Empty);
-            else if (string.Equals(name, "TRIMDB", StringComparison.OrdinalIgnoreCase)
-                || name.StartsWith("TRIMDB ", StringComparison.OrdinalIgnoreCase))
-                TrimDatabase(name.Length > 6 ? name[7..] : string.Empty);
 #if DESKTOP
             else if (string.Equals(name, "MAKEREPLAY", StringComparison.OrdinalIgnoreCase)
                 || name.StartsWith("MAKEREPLAY ", StringComparison.OrdinalIgnoreCase))
@@ -1965,11 +1962,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
         AddSystemLine("  $MARK [@id|\"note\"]    drop a landmark into the log", 14);
         AddSystemLine("  $MARK start|end ...   open/close a nested span (end takes no id)", 14);
         AddSystemLine($"  $SCORE [days] [name]  graph a character's score (default: {ScoreCommandArgs.DefaultDays} days, you)", 14);
-        AddSystemLine("  $trimdb trim [days]   move probe traffic of runs older than days (default 30) to the trimmed table", 14);
-        AddSystemLine("  $trimdb unwrap [days] join lines the server wrapped in runs older than days (default 30); run before trim", 14);
-        AddSystemLine("  $trimdb expire [days] delete trimmed rows (and unwrap originals) older than days for good", 14);
-        AddSystemLine("  $trimdb revert        put every trimmed row back", 14);
-        AddSystemLine("  $trimdb optimize      compact mucka.db (a second Mucka on it stops recording for the rest of its session)", 14);
         AddSystemLine("  $EXPORT [path]        write a snapshot of mucka.db (default ~/.mucka/mucka-export.db)", 14);
         AddSystemLine("                        merge it elsewhere by starting Mucka with: mucka -import <file>", 14);
 #if MACCATALYST
@@ -2114,77 +2106,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     private int _importing;
 
-    /// <summary>$trimdb trim|unwrap|expire|revert|optimize - see <see cref="Mucka.Combat.WireTrim"/> and
-    /// <see cref="Mucka.Store.MuckaStore.Optimize"/>. Off the UI thread, one database job at a time.</summary>
-    private void TrimDatabase(string argument)
-    {
-        var parsed = Mucka.Commands.TrimDbCommandArgs.Parse(argument, Mucka.Combat.WireTrim.DefaultDays, out var error);
-        if (parsed is not { } args)
-        {
-            AddSystemLine($"[trimdb] {error}; usage: $trimdb trim|unwrap|expire [days] | revert | optimize", 9);
-            return;
-        }
-        if (_conn.IsReplay)
-        {
-            AddSystemLine("[trimdb] a replay has a database of its own, which is thrown away with it", 9);
-            return;
-        }
-        var database = _conn.DatabasePath;
-        var days = args.Days;
-
-        switch (args.Verb)
-        {
-            case Mucka.Commands.TrimDbVerb.Trim:
-                RunDatabaseJob("trimdb", $"trimming probe traffic from runs that ended {days} or more days ago ...", () =>
-                {
-                    var r = Mucka.Combat.WireTrim.Trim(database, days, DateTimeOffset.UtcNow);
-                    var message = $"{r.RunsTrimmed} of {r.RunsExamined} runs trimmed: {r.RowsMoved:N0} rows, "
-                        + $"{r.BytesMoved:N0} bytes, moved to the trimmed table";
-                    if (r.RunsRefused > 0)
-                        message += $"; {r.RunsRefused} runs left alone because their lines would have changed";
-                    return (message + "; $trimdb revert puts them back", true);
-                }, maintenance: "Trimming probe traffic from the wire log");
-                break;
-            case Mucka.Commands.TrimDbVerb.Unwrap:
-                RunDatabaseJob("trimdb", $"joining server-wrapped lines in runs that ended {days} or more days ago ...", () =>
-                {
-                    var r = Mucka.Combat.WireTrim.Unwrap(database, days, DateTimeOffset.UtcNow);
-                    var message = $"{r.RunsUnwrapped} of {r.RunsExamined} runs unwrapped: {r.RowsChanged:N0} rows changed";
-                    if (r.RunsRefused > 0)
-                        message += $"; {r.RunsRefused} runs left alone because their lines would have come out wrong or a trim has been over them";
-                    return (message + "; $trimdb revert puts the original bytes back", true);
-                }, maintenance: "Joining the lines the server wrapped");
-                break;
-            case Mucka.Commands.TrimDbVerb.Expire:
-                RunDatabaseJob("trimdb", $"deleting trimmed rows older than {days} days ...", () =>
-                {
-                    var removed = Mucka.Combat.WireTrim.Expire(database, days, DateTimeOffset.UtcNow);
-                    var (rows, bytes) = Mucka.Combat.WireTrim.Waiting(database);
-                    return ($"{removed:N0} rows deleted for good; {rows:N0} rows ({bytes:N0} bytes) still waiting in the "
-                        + "trimmed table", true);
-                }, maintenance: "Deleting old trimmed rows");
-                break;
-            case Mucka.Commands.TrimDbVerb.Revert:
-                RunDatabaseJob("trimdb", "putting trimmed rows back ...", () =>
-                {
-                    var (restored, skipped) = Mucka.Combat.WireTrim.Revert(database);
-                    var message = $"{restored:N0} rows put back";
-                    if (skipped > 0)
-                        message += $"; {skipped:N0} could not go back because another row has their id, and stay in the trimmed table";
-                    return (message, true);
-                }, maintenance: "Putting trimmed rows back");
-                break;
-            default:
-                RunDatabaseJob("trimdb", "compacting mucka.db; this log is paused until it finishes, and a second Mucka on the file will stop recording ...", () =>
-                {
-                    if (_conn.OptimizeDatabase() is not { } r)
-                        return ("another pass over the wire log is running; try again when that is done", false);
-                    return ($"{r.BytesBefore / (1024 * 1024):N0} MB -> {r.BytesAfter / (1024 * 1024):N0} MB", true);
-                }, maintenance: "Compacting the database");
-                break;
-        }
-    }
-
     /// <summary>$EXPORT [path] - see <see cref="Mucka.Store.RunTransfer.Export"/>. The merge half is
     /// <c>mucka -import</c> (<see cref="Mucka.Store.DatabaseImport"/>), which needs the database
     /// closed and so cannot be a command in a running client.</summary>
@@ -2247,8 +2168,7 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
 
     /// <summary>Runs <paramref name="work"/> off the UI thread, one database job at a time, and reports
     /// its message (or its exception) as a system line tagged <c>[label]</c>.</summary>
-    private void RunDatabaseJob(string label, string startMessage, Func<(string Message, bool Ok)> work,
-        string? maintenance = null)
+    private void RunDatabaseJob(string label, string startMessage, Func<(string Message, bool Ok)> work)
     {
         if (Interlocked.Exchange(ref _importing, 1) != 0)
         {
@@ -2263,9 +2183,6 @@ public sealed class GameViewModel : BaseViewModel, IAsyncDisposable
             byte color = 14;
             try
             {
-                // The maintenance overlay for as long as the work takes, when it is the kind that
-                // keeps the log from serving the window.
-                using var job = maintenance is null ? null : Mucka.Store.Maintenance.Begin(maintenance);
                 var (text, ok) = work();
                 message = $"[{label}] {text}";
                 if (!ok) color = 9;

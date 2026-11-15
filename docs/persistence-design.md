@@ -28,9 +28,9 @@ These came from the operator and are decisions, not options.
 - One database. Wire log, clogs, combat - all of it, one file: `~/.mucka/mucka.db`.
 - Logging is not optional. There is no `logwiresession` setting, no hand-armed capture and no UI
   for either.
-- The wire log is tidied by two passes, described under "Wire log upkeep": one the client starts
-  itself, which changes no byte, and one the operator starts with `$trimdb`, which is reversible
-  until `expire`.
+- The wire log is tidied by two kinds of pass, described under "Wire log upkeep": one the client
+  starts itself, which changes no byte, and the ones the player starts from the Logs page, which are
+  reversible until they are deleted for good.
   Consolidating text so that beyond a few weeks the store no longer holds raw literal text is not
   done.
 
@@ -49,7 +49,7 @@ line is recoverable from it by decode.
 A table of every line with its C1 codes does not exist. The parser does put the codes on the line:
 `StyledLine.Codes` holds, once each, the code of the innermost colour frame each run of the line's
 text arrived in (`Mud2C1Decoder.OpenCode`, set by the dispatch that pushed the frame), beside
-`LineKind` (`mudsharp/Models/LineKind.cs`), a semantic reduction of a few codes. The History viewer's
+`LineKind` (`mudsharp/Models/LineKind.cs`), a semantic reduction of a few codes. The Logs viewer's
 filters read them from a recording, parsed when a Session is opened; nothing stores them. Per
 CLAUDE.md the code is the authority where the prose is not, so a `lines` table would carry them.
 
@@ -180,13 +180,13 @@ Nothing persistence-related is in the DI container; `MauiProgram.cs` registers o
 - Inside a game, the two readers are `FightHistoryStore.LoadAsync` and the swing ledger's warm-up
   (`SwingLedger.WarmCore`), both fired from `MuckaConnection` and both opening their own short-lived
   connection.
-- Outside one, the connect page's Score and History pages each open a short-lived connection of
+- Outside one, the connect page's Score and Logs pages each open a short-lived connection of
   their own: `ScoreHistoryReader` and `SessionHistoryReader` read, and `SessionLabels` writes one
-  Session's title or tags in one transaction (`docs/history-design.md`).
+  Session's title or tags in one transaction (`docs/logs-design.md`).
 - No DI registration is added. A container entry would claim an app-run lifetime the store does not
   have.
 
-The type is `MuckaStore`. It owns the write connection, the writer task, and the row queue; it is
+The type is `MuckaStore`. It owns the write connection, the writer thread, and the row queue; it is
 constructed in `MuckaConnection` and disposed by it, and the writer classes (`SwingLedger`,
 `FightHistoryStore`, `ClogWriter`, `WireLogWriter`) take it as a constructor argument rather than a
 database path. `MuckaConnection` takes the host as a constructor argument for the same reason: the
@@ -340,8 +340,9 @@ Added by later scripts:
 
 | Table | Script | Notes |
 |---|---|---|
-| `trimmed` | `0008_wire_heal_and_trim.sql` | rows `$trimdb trim` took out of `wire`: its columns, the same ids, plus `trimmed_ms` and `reason`. Empty until a trim runs |
-| `session_names`, `session_tags` | `0010_session_names_and_tags.sql` | the title (`session_names.name`) and tags a player gives a Session in History (`SessionLabels`). Keyed on `persona_session_id` like the fact tables, so `RunTransfer` carries them by the same id rewrite; tags are rows, one per tag. Empty until a player titles or tags something |
+| `trimmed` | `0008_wire_heal_and_trim.sql` | rows a trim (the Logs page) took out of `wire`, and the originals of rows `$trimdb unwrap` changed: its columns, the same ids, plus `trimmed_ms` and `reason`. Empty until a trim runs |
+| `session_names`, `session_tags` | `0010_session_names_and_tags.sql` | the title (`session_names.name`) and tags a player gives a Session on the Logs page (`SessionLabels`). Keyed on `persona_session_id` like the fact tables, so `RunTransfer` carries them by the same id rewrite; tags are rows, one per tag. Empty until a player titles or tags something |
+| `wire_unwrapped` | `0011_wire_unwrap.sql` | one row per run `WireHeal`'s unwrap has been over, keyed on `mucka_run_id`, with `unwrapped_ms`; a run this client records gets its row when it is written. `RunTransfer` carries it (`CarryUnwrapped`), and also writes it for a run a trim in the source file took rows from, because `trimmed` is not carried and the heal here could not see the gap |
 | `some_kinds` | `0005_some_kinds.sql` | one row per species: whether MUD2 calls it "someone" or "something" when unseen. Nothing in the client reads or writes it; it stays because shipped schema is frozen, and `RunTransfer` carries its rows between databases. The unseen book's class lookup is `SomeKindKnowledge.Known`, seeded and read-only |
 
 The seven encounter tables, which hold what the clog files used to:
@@ -515,8 +516,9 @@ defaults to `mucka-export.db` in the data directory.
 
 ## Wire log upkeep
 
-`mucka_runs.wire_healed_ms` (added by `0008_wire_heal_and_trim.sql`) says that a run needs no pass of
-`WireHeal`: it has had its one pass, or it was written already joined.
+`mucka_runs.wire_healed_ms` (added by `0008_wire_heal_and_trim.sql`) says that a run needs no join by
+`WireHeal`: it has had its one pass, or it was written already joined. A `wire_unwrapped` row
+(`0011_wire_unwrap.sql`) says the same of the unwrap.
 
 **Joined as it is written.** The tap writes one row per socket read, as it arrives. The parser's
 `PromptClosed` (the prompt container closing, shown or not, so a heartbeat's naked prompt counts) ends
@@ -546,8 +548,13 @@ it on game mode being entered. The unit's bytes go into the row of its last read
 reads are removed; tx rows and annotations stay, and no byte changes. A gap in `seq` (a row another
 pass removed, which a revert has to find the neighbours of as they were) abandons the open unit.
 Reads outside game mode are left as they are, as they are live. The joined row carries the last
-read's `ts_ms`, so a fragment's own arrival time is lost. Heal has no revert of its own: what undoes a
-heal is the backup it takes first (below).
+read's `ts_ms`, so a fragment's own arrival time is lost. Then, for every ended run with no
+`wire_unwrapped` row, the unwrap (`WireUnwrap`, docs/line-wrapping.md "Old recordings") rewrites in
+place the rx rows whose lines the server wrapped, keeping no copy, and records the run. A run the gate
+refuses, and a run a trim has taken probe rows from, is recorded unchanged, so neither is replayed at
+every launch. Restore (`WireTrim.Revert`) deletes the `wire_unwrapped` row of every run it gives a
+row back to, so the next launch unwraps it: a run passed over for its trim, and a run whose
+`$trimdb unwrap` originals went back. Heal has no revert of its own: what undoes a heal is the backup it takes first (below).
 
 **Backup, and the overlay.** When `WireHeal.PendingRuns` is not zero, `RunWithBackup` takes
 `DatabaseBackup.TakeOnce` before it heals: `VACUUM INTO` from a read-only connection to `mucka.old.db`
@@ -555,9 +562,10 @@ beside the database, the same file `DatabaseImport` leaves its previous database
 whatever was there, so there is one extra copy and never more. A launch takes one: `TakeOnce` takes
 none when this process already holds a backup of the file, and an import that kept its previous
 database counts as one (`DatabaseBackup.NoteKept`), so a heal after an `-import` leaves the import's
-copy, the state before either, where it is. `$trimdb expire` uses the same call before its first
-change, and takes none when it has nothing to change; `trim` and `unwrap` take none, because `revert`
-undoes them, and `revert` and `optimize` take none, because neither loses a byte. A schema upgrade of an existing file takes it first as well:
+copy, the state before either, where it is. The Logs page's Flush (`WireTrim.Expire`)
+and Delete (`SessionRecording.Delete`) use the same call before their first change, and Expire takes
+none when it has nothing to change; Trim takes none, because Restore undoes
+it, and Restore, Shrink mucka.db and Delete backups take none, because none loses a recorded byte. A schema upgrade of an existing file takes it first as well:
 `MuckaDb.ApplySchema` calls `TakeOnce` before the adopter or any script runs, so the backup is the file
 as the previous release left it, and a heal after it takes none. An upgrade whose pending scripts all
 only add an index or table takes none: they are listed in `MigrationScripts.IsAdditive`, a script
@@ -569,7 +577,7 @@ failing - stops whatever asked for it, a schema upgrade included, so the store d
 scripts released so far remove columns and tables and a stranger's file has no other copy; the next
 launch tries again, and the `never` choice of the Data tab is the way out. Heal holds `WireMaintenance.Gate` from the
 backup to the end. While a schema upgrade runs on a file that already has tables (a new file is created
-with no overlay), while a heal runs, and for every `$trimdb` verb, the pages show `MaintenanceOverlay`
+with no overlay), while a heal runs, and for every pass the Logs page starts, the pages show `MaintenanceOverlay`
 over the window ("Putting MUD back in the barrel", "Data maintenance", a spinner, and a line saying what is
 being done). It is driven by `Maintenance.Current`, which the work opens a job on. It takes the
 pointer and not the keyboard: the command box still owns that, and takes focus back when the overlay
@@ -582,9 +590,11 @@ the settings page: `startup` (every launch that is about to make one), `hourly`,
 read first thing at launch into `DatabaseBackup.Policy`; absent means `startup`. `DatabaseBackup.IsDue`
 applies it, and `TakeOnce` and the overlay's choice of wording both ask it. A choice is made live and is
 not part of Save. The risky changes are a schema upgrade with a script that is not additive, the heal,
-and `$trimdb expire`; an additive upgrade, `trim`, `unwrap`, `revert` and `optimize` never back up.
+Flush and Delete; an additive upgrade, Trim, Restore and Shrink mucka.db
+never back up. The Logs page's Delete backups (`DatabaseBackup.Delete`) removes the backup and
+forgets that this launch holds one, so the next risky change takes a new one.
 
-**One process at a time.** The upgrade, every backup, the heal and the `$trimdb` verbs run under
+**One process at a time.** The upgrade, every backup, the heal and the Logs page's passes run under
 `DatabaseLock`: the database's path plus `DatabaseLock.Suffix`, opened with no sharing for the length of
 the work, so each database file has a lock of its own. The system owns it, so a Mucka that is killed
 releases it and nothing is left stale; the file's existence means nothing and only an open handle on it
@@ -598,9 +608,9 @@ backup over the first one's. A caller that gets the lock at once opens no job. T
 thread and nests, so the heal's own open does not wait on the heal; it is always taken before
 `WireMaintenance.Gate`, never after.
 
-The waiting job can be given up on (`MaintenanceTracker.CanCancel`), except where the work was started
-inside a running game: the `$trimdb` verbs, `optimize` included, pass `canGiveUp: false`, because the
-overlay's exit quits the whole client. While a giveable job is the newest, `MaintenanceOverlay` says why -
+The waiting job can be given up on (`MaintenanceTracker.CanCancel`), except where the player started
+the work: the Logs page's passes pass `canGiveUp: false`, because the overlay's exit quits the whole
+client. While a giveable job is the newest, `MaintenanceOverlay` says why -
 another Mucka has the database and this one waits its turn - and offers `MaintenanceOverlay.ExitText`,
 which cancels the wait (`DatabaseLock.Acquire` throws `OperationCanceledException`, which the start-up
 sequence does not log) and quits.
@@ -608,20 +618,20 @@ sequence does not log) and quits.
 SQLite cannot hold this: the backup, the upgrade and the heal are separate transactions on separate
 connections, so a write transaction held across them would block the upgrade's own. A row in a table
 would survive a crash and need a way to tell it was stale. A Mucka that is only recording a game neither
-waits for the lock nor holds it; the work above does, a `$trimdb` verb run inside a game included. The start-up backfills and
+waits for the lock nor holds it; the work above does. The start-up backfills and
 `CloseAbandonedRuns` are each a short transaction and take no lock and no backup.
 
-The passes of `WireMaintenance` - heal, trim, unwrap, expire and revert - hold one in-process gate,
-so they do not interleave. The passes a player starts in a game - trim, unwrap, expire and revert -
-sleep `WireMaintenance.PauseBetweenTransactions` between transactions of a few hundred rows: this
-process's own writer is recording that game, and it faults the store when a commit cannot get the lock
-for the busy timeout. MUST GO AWAY: `$trimdb` is a verb only until its management screen exists, which
-will not run during a game, and the pauses go with it. The heal runs at launch, before this process has
-a game, and does not sleep; a second Mucka that is already recording is not given room by it. A
+The passes over the wire log - heal (with its unwrap), trim, expire, revert and delete - hold one in-process gate,
+`WireMaintenance.Gate`, so they do not interleave. None runs beside a game of this process: the heal
+runs at launch, before there is one, and the rest from the Logs page, which opens only from the
+connect page, under which the game page is never kept. Trim, expire and revert commit in
+transactions of `WireTrim.RowsPerTransaction` rows, between which a second Mucka recording into the
+same file gets the write lock; one kept waiting longer than its busy timeout faults its store. Delete is
+one transaction, so a Session's recording goes whole or not at all. A
 second Mucka on the same file is not under that gate; heal checks that the row it keeps is still
-there before it removes the rows behind it, and trim and unwrap change a row only when `trimmed`
-holds a copy of that same row (id, run and seq), because the ids of the last rows of `wire` are
-reused once deleted. A run that has not ended is never touched, because another client may be
+there before it removes the rows behind it, the unwrap changes a row only by its id, run and seq
+together, and trim removes a row only when `trimmed` holds a copy of that same row (id, run and seq),
+because the ids of the last rows of `wire` are reused once deleted. A run that has not ended is never touched, because another client may be
 writing it. The parser makes the same complete lines of the joined rows as of the fragments
 (`WireHealTests`).
 
@@ -629,8 +639,9 @@ writing it. The parser makes the same complete lines of the joined rows as of th
 `WireMaintenance` are in `Mucka.WireLog`, which the live writer and a command-line reader use without
 it.
 
-**Trim, started by the operator.** `$trimdb trim [days]` takes, from runs that ended `days` or more
-ago (`WireTrim.DefaultDays`) and that heal has been over, every probe send and every response to a
+**Trim, started by the player.** The Logs page's Trim old Sessions (`WireTrim.Trim`) takes, from runs
+that ended a number of days or more ago (`WireTrim.DefaultDays` offered) and that heal has joined and unwrapped,
+and a Session's own Trim (`WireTrim.TrimSession`) from that Session's slice of its run, every probe send and every response to a
 probe (FES alone, or with FEW, FEI or both) that repeated the one before. A response is kept, not
 taken, when it is the first after a login (a game-mode entry or a persona wipe), when anything in it
 changed (every stats field but the time to reset; each name of the who list with its colour; the
@@ -642,21 +653,18 @@ or not at all, and a row that carries ordinary output as well is never taken.
 DECISION Trim works on whole `wire` rows and does not cut a response out of a row that carries
 other output. A response need not arrive in one socket read, so a cut within a row cannot see where
 the response ends. The reads of a prompt-bounded unit are now joined into one row, which is what a cut
-would need; no cut is built, and it would follow `Unwrap`'s pattern (the original row into `trimmed`,
-revert writing it back over the new bytes). Each run is replayed through `MudStreamParser` before and after, and a
-run whose lines would change is left alone. `$trimdb revert` puts every row back by id;
-`$trimdb expire [days]` deletes rows trimmed that long ago, aged by `trimmed_ms` and not by the
-row's own time, which is old by construction.
+would need; no cut is built, and it would follow the pattern Restore already handles for the reason
+`unwrap` (the original row into `trimmed`, revert writing it back over the new bytes). Each run is replayed through `MudStreamParser` before and after, and a
+run whose lines would change is left alone. A Session's Trim plans its whole run, as the old-Sessions
+pass does, and takes only the planned rows inside the Session's slice (`SessionRecording.RangeOf`); the
+run passes the same gate with just those gone. Restore (`WireTrim.Revert`) puts every row back by id;
+Flush deletes the whole trim backup: `WireTrim.Expire` at an age of 0, which ages a row by
+`trimmed_ms`, not by the row's own time, which is old by construction.
 
-**Unwrap, started by the operator.** `$trimdb unwrap [days]` is `WireTrim.Unwrap`: for runs that
-ended that long ago it joins the lines the server wrapped (`WireUnwrap`, docs/line-wrapping.md). A
-row it changes stays in `wire` with its new bytes, after its original is copied into `trimmed` under
-the reason `unwrap`; `$trimdb revert` writes the original bytes back over it, and a row whose id has
-been taken by another since is skipped. Each run is parsed again after the rewrite and refused if its
-lines are not exactly the old lines with the joins made. `$trimdb expire` removes unwrap originals
-along with probe rows, and `$trimdb revert` undoes both kinds at once. Unwrap leaves a run alone
-once a trim has taken probe rows from it, because the sends and responses a trim removes are what
-mark where one turn ends and the next begins: revert, unwrap, then trim.
+**What `$trimdb unwrap` left.** A file that `$trimdb unwrap` went over holds, in `trimmed` under the
+reason `unwrap` (`WireTrim.ReasonUnwrap`), the original bytes of rows that are still in `wire` with
+new ones. Restore writes those bytes back over the row, and a row whose id has been taken by another
+since is skipped; Flush removes them with the probe rows. Nothing files rows under that reason.
 
 EVIDENCE On a copy of the operator's database (226,390,016 bytes, 1,720,018 wire rows, 499 runs, on
 2026-11-01), with the heal that joined up to the line feed under a one-second gap bound and the pauses
@@ -665,7 +673,7 @@ every row and has not been timed): the first heal joined
 377,606 lines and removed 452,908 rows in 553.8 s; `trim` at 30 days moved 335,954 rows
 (23,277,241 bytes) out of 193 of 212 eligible runs and refused none, in 227.2 s; `revert` restored
 all 335,954 in 118.6 s and left the row count where the heal had put it (1,267,110). Before the gap
-bound and the pauses, the same heal took 190.5 s and removed 476,192 rows. A dry run of `unwrap` over the 499 ended runs of the healed copy would change 56,489 rows in 410 of
+bound and the pauses, the same heal took 190.5 s and removed 476,192 rows. A dry run of `$trimdb unwrap` over the 499 ended runs of the healed copy would change 56,489 rows in 410 of
 them and refuse none (199.6 s). Before the joins were limited to lines that follow each other
 directly, the same dry run on the unhealed copy changed 55,632 rows and refused 6; why those 6 were
 refused was not established.
@@ -674,10 +682,6 @@ DECISION Every probe send is taken, whether or not its response is, and bare FES
 them: the operator asked for the sends to go. The rejected option is the earlier policy of a
 probe taken whole or not at all, so that no response is left without its request. A kept response has lost the send that asked for it, and its own row still carries its
 `ts_ms`.
-
-DECISION Unwrap infers where the server wrapped, from the rule in docs/line-wrapping.md, and is a
-command rather than something the client does itself. Reversibility ends at `expire`. The rejected
-option is changing `wire` with no copy.
 
 FACT `seq` is gapless only in a run written one row per read (`nettimes` on) that no pass has been
 over. The live writer's joining, heal and trim leave gaps on purpose and `seq` still orders what is
@@ -693,15 +697,18 @@ DECISION `trimmed` carries a column `wire` does not. Aging an expiry by the row'
 rejected: every row a trim picks is already older than the default expiry, so expiry would make each
 trim final the moment it ran and leave revert nothing to restore.
 
-**Optimize.** `$trimdb optimize` is `MuckaStore.Optimize`: checkpoint, `ANALYZE`, `VACUUM` and a
-checkpoint on the writer's own connection while it holds the batch gate, then the pooled readers are
-dropped. The writer waits, producers queue, and nothing is lost unless the client quits during it.
-A second Mucka on the file, and this one's own short-lived connections, are not under the gate and
-give up after the busy timeout, which faults that store for the rest of its session. It needs room for
-two copies of the file on its drive and on the temp drive and refuses without it. It takes
-`DatabaseLock` and then `WireMaintenance.Gate` before it starts, and does not start while another pass
-holds the gate: `MuckaConnection.OptimizeDatabase` returns nothing and the command says another pass over
-the wire log is running. A pass that starts during an optimize waits for it.
+**Shrink mucka.db.** The Logs page's Shrink mucka.db is `DatabaseVacuum.Shrink`: checkpoint, `ANALYZE`, `VACUUM`
+and a checkpoint on a connection of its own, then the pooled connections are dropped. No writer of this
+process is recording while the Logs page is open. A second Mucka on the file gives up after the busy
+timeout, which faults that store for the rest of its session, and the page says to close any other
+Mucka first. It needs room for two copies of the file on its drive and on the temp drive and refuses
+without it. It takes `DatabaseLock`, which every pass over the wire log takes first, so none runs beside
+it.
+
+DECISION (operator) `$trimdb` is retired: its verbs are the Logs page's Maintenance tab, which is never
+open during a game, so the passes no longer pause between transactions for this process's own writer.
+The rejected options are keeping the command beside the tab, and putting the tab in the settings page,
+which also opens during a game.
 
 ## Paths, and what the store is allowed to assume
 

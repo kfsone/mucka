@@ -2,7 +2,7 @@ namespace Mucka.Store;
 
 /// <summary>
 /// What the client shows over its window while it works on the database and the player cannot be
-/// served by it: a schema upgrade, a heal of the wire log, a <c>$trimdb</c> pass. The work calls
+/// served by it: a schema upgrade, a heal of the wire log, a pass from the Logs page. The work calls
 /// <see cref="MaintenanceTracker.Begin"/> and disposes the job; the pages show their overlay for as
 /// long as any job is open. No MAUI here, so the rule is testable on its own.
 /// </summary>

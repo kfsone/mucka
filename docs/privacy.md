@@ -24,12 +24,12 @@ Everything Mucka keeps, it keeps on the device it runs on:
   a password typed or sent at a login prompt. The database also keeps your score history and your
   fight records, built from those sessions.
 - **Replays** - a session you save with `$MAKEREPLAY` (Windows and macOS) or with Save as Replay in
-  History (every platform), in your replays folder (`~/.mucka/replays` on a desktop): what the
+  Logs (every platform), in your replays folder (`~/.mucka/replays` on a desktop): what the
   server sent, with your account ID replaced by a stand-in where the game prints it (an ID you say
   in the game yourself stays). Nothing you typed is in it, your password included, but what the
   server sent back is - your character's name, and other players' names and words.
   Watching a replay records nothing in the session database.
-- **Text logs** - a session you save as a Text log, Simple Color Log or Fancy Color Log in History
+- **Text logs** - a session you save as a Text log, Simple Color Log or Fancy Color Log in Logs
   (Windows and macOS), wherever you choose: the screen from entering the game to leaving it, as
   plain text (a Color Log adds the screen's colours as terminal colour codes: Simple uses only the
   terminal's 16 colours, Fancy uses Mucka's own exact colours; both leave your terminal's default

@@ -18,15 +18,23 @@ namespace Mucka.Combat;
 /// traffic.</para>
 ///
 /// <para>A gap in <c>seq</c> abandons the open unit. A gap is a row another pass removed
-/// (<c>$trimdb</c>), and a revert must find the rows around it as they were.</para>
+/// (a trim from the Logs page), and a revert must find the rows around it as they were.</para>
 ///
 /// <para>The joined row carries the last read's <c>ts_ms</c>, so what the earlier reads arrived at is
-/// lost. The bytes are never changed.</para>
+/// lost. The join changes no byte.</para>
 ///
-/// <para>Each run is healed once: <c>mucka_runs.wire_healed_ms</c> records the pass, and a run written
-/// joined carries it from the start. A run that has not ended is skipped, because another client may
-/// still be writing it. The work is committed in small transactions and does not pause between them:
-/// it runs at launch, before this process has a game whose writer it could keep from the lock.</para>
+/// <para><b>Unwrap.</b> After the join, a run's rx rows are rewritten in place to take out the line
+/// wrapping the server did at the width the client sent (<see cref="WireUnwrap"/>). That rewrite does
+/// change bytes, and the launch's backup is the only way back, when the player's policy takes one. A run a trim has been over is passed
+/// over: the trim took the sends and responses that mark where one turn ends and the next begins, and
+/// joining lines across the gap would join lines of different turns.</para>
+///
+/// <para>Each run is healed once and unwrapped once: <c>mucka_runs.wire_healed_ms</c> and a
+/// <c>wire_unwrapped</c> row record the passes, and a run this client records carries the second from
+/// the start, and the first when it is written joined. A run that has not ended is skipped, because
+/// another client may still be writing it. The join is committed in small transactions, and a run's
+/// unwrap in one transaction with its mark, without a pause between them: it runs at launch, before
+/// this process has a game whose writer it could keep from the lock.</para>
 /// </summary>
 public static class WireHeal
 {
@@ -34,14 +42,20 @@ public static class WireHeal
     public const int JoinsPerTransaction = 200;
 
     /// <summary>What a pass did.</summary>
-    public sealed record Result(int RunsHealed, long RowsRemoved, long GroupsJoined);
+    public sealed record Result(int RunsHealed, long RowsRemoved, long GroupsJoined, long RowsUnwrapped);
 
-    /// <summary>How many ended runs <see cref="Run"/> has yet to heal.</summary>
+    private const string NotUnwrapped =
+        "NOT EXISTS (SELECT 1 FROM wire_unwrapped u WHERE u.mucka_run_id = mucka_runs.id)";
+
+    private const string PendingWhere =
+        "ended_ms IS NOT NULL AND (wire_healed_ms IS NULL OR " + NotUnwrapped + ")";
+
+    /// <summary>How many ended runs <see cref="Run"/> has yet to heal or unwrap.</summary>
     public static int PendingRuns(string dbPath)
     {
         using var connection = MuckaDb.OpenRead(dbPath);
         using var count = connection.CreateCommand();
-        count.CommandText = "SELECT COUNT(*) FROM mucka_runs WHERE ended_ms IS NOT NULL AND wire_healed_ms IS NULL;";
+        count.CommandText = $"SELECT COUNT(*) FROM mucka_runs WHERE {PendingWhere};";
         return Convert.ToInt32(count.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture);
     }
 
@@ -89,27 +103,32 @@ public static class WireHeal
         connection.Open();
         Execute(connection, "PRAGMA busy_timeout=10000;");
 
-        var runs = new List<long>();
+        var runs = new List<(long Id, bool Join, bool Unwrap)>();
         using (var find = connection.CreateCommand())
         {
             find.CommandText =
-                "SELECT id FROM mucka_runs WHERE ended_ms IS NOT NULL AND wire_healed_ms IS NULL ORDER BY id;";
+                $"SELECT id, wire_healed_ms IS NULL, {NotUnwrapped} FROM mucka_runs WHERE {PendingWhere} ORDER BY id;";
             using var reader = find.ExecuteReader();
             while (reader.Read())
-                runs.Add(reader.GetInt64(0));
+                runs.Add((reader.GetInt64(0), reader.GetBoolean(1), reader.GetBoolean(2)));
         }
 
         var healed = 0;
-        long removed = 0, joined = 0;
-        foreach (var run in runs)
+        long removed = 0, joined = 0, unwrapped = 0;
+        foreach (var (run, join, unwrap) in runs)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var (rowsRemoved, groups) = HealRun(connection, run, cancellationToken);
-            removed += rowsRemoved;
-            joined += groups;
+            if (join)
+            {
+                var (rowsRemoved, groups) = HealRun(connection, run, cancellationToken);
+                removed += rowsRemoved;
+                joined += groups;
+            }
+            if (unwrap)
+                unwrapped += UnwrapRun(connection, run, cancellationToken);
             healed++;
         }
-        return new Result(healed, removed, joined);
+        return new Result(healed, removed, joined, unwrapped);
     }
 
     /// <summary>The joins one run's rows call for: <paramref name="KeepId"/>, with its
@@ -213,6 +232,49 @@ public static class WireHeal
         mark.Parameters.AddWithValue("$id", run);
         mark.ExecuteNonQuery();
         return (removed, joins.Count);
+    }
+
+    // The rows of one run the unwrap changes, rewritten in place, and the run marked unwrapped - also
+    // when the gate refuses the plan or a trim has been over the run, so neither is replayed at every
+    // launch. One transaction with the mark: a line already joined is longer than the width allows a
+    // wrapped row to be, so a run left half unwrapped would never have the rest of a paragraph joined.
+    private static long UnwrapRun(SqliteConnection connection, long run, CancellationToken cancellationToken)
+    {
+        var changes = (WireTrim.HasTrimmedProbes(connection, run)
+            ? null
+            : WireUnwrap.Plan(WireTrim.ReadRows(connection, run))) ?? new List<WireUnwrap.Changed>();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        long changed = 0;
+        using var transaction = connection.BeginTransaction();
+        using (var update = connection.CreateCommand())
+        {
+            update.Transaction = transaction;
+            update.CommandText =
+                "UPDATE wire SET data = $data WHERE id = $id AND mucka_run_id = $run AND seq = $seq;";
+            var data = update.Parameters.Add("$data", SqliteType.Blob);
+            var id = update.Parameters.Add("$id", SqliteType.Integer);
+            var seq = update.Parameters.Add("$seq", SqliteType.Integer);
+            update.Parameters.AddWithValue("$run", run);
+            foreach (var change in changes)
+            {
+                data.Value = change.Data;
+                id.Value = change.Id;
+                seq.Value = change.Seq;
+                changed += update.ExecuteNonQuery();
+            }
+        }
+
+        using (var mark = connection.CreateCommand())
+        {
+            mark.Transaction = transaction;
+            mark.CommandText = "INSERT OR IGNORE INTO wire_unwrapped (mucka_run_id, unwrapped_ms) VALUES ($id, $now);";
+            mark.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            mark.Parameters.AddWithValue("$id", run);
+            mark.ExecuteNonQuery();
+        }
+        transaction.Commit();
+        return changed;
     }
 
     internal const string ReadRowsSql =

@@ -5,7 +5,7 @@ namespace Mucka.Store;
 /// <summary>
 /// The one backup of <c>mucka.db</c> the client keeps: <see cref="FileName"/>, beside the database.
 /// A schema upgrade of an existing file (<see cref="MuckaDb.ApplySchema(SqliteConnection, MaintenanceTracker, bool, string)"/>),
-/// a heal of the wire log, and a <c>$trimdb</c> trim, unwrap or expire, take it first, an import
+/// a heal of the wire log, and the Logs page's expire and delete take it first, an import
 /// (<see cref="DatabaseImport"/>) leaves the
 /// previous database under the same name, and each replaces whatever was there, so there is never
 /// more than one extra copy of the file.
@@ -92,6 +92,21 @@ public static class DatabaseBackup
             return null;
         var bytes = Take(databasePath);
         NoteKept(databasePath);
+        return bytes;
+    }
+
+    /// <summary>Delete backups, on the Logs page: removes the backup of <paramref name="databasePath"/>
+    /// and returns the bytes it held, and forgets that this process holds one, so the next risky change
+    /// takes a new backup rather than trusting the one gone. Under <see cref="DatabaseLock"/>, as taking
+    /// one is.</summary>
+    public static long Delete(string databasePath)
+    {
+        using var held = DatabaseLock.Acquire(databasePath, Maintenance.Current, canGiveUp: false);
+        var target = PathFor(databasePath);
+        var bytes = FileLength(target);
+        DeleteWithSidecars(target);
+        lock (KeptThisSession)
+            KeptThisSession.Remove(Key(databasePath));
         return bytes;
     }
 

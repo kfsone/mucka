@@ -103,25 +103,37 @@ widths, and `ATextRecordedAtTwoWidths_ReproducesBothWrappings` reproduces both.
 ## Old recordings
 
 FACT A recording made while the server wrapped holds the server's rows as separate lines, which the
-pane then wraps again at its own width. `$trimdb unwrap` (`WireUnwrap`) joins them, for runs that
-ended some days ago, using the width the client sent with `/T` before each row.
+pane then wraps again at its own width. `WireHeal`'s unwrap (`WireUnwrap`) joins them, once per ended
+run, at launch, using the width the client sent with `/T` before each row, and none from the first
+`/F+` on, after which the server wraps nothing. The client sends no width, so a run it records is
+written as already unwrapped (`MuckaStore`, the `wire_unwrapped` table).
 
-DECISION It infers, and is a command rather than something the client does itself. A server wrap and
-a line the server ended on purpose are the same bytes. Two consecutive game-mode lines are one wrapped
+DECISION (operator) It infers, and the client does it by itself at launch. The rejected options are
+a button on the Logs page and deleting the pass. A server wrap and
+a line the server ended on purpose are the same bytes, so a line the server ended just before a word
+that would not have fitted is joined too. Two consecutive game-mode lines are one wrapped
 line when the first holds at most W-2 characters, does not end in a space, the next word would not
 have fitted, the second does not begin with a space, and the second line's first character follows
 the first line's terminator directly: a code, a pop, a prompt or a probe block between them means the
 first line closed a paragraph or a turn. Only a width the client sent as the width command itself
 counts, never a `/T` inside something the player typed. The splash and the menus, lines with a C1
 kind, and a run that sent no width are left alone. A run is refused when the rewritten stream does not
-parse to exactly the old lines, kinds included, with the joins made. Every row it changes is copied
-first and can be put back with `$trimdb revert`, until `$trimdb expire` removes the copy.
-enforced_by: `WireUnwrapBoundaryTests`, `WireUnwrapTests`, `WireTrimTests.AnUnwrap_JoinsTheLinesTheServerWrapped_AndRevertPutsTheOriginalBytesBack`
+parse to exactly the old lines, kinds included, with the joins made, and such a run is not tried
+again.
+enforced_by: `WireUnwrapBoundaryTests`, `WireUnwrapTests`, `WireTrimTests.TheHeal_UnwrapsARunItHasAlreadyJoined_InPlace_AndKeepsNoCopy`
 
 DECISION Unwrap is an exception to "evidence is immutable" (CLAUDE.md), taken because the wire log is
-the only record and a replay of a server-wrapped run wraps twice. The rejected option is changing
-`wire` with no copy. Run it before `$trimdb trim`: trim removes the probe sends and the prompts that
-unwrap uses as boundaries.
+the only record and a replay of a server-wrapped run wraps twice. It changes rows in place and keeps
+no copy; the backup the launch takes first (`DatabaseBackup.TakeOnce`) is the way back, and there is
+none when the player's `BackupPolicy` skips it. The rejected
+option is copying each original into `trimmed`, which made Restore put the server's wrapping back
+and Flush make the joins final unasked. It runs before Trim can: Trim takes only runs the heal has
+unwrapped, because trim removes the probe sends and the prompts that unwrap uses as boundaries. A
+run a trim had already been over is passed over until Restore gives its rows back; Restore forgets
+that a run was unwrapped, so the next launch unwraps it.
+
+EVIDENCE On a copy of the operator's database (239,562,752 bytes, 514 ended runs, 2026-11-14), the
+first launch's heal unwrapped 26,167 rows in 18.4 s, and the second pass had nothing to do.
 
 EVIDENCE At each width the server did not wrap what players typed: echoed chat and tells run past W
 in the recording.

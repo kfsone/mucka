@@ -150,14 +150,14 @@ public partial class ConnectPage : ContentPage
 
     private async void OnGuestRequested() => await ChooseQuickStartAsync(showGuest: true);
 
-    private async void OnHistoryClicked(object? sender, EventArgs e)
+    private async void OnLogsClicked(object? sender, EventArgs e)
     {
         if (Navigation.ModalStack.Count > 0) return;
-        await Navigation.PushModalAsync(new HistoryPage(PlayReplayRefusal, _vm.PlayReplayAsync));
+        await Navigation.PushModalAsync(new LogsPage(PlayReplayRefusal, _vm.PlayReplayAsync));
     }
 
     /// <summary>Playing a replay refills the form, so a new profile still being typed would be lost.
-    /// Asked by History before it closes, so the refusal is shown over History.</summary>
+    /// Asked by Logs before it closes, so the refusal is shown over Logs.</summary>
     private string? PlayReplayRefusal() => _vm.IsNewProfile
         ? "Finish or cancel the new profile first: playing a replay would replace what you have typed."
         : null;

@@ -2,7 +2,7 @@ using Mucka.Store;
 
 namespace Mucka.Combat;
 
-/// <summary>One row of History's Sessions list: one login of one persona (<c>persona_sessions</c>).
+/// <summary>One row of the Logs page's Sessions list: one login of one persona (<c>persona_sessions</c>).
 /// </summary>
 /// <param name="Id"><c>persona_sessions.id</c>.</param>
 /// <param name="StartedMs">Game mode entered, unix ms.</param>
@@ -79,8 +79,9 @@ public static class SessionPoints
     }
 }
 
-/// <summary>Reads History's Sessions list, newest first. Synchronous; callers run it off the UI
-/// thread. Reads no <c>wire</c> rows.</summary>
+/// <summary>Reads the Logs page's Sessions list, newest first. Synchronous; callers run it off the UI
+/// thread. A Session whose recording was deleted is left out (<see cref="SessionRecording.Recorded"/>),
+/// which reads <c>wire</c>'s ids and stamps, never its bytes.</summary>
 public static class SessionHistoryReader
 {
     // The end the score graph gives a Session (ScoreHistoryReader's SessionsSql, with no current run):
@@ -111,7 +112,7 @@ public static class SessionHistoryReader
         if (!File.Exists(path))
             return [];
 
-        // No run of this process is live while History is open, hence -1: no mucka_runs.id.
+        // No run of this process is live while Logs is open, hence -1: no mucka_runs.id.
         var score = ScoreHistoryReader.Read(path, 0, nowMs, -1);
 
         using var connection = MuckaDb.OpenRead(path);
@@ -141,6 +142,7 @@ public static class SessionHistoryReader
             }
         }
 
+        var recorded = SessionRecording.Recorded(connection);
         var result = new List<SessionSummary>();
         using (var command = connection.CreateCommand())
         {
@@ -149,6 +151,8 @@ public static class SessionHistoryReader
             while (reader.Read())
             {
                 var id = reader.GetInt64(0);
+                if (!recorded.Contains(id))
+                    continue;
                 var started = reader.GetInt64(1);
                 var host = reader.GetString(3);
                 var persona = reader.IsDBNull(4) ? null : reader.GetString(4);

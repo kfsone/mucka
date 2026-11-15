@@ -87,8 +87,8 @@ a lower-case placeholder.
 - `$MAKEREPLAY [name]` in the client writes the session so far to the player's replays folder
   (`MuckaPaths.GetReplayDirectory`, `~/.mucka/replays`). The name defaults to the time, and an
   existing file is never overwritten. Desktop only: there is no command on a phone or tablet.
-- History's Save as Replay writes any Session as a replay, on every platform
-  (`docs/history-design.md`).
+- The Logs page's Save as Replay writes any Session as a replay, on every platform
+  (`docs/logs-design.md`).
 - `scripts/make-muckrep.cs` makes one from any run in any `mucka.db`, optionally only a range of its
   records:
 
@@ -106,8 +106,8 @@ before the range is cut, so a range whose edge falls inside a masked context is 
 A profile or a direct connect whose host is `replay:<name>` plays the replay instead of connecting;
 the port and SSH settings are ignored. `ReplayFiles` looks for `<name>.muckrep` (the extension is
 optional) in this order: an absolute path as given; the player's replays folder; on Android, the
-app's external files folder; and the replays packaged with the app. History's Replays tab lists the
-same places and plays one with a tap (`docs/history-design.md`).
+app's external files folder; and the replays packaged with the app. The Logs page's Replays tab lists the
+same places and plays one with a tap (`docs/logs-design.md`).
 
 `ReplayTransport` stands in for the socket and `ReplayPlayer` schedules the records. The replay bar
 covers the input row the way the SCROLLBACK bar does, and the whole replay counts as the keyboard

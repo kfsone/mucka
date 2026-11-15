@@ -1,7 +1,11 @@
-# History - design
+# Logs - design
 
-History is a modal page from the connect page's header (`HistoryPage`), on every platform. It lists
-the player's Sessions, shows one as a log (the Viewer), and lists the replays they can play.
+Logs is a modal page from the connect page's header (`LogsPage`), on every platform. It lists
+the player's Sessions, shows one as a log (the Viewer), lists the replays they can play, and holds
+the passes over every Session's recording (the Maintenance tab).
+
+DECISION (operator) The page is called Logs, the old MUD word for a saved session. "History" was
+rejected: in a game this old it reads as the game's history.
 
 ## What a Session is
 
@@ -13,15 +17,16 @@ FACT The store has three things that could be called a session, and the player s
 | `mucka_runs` | one connection to a server; holds 0..n logins | none |
 | `persona_sessions` | one login of one persona | **Session** |
 
-DECISION (operator) A History row is a `persona_sessions` row and is called a Session. Players are
+DECISION (operator) A Logs row is a `persona_sessions` row and is called a Session. Players are
 non-technical gamers; runs and connections never appear in the UI, and offering a choice between
 the three units is rejected. A connection that never reached the game has no Session and is not
 listed.
 
 ## The Sessions tab
 
-One row per Session, newest first unless sorted otherwise, read by `SessionHistoryReader` from `persona_sessions` and the
-score readings, never from `wire`:
+One row per Session that still has a recording (Delete, below), newest first unless sorted otherwise,
+read by `SessionHistoryReader` from `persona_sessions` and the score readings, and from `wire` only
+its ids and stamps:
 
 | Shown | Source |
 |---|---|
@@ -65,11 +70,9 @@ while nothing was recording (between two Sessions) count toward the Session whos
 follows them, exactly as the graph draws that step.
 
 Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
-Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last. Open (the
-Viewer, below), Set title, Tags, Save as Replay, Text log, Simple Color Log and Fancy Color Log
-work; every other entry is a
-placeholder that says it is not built, so the menu already has its final shape. On a phone or
-tablet, Text log, Simple Color Log and Fancy Color Log ask the player to send Ollie a mudmail.
+Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last (below). Web
+page is a placeholder that says it is not built. On a phone or tablet, Text log, Simple Color Log and
+Fancy Color Log ask the player to send Ollie a mudmail.
 
 DECISION (operator) Replays are saved on every platform, text and color logs on desktop only.
 
@@ -129,6 +132,87 @@ build: 853 Sessions in 441 runs; no slice empty; every run's slices summed to th
 Session read and masked in 213 ms, over a run of 14,472 rows. The largest run held 33,713 rows and
 2,769,194 bytes of payload; a slice is read with its whole run, so that is the most one replay holds
 in memory before masking copies it.
+
+## Delete
+
+Delete, last on a row's menu, deletes the Session's recording (`SessionRecording.Delete`): its
+slice's `wire` rows, the `trimmed` rows stamped inside its bounds, and its title and tags, in one
+transaction, after `DatabaseBackup.TakeOnce`, because nothing puts them back. Its `persona_sessions`
+row and every fact table stay, so its points stay on the score graph and its fights in Combat
+Insights. A Session whose slice is empty is not listed (`SessionRecording.Recorded`, read by
+`SessionHistoryReader`): that is derived, not a flag, and it cuts a run where `SessionSlice` does, by
+row id, so the list and the slice cannot disagree.
+
+DECISION (operator) Delete removes the recording only. Removing the Session's facts with it was
+rejected: the score graph and Combat Insights would change under the player.
+
+Delete first offers a drop-down: on a desktop Save a Replay first, Save a Text log first, Save a Simple
+Color Log first, Save a Fancy Color Log first, and Delete without saving; on a phone or tablet Save a
+Replay first and Delete without saving. A confirmation then repeats the row and says what deleting
+does, because the Windows drop-down has no title. A backup is the same save as Save as..., and a save
+that fails or is cancelled deletes nothing. The overlay covers the page while it runs.
+
+A Session whose run has no end is refused: another Mucka may still be writing it. The run gets one
+when the same account next logs in on the same server, and a run with no account never does
+(persistence-design.md, "Runs that never ended"), so its Sessions cannot be deleted or trimmed.
+
+A trimmed row has left `wire`, so it has no id among the slice's: Delete takes the trimmed rows
+stamped inside the Session's bounds. Where a stamp steps backwards across a boundary, a trimmed row
+can go with the Session beside the one its neighbours went with.
+
+EVIDENCE On a copy of the operator's database, 2026-11-14 (279,220,224 bytes, 837 Sessions), by a
+Debug build on his Windows desktop: `SessionRecording.Recorded` agreed with `SessionSlice.Read` on
+every Session and took 550 ms, the whole list 572 ms. Deleting a middle Session of a three-Session
+run removed its 6,892 rows (819,434 bytes) in 9,136 ms, the first backup of the copy included; both
+neighbours' slices were byte for byte the same after, and `persona_sessions`, `score_events`,
+`fights`, `swings` and `encounters` kept their counts.
+
+## Trim
+
+Trim, on a row's menu, takes the background status checks Mucka repeats out of the Session's
+recording (`WireTrim.TrimSession`): the run's trim plan, only inside the Session's slice
+(persistence-design.md, "Trim, started by the player"). What the Session shows, its logs and its
+replay stay the same, and Restore, on the Maintenance tab, undoes it. A run that has not ended, or
+that the heal has not been over, is refused.
+
+EVIDENCE On the same copy: a Session's Trim moved 3,687 rows (286,707 bytes) in 223 ms, and its text
+log's 170 lines were the same before and after.
+
+FACT What a trim takes (persistence-design.md, "Trim, started by the player"): every status-check
+send (FES, FEW, FEI, FEX), and every reply that repeats the one before it. A reply is kept when it is
+the first after a login, when anything in it changed, and when it is the last of its kind before the
+next login. A FEX reply is never compared, because the game sends the exits unasked with every room.
+What is taken stays in the trim backup until Flush; no age deletes it by itself.
+
+## The Maintenance tab
+
+The third tab has two sections; each button has an (i) whose tooltip, and whose tap, says what it
+does:
+
+| Section | Row | Does |
+|---|---|---|
+| Trim old Sessions | an age in days (offered at `WireTrim.DefaultDays`) and Trim | `WireTrim.Trim` |
+| | the trim backup's size, Restore, Flush | `WireTrim.Revert`; `WireTrim.Expire` at an age of 0, after a confirmation |
+| Save space | mucka.db's size, then Shrink mucka.db, Delete backups and the backup's size | `DatabaseVacuum.Shrink`; `DatabaseBackup.Delete`, after a confirmation |
+
+DECISION (operator) The Maintenance tab is on the Logs page, not the settings page's Data tab: the
+settings page also opens during a game, and these passes do not run beside one. `$trimdb` is retired
+(persistence-design.md, "Shrink mucka.db").
+
+DECISION (operator) The layout and the words: one Trim section whose backup line holds Restore and
+Flush, and a Save space section. The rejected first draft had a section per action, with Put back,
+Delete trimmed for good (with its own age), and Join broken lines.
+
+DECISION "Shrink mucka.db", not "Compact" or "Optimize": Compact is the operator's word for a later,
+separate feature - cutting a Session down to what a log needs, after which it no longer makes a
+replay - and this changes no recording.
+
+DECISION (operator) Joining the lines the server wrapped is not on the tab: `WireHeal` does it once
+per run at launch (line-wrapping.md, "Old recordings"). The rejected option is the Join broken lines
+button.
+
+While an action runs the page's overlay covers it (`MaintenanceOverlay`), and Escape, the back button
+and the close button wait for it.
 
 ## Save as Replay
 
@@ -240,18 +324,18 @@ the player's own among them.
 ## The Viewer
 
 Opening a Session - Open on its menu, a double-click on a desktop, a tap on a phone or tablet -
-shows it in a card over History: History stays underneath on a dimmed backdrop, and the card has a
+shows it in a card over Logs: Logs stays underneath on a dimmed backdrop, and the card has a
 border of the accent colour and a surface lighter than the page. On a desktop it leaves a margin of
-backdrop round it and is at most `HistoryPage.MaxCardWidth` wide; on a phone or tablet it is the
+backdrop round it and is at most `LogsPage.MaxCardWidth` wide; on a phone or tablet it is the
 whole screen, with no border. Its X, Escape, the system back button, or on a desktop a click on the
 backdrop close the card and nothing else, and the list is as it was left. Escape and back close the
-innermost thing open: the Find or Filters panel, then the card, then History.
+innermost thing open: the Find or Filters panel, then the card, then Logs.
 
-DECISION (operator) A card over History, not a tab of it, and not a second modal page. The tab was
+DECISION (operator) A card over Logs, not a tab of it, and not a second modal page. The tab was
 tried and rejected: opening a Session reconfigured the page in place, and Escape from the list it
-had replaced closed History. A second modal page would rebuild the list it returns to.
+had replaced closed Logs. A second modal page would rebuild the list it returns to.
 
-The card's header is the Session's row, built by the same code as the list's (`HistoryPage`'s
+The card's header is the Session's row, built by the same code as the list's (`LogsPage`'s
 `SessionLines`), so the two read alike: the date, the character and the points; the title or the
 server, and how long it lasted and how it ended; its tags. Beside it are two icons, a magnifier for
 Find and a funnel for Filters, then the row's "..." menu without Open, and the X.
@@ -301,7 +385,7 @@ table has a header (SHOW, WHAT, WHICH, MATCHING, LINES) and a row per rule; on a
 two lines. "+ Add a rule" offers the kinds, each with how many of the Session's lines it holds, and
 a new rule shows what it matches. While any rule is set, a strip under the card's header says
 "Showing N of M lines" with the rules in words, and Show all removes them all. The rules last for as
-long as History is open, across the Sessions opened in it, and a change shows the log from its
+long as Logs is open, across the Sessions opened in it, and a change shows the log from its
 start. Typing in a pattern refilters once typing pauses.
 
 DECISION (operator) The panel has no close button: its icon, the other icon, or Escape shuts it. Two
@@ -361,9 +445,9 @@ searches, so a name held in two places is listed once, as the copy that plays: t
 folder, Android's external files folder, then the replays packaged with the desktop builds. Each
 row's "..." button opens its menu:
 
-- **Play** closes History and connects `replay:<name>` the way a guest preset connects
+- **Play** closes Logs and connects `replay:<name>` the way a guest preset connects
   (`ConnectViewModel.PlayReplayAsync`): nothing is saved, and the form returns to what it showed.
-  While a new profile is being typed it refuses, over History, because the form would be lost.
+  While a new profile is being typed it refuses, over Logs, because the form would be lost.
 - **Rename** renames the file in its own folder (`ReplayLibrary.NameFromTyped` drops a typed
   `.muckrep`), refusing an empty name, a character a file name cannot hold, or a name any listed
   replay already has, in any folder: only one of two same-named replays lists and plays.

@@ -9,8 +9,9 @@ using Mucka.WireLog;
 namespace Mucka.Combat;
 
 /// <summary>
-/// <c>$trimdb</c>: takes the noise of the periodic probe out of the wire log of runs that ended some
-/// days ago, into the <c>trimmed</c> table, and puts it back on request.
+/// Trim, from the Logs page: takes the noise of the periodic probe out of the wire log of one Session
+/// (<see cref="TrimSession"/>) or of every run that ended some days ago (<see cref="Trim"/>, on the
+/// Maintenance tab), into the <c>trimmed</c> table, and puts it back on request.
 ///
 /// <para><b>What a trim takes.</b> Every tx row that is a probe send (a command interrupt naming only
 /// FES, FEW, FEI or FEX), and every rx row of a probe response that told the client nothing new: the
@@ -21,24 +22,22 @@ namespace Mucka.Combat;
 /// the run. A response is taken whole: a <c>wire</c> row is one socket read or, once joined, one
 /// prompt-bounded unit, and some rows carry a response and ordinary output together. A mixed row stays, because a response need not arrive in
 /// one read and a cut within a row cannot see where it ends. Only runs <see cref="WireHeal"/> has
-/// been over are touched.</para>
+/// joined and unwrapped are touched.</para>
 ///
 /// <para><b>The gate.</b> Each run is replayed twice through <see cref="MudStreamParser"/>, as it
 /// stands and with the planned rows gone, and the two line sequences must agree once the lines that
 /// belonged to the taken rows are dropped. A run that fails is left exactly as it was.</para>
 ///
-/// <para><see cref="Unwrap"/> is the same machinery for a different rewrite: it takes the server's
-/// own line wrapping out of old recordings, changing rows in place after copying their originals.</para>
-///
 /// <para><b>Reversible.</b> A row is copied into <c>trimmed</c> with its own id, and the time and
 /// rule that took it, in the same transaction that deletes it. <see cref="Revert"/> puts rows back by
-/// id; <see cref="Expire"/> makes the removal final once it has aged. <see cref="Trim"/>,
-/// <see cref="Unwrap"/> take no backup, because <see cref="Revert"/> undoes them. <see cref="Expire"/>
+/// id; <see cref="Expire"/> makes the removal final once it has aged. <see cref="Trim"/> and
+/// <see cref="TrimSession"/> take no backup, because <see cref="Revert"/> undoes them. <see cref="Expire"/>
 /// takes it (<see cref="DatabaseBackup.TakeOnce"/>) before its first change, and none when nothing is
-/// to change, because it makes the removal final. The work is committed in small
-/// transactions with <see cref="WireMaintenance.PauseBetweenTransactions"/> between them (MUST GO AWAY
-/// with the verb: see there), so the
-/// client's own writer, which faults the store when it cannot get the lock, gets it.</para>
+/// to change, because it makes the removal final. The work is committed in transactions of
+/// <see cref="RowsPerTransaction"/> rows, so a second Mucka recording into the same file gets the
+/// write lock between them.</para>
+///
+/// <para>Run from the Logs page only, which is never open while this process plays a game.</para>
 /// </summary>
 public static class WireTrim
 {
@@ -93,7 +92,7 @@ public static class WireTrim
         var runs = new List<long>();
         using (var find = connection.CreateCommand())
         {
-            find.CommandText = "SELECT id FROM mucka_runs WHERE ended_ms IS NOT NULL AND ended_ms < $cutoff AND wire_healed_ms IS NOT NULL ORDER BY id;";
+            find.CommandText = $"SELECT id FROM mucka_runs WHERE {ReadyForTrim} AND ended_ms < $cutoff ORDER BY id;";
             find.Parameters.AddWithValue("$cutoff", cutoff);
             using var reader = find.ExecuteReader();
             while (reader.Read())
@@ -122,64 +121,58 @@ public static class WireTrim
         return new TrimResult(runs.Count, trimmed, refused, moved, bytes);
     }
 
-    /// <summary>What an unwrap pass did.</summary>
-    public sealed record UnwrapResult(int RunsExamined, int RunsUnwrapped, int RunsRefused, long RowsChanged);
+    /// <summary>
+    /// Trims Session <paramref name="personaSessionId"/>'s slice of its run: the run is planned whole,
+    /// as <see cref="Trim"/> plans it, and only the planned rows inside the slice
+    /// (<see cref="SessionRecording.RangeOf"/>) are taken, after the run passes the gate with just
+    /// those gone. Returns the rows and bytes moved; a run the gate refuses moves none and is counted
+    /// in <c>RunsRefused</c>.
+    ///
+    /// <para>Throws <see cref="InvalidOperationException"/> for a Session whose run has no end (a second
+    /// Mucka may still be writing it) or has not been healed yet (<see cref="WireHeal"/>, at the next
+    /// start).</para>
+    /// </summary>
+    public static TrimResult TrimSession(string dbPath, long personaSessionId, DateTimeOffset now)
+    {
+        using var held = DatabaseLock.Acquire(dbPath, Maintenance.Current, canGiveUp: false);
+        lock (WireMaintenance.Gate)
+        {
+            using var connection = Open(dbPath);
+            if (SessionRecording.RangeOf(connection, personaSessionId) is not { } found)
+                return new TrimResult(0, 0, 0, 0, 0);
+            var (run, range, _, _) = found;
+            SessionRecording.RequireEnded(connection, run);
+            using (var healed = connection.CreateCommand())
+            {
+                healed.CommandText = $"SELECT {ReadyForTrim} FROM mucka_runs WHERE id = $run;";
+                healed.Parameters.AddWithValue("$run", run);
+                if (Convert.ToInt64(healed.ExecuteScalar(), CultureInfo.InvariantCulture) == 0)
+                    throw new InvalidOperationException(
+                        "this Session's recording has not been tidied yet; Mucka does that when it next starts.");
+            }
+            var rows = ReadRows(connection, run);
+            var plan = Plan(rows).Where(p => range.Contains(p.Id)).ToList();
+            if (plan.Count == 0)
+                return new TrimResult(1, 0, 0, 0, 0);
+            if (!Verify(rows, plan))
+                return new TrimResult(1, 0, 1, 0, 0);
+            var planned = plan.Select(p => p.Id).ToHashSet();
+            var bytes = rows.Where(r => planned.Contains(r.Id)).Sum(r => (long)r.Data.Length);
+            var moved = Move(connection, run, plan, now.ToUnixTimeMilliseconds(), CancellationToken.None);
+            return new TrimResult(1, 1, 0, moved, bytes);
+        }
+    }
 
-    /// <summary>The rule <see cref="Unwrap"/> files a changed row under.</summary>
+    /// <summary>The reason on a row of <c>trimmed</c> that is the original bytes of a row still in
+    /// <c>wire</c>, which <see cref="Revert"/> writes back over it. Nothing files rows under it now, but
+    /// a file an earlier release unwrapped holds them.</summary>
     public const string ReasonUnwrap = "unwrap";
 
-    /// <summary>Takes the server's line wrapping out of every run that ended more than
-    /// <paramref name="days"/> days before <paramref name="now"/> - see <see cref="WireUnwrap"/>. A row it
-    /// changes keeps its place in <c>wire</c> with its new bytes, and its original is copied into
-    /// <c>trimmed</c> first, so <see cref="Revert"/> puts the original bytes back.</summary>
-    public static UnwrapResult Unwrap(string dbPath, int days, DateTimeOffset now,
-        CancellationToken cancellationToken = default)
-    {
-        using var held = DatabaseLock.Acquire(dbPath, Maintenance.Current, canGiveUp: false, cancellationToken: cancellationToken);
-        lock (WireMaintenance.Gate)
-            return UnwrapLocked(dbPath, days, now, cancellationToken);
-    }
-
-    private static UnwrapResult UnwrapLocked(string dbPath, int days, DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        using var connection = Open(dbPath);
-        var cutoff = now.ToUnixTimeMilliseconds() - days * MillisecondsPerDay;
-
-        var runs = new List<long>();
-        using (var find = connection.CreateCommand())
-        {
-            find.CommandText = "SELECT id FROM mucka_runs WHERE ended_ms IS NOT NULL AND ended_ms < $cutoff AND wire_healed_ms IS NOT NULL ORDER BY id;";
-            find.Parameters.AddWithValue("$cutoff", cutoff);
-            using var reader = find.ExecuteReader();
-            while (reader.Read())
-                runs.Add(reader.GetInt64(0));
-        }
-
-        int unwrapped = 0, refused = 0;
-        long changed = 0;
-        foreach (var run in runs)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            // A trim has taken the sends and responses that mark where one turn ends and the next
-            // begins; joining lines across the gap it left would join lines of different turns.
-            if (HasTrimmedProbes(connection, run))
-            {
-                refused++;
-                continue;
-            }
-            var plan = WireUnwrap.Plan(ReadRows(connection, run));
-            if (plan is null)
-            {
-                refused++;
-                continue;
-            }
-            if (plan.Count == 0) continue;
-            changed += Rewrite(connection, run, plan, now.ToUnixTimeMilliseconds(), cancellationToken);
-            unwrapped++;
-        }
-        return new UnwrapResult(runs.Count, unwrapped, refused, changed);
-    }
+    // A run the trim may touch: ended, and both passes of the heal made, so a trim never takes rows
+    // the heal's join or unwrap has yet to see.
+    private const string ReadyForTrim =
+        "ended_ms IS NOT NULL AND wire_healed_ms IS NOT NULL" +
+        " AND EXISTS (SELECT 1 FROM wire_unwrapped u WHERE u.mucka_run_id = mucka_runs.id)";
 
     /// <summary>Removes the rows <see cref="Trim"/> took more than <paramref name="days"/> days before
     /// <paramref name="now"/>. Aged by when they were trimmed, not by when they were recorded: a
@@ -210,14 +203,14 @@ public static class WireTrim
                 var n = command.ExecuteNonQuery();
                 removed += n;
                 if (n < RowsPerTransaction) return removed;
-                WireMaintenance.Pause();   // MUST GO AWAY
             }
         }
     }
 
     /// <summary>Puts every trimmed row back into <c>wire</c> under its own id and takes it out of
     /// <c>trimmed</c>. A row whose id has since been taken by another row stays in <c>trimmed</c> and is
-    /// counted in <c>Skipped</c>.</summary>
+    /// counted in <c>Skipped</c>. A run that gets a row back loses its <c>wire_unwrapped</c> row, so
+    /// <see cref="WireHeal"/> unwraps it again at the next launch.</summary>
     public static (long Restored, long Skipped) Revert(string dbPath, CancellationToken cancellationToken = default)
     {
         using var held = DatabaseLock.Acquire(dbPath, Maintenance.Current, canGiveUp: false, cancellationToken: cancellationToken);
@@ -232,14 +225,14 @@ public static class WireTrim
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var ids = new List<(long Id, bool Unwrapped)>();
+            var ids = new List<(long Id, long Run, bool Unwrapped)>();
             using (var next = connection.CreateCommand())
             {
-                next.CommandText = $"SELECT id, reason FROM trimmed WHERE id > $last ORDER BY id LIMIT {RowsPerTransaction};";
+                next.CommandText = $"SELECT id, mucka_run_id, reason FROM trimmed WHERE id > $last ORDER BY id LIMIT {RowsPerTransaction};";
                 next.Parameters.AddWithValue("$last", last);
                 using var reader = next.ExecuteReader();
                 while (reader.Read())
-                    ids.Add((reader.GetInt64(0), reader.GetString(1) == ReasonUnwrap));
+                    ids.Add((reader.GetInt64(0), reader.GetInt64(1), reader.GetString(2) == ReasonUnwrap));
             }
             if (ids.Count == 0) break;
 
@@ -263,7 +256,8 @@ public static class WireTrim
                 " AND mucka_run_id = (SELECT mucka_run_id FROM trimmed WHERE id = $id)" +
                 " AND seq = (SELECT seq FROM trimmed WHERE id = $id);";
             var overwriteId = overwrite.Parameters.Add("$id", SqliteType.Integer);
-            foreach (var (id, unwrapped) in ids)
+            var touched = new HashSet<long>();
+            foreach (var (id, run, unwrapped) in ids)
             {
                 copyId.Value = id;
                 overwriteId.Value = id;
@@ -271,6 +265,7 @@ public static class WireTrim
                 {
                     clearId.Value = id;
                     clear.ExecuteNonQuery();
+                    touched.Add(run);
                     restored++;
                 }
                 else
@@ -278,9 +273,19 @@ public static class WireTrim
                     skipped++;
                 }
             }
+            // A run given rows back may be wrapped again (an unwrap's originals) or may have been
+            // passed over by the unwrap for its trimmed probes: the next launch's heal unwraps it.
+            using var forget = connection.CreateCommand();
+            forget.Transaction = transaction;
+            forget.CommandText = "DELETE FROM wire_unwrapped WHERE mucka_run_id = $run;";
+            var forgetRun = forget.Parameters.Add("$run", SqliteType.Integer);
+            foreach (var run in touched)
+            {
+                forgetRun.Value = run;
+                forget.ExecuteNonQuery();
+            }
             transaction.Commit();
             last = ids[^1].Id;
-            WireMaintenance.Pause();   // MUST GO AWAY
         }
         return (restored, skipped);
     }
@@ -553,7 +558,7 @@ public static class WireTrim
 
     private const long MillisecondsPerDay = 86_400_000L;
 
-    private static SqliteConnection Open(string dbPath)
+    internal static SqliteConnection Open(string dbPath)
     {
         var connection = new SqliteConnection(MuckaDb.ConnectionString(dbPath));
         connection.Open();
@@ -563,7 +568,7 @@ public static class WireTrim
         return connection;
     }
 
-    private static bool HasTrimmedProbes(SqliteConnection connection, long run)
+    internal static bool HasTrimmedProbes(SqliteConnection connection, long run)
     {
         using var command = connection.CreateCommand();
         command.CommandText =
@@ -574,7 +579,7 @@ public static class WireTrim
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
     }
 
-    private static List<Row> ReadRows(SqliteConnection connection, long run)
+    internal static List<Row> ReadRows(SqliteConnection connection, long run)
     {
         var rows = new List<Row>();
         using var command = connection.CreateCommand();
@@ -627,7 +632,6 @@ public static class WireTrim
                 moved += delete.ExecuteNonQuery();
             }
             transaction.Commit();
-            WireMaintenance.Pause();   // MUST GO AWAY
         }
         return moved;
     }
@@ -638,50 +642,6 @@ public static class WireTrim
     private static string SameRowInTrimmed(string statement)
         => statement + " AND EXISTS (SELECT 1 FROM trimmed t WHERE t.id = wire.id"
            + " AND t.mucka_run_id = wire.mucka_run_id AND t.seq = wire.seq);";
-
-    private static long Rewrite(SqliteConnection connection, long run, List<WireUnwrap.Changed> changes, long nowMs,
-        CancellationToken cancellationToken)
-    {
-        long changed = 0;
-        for (var at = 0; at < changes.Count; at += RowsPerTransaction)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            using var transaction = connection.BeginTransaction();
-            using var copy = connection.CreateCommand();
-            copy.Transaction = transaction;
-            copy.CommandText = """
-                INSERT OR IGNORE INTO trimmed (id, mucka_run_id, seq, ts_ms, direction, data, trimmed_ms, reason)
-                SELECT id, mucka_run_id, seq, ts_ms, direction, data, $now, $reason FROM wire
-                WHERE id = $id AND mucka_run_id = $run AND seq = $seq;
-                """;
-            copy.Parameters.AddWithValue("$now", nowMs);
-            copy.Parameters.AddWithValue("$run", run);
-            copy.Parameters.AddWithValue("$reason", ReasonUnwrap);
-            var copyId = copy.Parameters.Add("$id", SqliteType.Integer);
-            var copySeq = copy.Parameters.Add("$seq", SqliteType.Integer);
-            using var update = connection.CreateCommand();
-            update.Transaction = transaction;
-            update.CommandText = SameRowInTrimmed("UPDATE wire SET data = $data WHERE id = $id AND mucka_run_id = $run AND seq = $seq");
-            update.Parameters.AddWithValue("$run", run);
-            var data = update.Parameters.Add("$data", SqliteType.Blob);
-            var updateId = update.Parameters.Add("$id", SqliteType.Integer);
-            var updateSeq = update.Parameters.Add("$seq", SqliteType.Integer);
-
-            foreach (var item in changes.Skip(at).Take(RowsPerTransaction))
-            {
-                copyId.Value = item.Id;
-                copySeq.Value = item.Seq;
-                copy.ExecuteNonQuery();
-                data.Value = item.Data;
-                updateId.Value = item.Id;
-                updateSeq.Value = item.Seq;
-                changed += update.ExecuteNonQuery();
-            }
-            transaction.Commit();
-            WireMaintenance.Pause();   // MUST GO AWAY
-        }
-        return changed;
-    }
 
     // -- What a probe response said ------------------------------------------------------------------
 

@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 namespace Mucka.Store;
 
 /// <summary>
-/// The title and tags a player gives a Session (one login, a <c>persona_sessions</c> row) in History.
+/// The title and tags a player gives a Session (one login, a <c>persona_sessions</c> row) in Logs.
 /// The title is stored in <c>session_names.name</c>.
 /// Each edit is one short transaction on its own connection; another Mucka recording into the same
 /// file waits behind it for at most <c>busy_timeout</c>.

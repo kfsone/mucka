@@ -76,6 +76,23 @@ public sealed class BackupPolicyTests : IDisposable
     }
 
     [Fact]
+    public void DeletingTheBackup_RemovesIt_AndTheNextRiskyChangeTakesANewOne()
+    {
+        using (MuckaDb.Open(DbPath)) { }
+        DatabaseBackup.Policy = BackupPolicy.Startup;
+        Assert.NotNull(DatabaseBackup.TakeOnce(DbPath));
+        Assert.True(DatabaseBackup.HoldsBackup(DbPath));
+
+        Assert.True(DatabaseBackup.Delete(DbPath) > 0);
+
+        Assert.False(File.Exists(BackupPath));
+        Assert.False(DatabaseBackup.HoldsBackup(DbPath));
+        Assert.NotNull(DatabaseBackup.TakeOnce(DbPath));
+        Assert.True(DatabaseBackup.Delete(DbPath) > 0);
+        Assert.Equal(0, DatabaseBackup.Delete(DbPath));   // nothing left to delete
+    }
+
+    [Fact]
     public void Startup_TakesOneEvenWhenTheLastWasJustMade()
     {
         SeedWithABackupOfAge(TimeSpan.Zero);

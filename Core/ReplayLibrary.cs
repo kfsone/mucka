@@ -2,7 +2,7 @@ using Mucka.WireLog;
 
 namespace Mucka.Core;
 
-/// <summary>One replay History's Replays tab lists.</summary>
+/// <summary>One replay the Logs page's Replays tab lists.</summary>
 /// <param name="Name">The file name without <c>.muckrep</c>: what <c>replay:</c> takes.</param>
 /// <param name="Path">The file on disk.</param>
 /// <param name="Bytes">Its size.</param>

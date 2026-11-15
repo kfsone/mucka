@@ -4,7 +4,7 @@ using Mucka.Store;
 
 namespace Mucka.Util.Tests;
 
-/// <summary>History's Sessions list: the points rule, the reader over a real schema, and the name and
+/// <summary>The Logs page's Sessions list: the points rule, the reader over a real schema, and the name and
 /// tags a player gives a Session.</summary>
 public sealed class SessionHistoryTests : IDisposable
 {
@@ -77,6 +77,10 @@ public sealed class SessionHistoryTests : IDisposable
             "INSERT INTO persona_sessions (mucka_run_id, persona, started_ms) VALUES ($r, 'Ollie', 11000);",
             ("$r", run2));
         Insert(db, "INSERT INTO score_events (ts, encounter_open, total, delta, persona_session_id) VALUES (15000, 0, 700, 50, $p);", ("$p", second));
+        // A row of recording in each Session's slice: a Session with none is not listed.
+        foreach (var (run, ts) in new[] { (run1, 3000L), (run1, 6500L), (run2, 12000L) })
+            Insert(db, "INSERT INTO wire (mucka_run_id, seq, ts_ms, direction, data) VALUES ($r, $t, $t, 0, X'2A');",
+                ("$r", run), ("$t", ts));
         return (first, second, unnamed);
     }
 
@@ -182,6 +186,7 @@ public sealed class SessionHistoryTests : IDisposable
         {
             var run = Insert(a, "INSERT INTO mucka_runs (uid, started_ms, ended_ms, host) VALUES ('ra', 1000, 2000, 'h');");
             sessionInSource = Insert(a, "INSERT INTO persona_sessions (mucka_run_id, persona, started_ms) VALUES ($r, 'Ollie', 1100);", ("$r", run));
+            Insert(a, "INSERT INTO wire (mucka_run_id, seq, ts_ms, direction, data) VALUES ($r, 1, 1500, 0, X'2A');", ("$r", run));
         }
         SessionLabels.SetTitle(source, sessionInSource, "first blood");
         SessionLabels.SetTags(source, sessionInSource, ["pk"]);

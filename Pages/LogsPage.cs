@@ -11,12 +11,12 @@ using Mucka.WireLog;
 namespace Mucka.Pages;
 
 /// <summary>
-/// History, opened from the connect page's header: the player's Sessions (one login each) and the
+/// Logs, opened from the connect page's header: the player's Sessions (one login each) and the
 /// replays they can play. Built in code, as <see cref="ScorePage"/> is.
 ///
 /// <para>Closes on its x, on Escape (Windows and Mac), or on the system back button.</para>
 /// </summary>
-internal sealed class HistoryPage : ContentPage
+internal sealed class LogsPage : ContentPage
 {
     private static readonly Color PageColor = Color.FromArgb("#0C0C0C");
     /// <summary>Every other row: <see cref="PageColor"/> plus 10 on each channel.</summary>
@@ -62,12 +62,19 @@ internal sealed class HistoryPage : ContentPage
     private const string PlayChoice = "Play";
     private const string ShareChoice = "Share";
     private const string DeleteChoice = "Delete";
+    // Delete's backups: each saves the Session first, then deletes it; a save that fails or is
+    // cancelled deletes nothing.
+    private const string BackupReplay = "Save a Replay first";
+    private const string BackupText = "Save a Text log first";
+    private const string BackupSimple = "Save a Simple Color Log first";
+    private const string BackupFancy = "Save a Fancy Color Log first";
+    private const string DeleteWithoutBackup = "Delete without saving";
 
-    private enum Shown { Sessions, Replays }
+    private enum Shown { Sessions, Replays, Maintenance }
 
     /// <summary>The viewer card's surface: the page colour lifted, so it reads as a layer over it.</summary>
     private static readonly Color CardColor = Color.FromArgb("#161B22");
-    /// <summary>The backdrop over History while the viewer is open.</summary>
+    /// <summary>The backdrop over Logs while the viewer is open.</summary>
     private static readonly Color Scrim = Color.FromRgba(0, 0, 0, 0.6);
     /// <summary>The widest the viewer card grows on a desktop window.</summary>
     private const double MaxCardWidth = 1100;
@@ -96,7 +103,13 @@ internal sealed class HistoryPage : ContentPage
     private readonly Grid _root;
     private readonly Button _sessionsTab;
     private readonly Button _replaysTab;
-    // The viewer: a card over History, on a backdrop, holding the opened Session's row, its Find and
+    private readonly Button _maintenanceTab;
+    // The Maintenance tab: the passes over every Session's recording, and what they would work on.
+    private readonly ScrollView _maintenance;
+    private readonly Label _waiting;
+    private readonly Label _fileSize;
+    private readonly Label _backupSize;
+    // The viewer: a card over Logs, on a backdrop, holding the opened Session's row, its Find and
     // Filters icons and their panels, and the Session as a log.
     private readonly Grid _cardLayer;
     private readonly Border _card;
@@ -177,7 +190,7 @@ internal sealed class HistoryPage : ContentPage
     /// <param name="playRefusal">Why a replay cannot be played now, or null when it can; asked
     /// before this page closes for Play.</param>
     /// <param name="playReplay">Plays a replay by name, after this page has closed.</param>
-    public HistoryPage(Func<string?> playRefusal, Func<string, Task> playReplay)
+    public LogsPage(Func<string?> playRefusal, Func<string, Task> playReplay)
     {
         _playRefusal = playRefusal;
         _playReplay = playReplay;
@@ -185,7 +198,7 @@ internal sealed class HistoryPage : ContentPage
 
         var title = new Label
         {
-            Text = "History",
+            Text = "Logs",
             TextColor = Body,
             FontAttributes = FontAttributes.Bold,
             VerticalOptions = LayoutOptions.Center,
@@ -193,6 +206,7 @@ internal sealed class HistoryPage : ContentPage
         }.Scaled(18);
         _sessionsTab = Tab("Sessions", Shown.Sessions);
         _replaysTab = Tab("Replays", Shown.Replays);
+        _maintenanceTab = Tab("Maintenance", Shown.Maintenance);
         var close = new Button
         {
             Text = Glyph.Close,
@@ -204,19 +218,25 @@ internal sealed class HistoryPage : ContentPage
             VerticalOptions = LayoutOptions.Center,
         };
         close.SetBinding(Button.FontSizeProperty, ScaledFontBinding.For(16));
-        SemanticProperties.SetDescription(close, "Close History");
-        close.Clicked += async (_, _) => await CloseAsync();
+        SemanticProperties.SetDescription(close, "Close Logs");
+        close.Clicked += async (_, _) =>
+        {
+            if (!_busy)
+                await CloseAsync();
+        };
 
         var header = new Grid
         {
-            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Star)],
+            ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto),
+                new(GridLength.Star)],
             // The top as ScorePage's, which clears Android's status bar.
             Padding = new Thickness(16, 24, 8, 8),
         };
         header.Add(title, 0);
         header.Add(_sessionsTab, 1);
         header.Add(_replaysTab, 2);
-        header.Add(close, 3);
+        header.Add(_maintenanceTab, 3);
+        header.Add(close, 4);
 
         _sessions = List(SessionTemplate());
         _replays = List(ReplayTemplate());
@@ -262,9 +282,17 @@ internal sealed class HistoryPage : ContentPage
         _sessionTools.Add(_characterIcon.View, 1);
         _sessionTools.Add(_sortIcon.View, 2);
 
+        _waiting = Line(Muted, 13);
+        _fileSize = Line(Muted, 12);
+        _fileSize.LineBreakMode = LineBreakMode.WordWrap;
+        _backupSize = Line(Muted, 13);
+        _maintenance = MaintenanceView();
+        _maintenance.IsVisible = false;
+
         var body = new Grid();
         body.Add(_sessions);
         body.Add(_replays);
+        body.Add(_maintenance);
         body.Add(_empty);
 
         _root = new Grid
@@ -419,6 +447,8 @@ internal sealed class HistoryPage : ContentPage
         var page = new Grid();
         page.Add(_root);
         page.Add(_cardLayer);
+        // Over everything while a delete, a trim or a Maintenance pass runs (Maintenance.Current).
+        page.Add(new MaintenanceOverlay());
         Content = page;
 
         ShowTab(Shown.Sessions);
@@ -729,7 +759,8 @@ internal sealed class HistoryPage : ContentPage
         _tabShown = true;
         _shown = tab;
         ShowEmpty(null);
-        foreach (var (button, its) in new[] { (_sessionsTab, Shown.Sessions), (_replaysTab, Shown.Replays) })
+        foreach (var (button, its) in new[]
+                 { (_sessionsTab, Shown.Sessions), (_replaysTab, Shown.Replays), (_maintenanceTab, Shown.Maintenance) })
         {
             button.TextColor = its == tab ? Accent : Muted;
             button.FontAttributes = its == tab ? FontAttributes.Bold : FontAttributes.None;
@@ -737,7 +768,13 @@ internal sealed class HistoryPage : ContentPage
         _sessions.IsVisible = tab == Shown.Sessions;
         _sessionTools.IsVisible = tab == Shown.Sessions;
         _replays.IsVisible = tab == Shown.Replays;
-        _ = tab == Shown.Replays ? LoadReplaysAsync() : LoadSessionsAsync();
+        _maintenance.IsVisible = tab == Shown.Maintenance;
+        _ = tab switch
+        {
+            Shown.Replays => LoadReplaysAsync(),
+            Shown.Maintenance => ShowStoredAsync(),
+            _ => LoadSessionsAsync(),
+        };
     }
 
     private void ShowEmpty(string? text)
@@ -965,8 +1002,14 @@ internal sealed class HistoryPage : ContentPage
                 case FancyColorFormat:
                     await SaveLogAsync(item, SgrColours.Fancy);
                     break;
-                // Placeholders: on the menu so the shape is visible, and each says it is not built.
-                case TrimChoice or DeleteChoice or WebFormat:
+                case TrimChoice:
+                    await TrimAsync(item);
+                    break;
+                case DeleteChoice:
+                    await DeleteAsync(item, button);
+                    break;
+                // A placeholder: on the menu so the shape is visible, and it says it is not built.
+                case WebFormat:
                     await AlertAsync(pick, $"{pick} is not built yet.");
                     break;
             }
@@ -979,7 +1022,7 @@ internal sealed class HistoryPage : ContentPage
 
     // ------------------------------------------------------------------------ Viewer ----
 
-    /// <summary>True while the viewer's card is open over History.</summary>
+    /// <summary>True while the viewer's card is open over Logs.</summary>
     private bool Viewing => _cardLayer.IsVisible;
 
     /// <summary>Opens the Session in the viewer's card: its log (<see cref="SessionTextLog.Lines"/>,
@@ -1050,7 +1093,7 @@ internal sealed class HistoryPage : ContentPage
         _search.IsEnabled = true;
     }
 
-    /// <summary>Closes the viewer's card. History underneath is as it was left.</summary>
+    /// <summary>Closes the viewer's card. Logs underneath is as it was left.</summary>
     private void CloseCard()
     {
         ++_openVersion;   // a read still running for it is dropped
@@ -1471,8 +1514,10 @@ internal sealed class HistoryPage : ContentPage
     }
 
     /// <summary>Writes the Session's recording as a replay in the player's replay folder, where the
-    /// Replays tab lists it; on a phone or tablet the share sheet then offers it.</summary>
-    private async Task MakeReplayAsync(SessionItem item)
+    /// Replays tab lists it; on a phone or tablet the share sheet then offers it. Returns where it went,
+    /// or null when nothing was saved; with <paramref name="quiet"/> a save that worked is not
+    /// announced, for a caller that says so itself.</summary>
+    private async Task<string?> MakeReplayAsync(SessionItem item, bool quiet = false)
     {
         const string Heading = "Save as replay";
         var summary = item.Summary;
@@ -1480,7 +1525,7 @@ internal sealed class HistoryPage : ContentPage
             item.Described + "\n\nName the replay. It is listed on the Replays tab.", "Save",
             "Cancel", initialValue: ReplayLibrary.OfferedName(summary.Title ?? summary.DefaultTitle));
         if (typed is null)
-            return;
+            return null;
         var name = ReplayLibrary.NameFromTyped(typed);
         try
         {
@@ -1488,7 +1533,7 @@ internal sealed class HistoryPage : ContentPage
             if (ReplayLibrary.NewNameProblem(name, listed) is { } problem)
             {
                 await AlertAsync(Heading, problem);
-                return;
+                return null;
             }
             var path = ReplayLibrary.NewPath(name);
             var id = summary.Id;
@@ -1503,8 +1548,9 @@ internal sealed class HistoryPage : ContentPage
             if (!written)
             {
                 await AlertAsync(Heading, "This Session has no recording left.");
-                return;
+                return null;
             }
+            var saved = $"\"{name}\" on the Replays tab";
 #if ANDROID || IOS
             try
             {
@@ -1513,24 +1559,28 @@ internal sealed class HistoryPage : ContentPage
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                await AlertAsync(Heading, $"Saved as \"{name}\" on the Replays tab, but it could not be shared: {ex.Message}");
+                await AlertAsync(Heading, $"Saved as {saved}, but it could not be shared: {ex.Message}");
             }
 #else
-            await AlertAsync(Heading, $"Saved as \"{name}\" on the Replays tab.");
+            if (!quiet)
+                await AlertAsync(Heading, $"Saved as {saved}.");
 #endif
+            return saved;
         }
         catch (Exception ex) when (ex is SqliteException or IOException or UnauthorizedAccessException
                                        or InvalidOperationException)
         {
             await AlertAsync(Heading, $"The replay could not be made: {ex.Message}");
+            return null;
         }
     }
 
     /// <summary>Writes the Session's text log (<see cref="SessionTextLog"/>), or with
     /// <paramref name="depth"/> its Color Log (ANSI SGR) in that many colours, the player's chat
     /// colours among them, where the player picks in the system's save dialog. Desktop only: a phone
-    /// or tablet never offers it.</summary>
-    private async Task SaveLogAsync(SessionItem item, SgrColours? depth)
+    /// or tablet never offers it. Returns where it went, or null when nothing was saved; with
+    /// <paramref name="quiet"/> a save that worked is not announced.</summary>
+    private async Task<string?> SaveLogAsync(SessionItem item, SgrColours? depth, bool quiet = false)
     {
         var kind = depth switch
         {
@@ -1558,7 +1608,7 @@ internal sealed class HistoryPage : ContentPage
             path = await LogPathAsync(name, heading, char.ToUpperInvariant(kind[0]) + kind[1..], extension);
 #endif
             if (path is null)
-                return;
+                return null;
             var target = path;
             var id = summary.Id;
             var host = summary.Host;
@@ -1584,15 +1634,17 @@ internal sealed class HistoryPage : ContentPage
             {
                 DeleteUnwritten(path, opened);
                 await AlertAsync(heading, "This Session has no recording left.");
-                return;
+                return null;
             }
 #if MACCATALYST
             var exported = await ExportAsync(path);
             if (exported is null)
-                return;   // cancelled; the scratch copy goes below
+                return null;   // cancelled; the scratch copy goes below
             path = exported;
 #endif
-            await AlertAsync(heading, $"Saved as {path}");
+            if (!quiet)
+                await AlertAsync(heading, $"Saved as {path}");
+            return path;
         }
         // Whatever stopped it, the player is told, and no empty or half-written file is left behind.
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -1600,6 +1652,7 @@ internal sealed class HistoryPage : ContentPage
             if (path is not null)
                 DeleteUnwritten(path, opened);
             await AlertAsync(heading, $"The {kind} could not be saved: {ex.Message}");
+            return null;
         }
 #if MACCATALYST
         finally
@@ -1699,7 +1752,336 @@ internal sealed class HistoryPage : ContentPage
         catch (Exception ex) when (ex is SqliteException or IOException or InvalidOperationException
                                        or OperationCanceledException)
         {
-            await AlertAsync("History", $"That could not be saved: {ex.Message}");
+            await AlertAsync("Logs", $"That could not be saved: {ex.Message}");
+        }
+    }
+
+    // ---------------------------------------------------------------- Delete and Trim ----
+
+    /// <summary>Delete: the Session's recording, after the backup the player picks, if any
+    /// (<see cref="SessionRecording.Delete"/>). A backup that fails or is cancelled deletes nothing. The
+    /// Session then leaves the list; its points and fights stay on the score graph and in Combat
+    /// Insights.</summary>
+    private async Task DeleteAsync(SessionItem item, View anchor)
+    {
+        const string Heading = "Delete";
+        string[] backups = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst()
+            ? [BackupReplay, BackupText, BackupSimple, BackupFancy]
+            : [BackupReplay];
+        var pick = await ActionMenu.ShowAsync(this, anchor, item.Described + "\n\nDelete this Session's recording?",
+            "Cancel", DeleteWithoutBackup, backups);
+        if (pick is null)
+            return;
+        // The drop-down on Windows has no title, so the confirmation is where the row and what deleting
+        // does are said, on every platform.
+        var how = pick == DeleteWithoutBackup ? "without saving it first"
+            : "after saving " + pick["Save ".Length..^" first".Length] + " of it";
+        if (!await DisplayAlertAsync(Heading, item.Described + $"\n\nDelete this Session's recording {how}? "
+                + "It cannot be put back. Its points and fights stay on the score graph and in Combat Insights.",
+                "Delete", "Cancel"))
+            return;
+        var saved = pick switch
+        {
+            BackupReplay => await MakeReplayAsync(item, quiet: true),
+            BackupText => await SaveLogAsync(item, null, quiet: true),
+            BackupSimple => await SaveLogAsync(item, SgrColours.Simple, quiet: true),
+            BackupFancy => await SaveLogAsync(item, SgrColours.Fancy, quiet: true),
+            _ => string.Empty,
+        };
+        if (saved is null)
+            return;   // the save said why, or was cancelled: nothing is deleted
+
+        var database = MuckaPaths.GetDatabasePath();
+        var id = item.Summary.Id;
+        var done = await WorkAsync(Heading, "Deleting a Session's recording", "The recording could not be deleted",
+            () => $"Deleted {Size(SessionRecording.Delete(database, id).Bytes)} of recording.");
+        if (done is null)
+            return;
+        if (_selectedId == id)
+            _selectedId = null;
+        if (_opened?.Summary.Id == id)
+            CloseCard();
+        // Read again, so a character whose last Session this was leaves the character drop-down.
+        await LoadSessionsAsync();
+        await AlertAsync(Heading, saved.Length == 0 ? done : $"Saved as {saved}.\n{done}");
+    }
+
+    /// <summary>Trim: takes the repeated background status checks out of the Session's recording
+    /// (<see cref="WireTrim.TrimSession"/>). What the Session shows, its logs and its replay stay the
+    /// same; Restore, on the Maintenance tab, undoes it.</summary>
+    private async Task TrimAsync(SessionItem item)
+    {
+        const string Heading = "Trim";
+        var go = await DisplayAlertAsync(Heading, item.Described
+            + "\n\nTake the background status checks Mucka repeats out of this Session's recording? What it "
+            + "shows, its logs and its replay stay the same. Restore, on the Maintenance tab, undoes it.",
+            "Trim", "Cancel");
+        if (!go)
+            return;
+        var database = MuckaPaths.GetDatabasePath();
+        var id = item.Summary.Id;
+        var done = await WorkAsync(Heading, "Trimming a Session's recording", "It could not be trimmed", () =>
+        {
+            var result = WireTrim.TrimSession(database, id, DateTimeOffset.UtcNow);
+            return result.RunsRefused > 0 ? "Nothing was taken out: trimming would have changed what it shows."
+                : result.RowsMoved == 0 ? "There was nothing to take out."
+                : $"Took out {Size(result.BytesMoved)}.";
+        });
+        if (done is not null)
+            await AlertAsync(Heading, done);
+    }
+
+    /// <summary>Runs <paramref name="work"/> off the UI thread under a maintenance job, so the overlay
+    /// covers the page while it runs. Returns its message, or null when it failed, after telling the
+    /// player <paramref name="failed"/> and why.</summary>
+    private async Task<string?> WorkAsync(string heading, string detail, string failed, Func<string> work)
+    {
+        var wasBusy = _busy;
+        _busy = true;
+        try
+        {
+            return await Task.Run(() =>
+            {
+                using var job = Maintenance.Begin(detail);
+                return work();
+            });
+        }
+        // Whatever stopped it, the player is told: a Session another Mucka may still be writing, a store
+        // that could not be opened or written, a file the work could not touch, or a recording the
+        // parser trips on while the work replays it.
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            await AlertAsync(heading, $"{failed}: {ex.Message}");
+            return null;
+        }
+        finally
+        {
+            _busy = wasBusy;
+        }
+    }
+
+    /// <summary>A size as the page shows one: KB under a megabyte, else MB to one place.</summary>
+    private static string Size(long bytes)
+        => bytes < 1024 * 1024
+            ? $"{Math.Max(1, bytes / 1024)} KB"
+            : $"{bytes / (1024.0 * 1024.0):0.0} MB";
+
+    // ------------------------------------------------------------------- Maintenance ----
+
+    /// <summary>A circle with an i in it, on a 16-unit square: what a Maintenance button does.</summary>
+    private const string InfoPath = "M 14,8 A 6,6 0 1 1 2,8 A 6,6 0 1 1 14,8 M 8,7.2 L 8,11.5 M 8,4.6 L 8,5.1";
+
+    /// <summary>The Maintenance tab: Trim old Sessions, with its backup's Restore and Flush, and Save
+    /// space, with Shrink mucka.db and Delete backups. Each button has an (i) saying what it does.</summary>
+    private ScrollView MaintenanceView()
+    {
+        // Trim old Sessions.
+        var age = new Entry
+        {
+            Text = WireTrim.DefaultDays.ToString(CultureInfo.InvariantCulture),
+            Keyboard = Keyboard.Numeric,
+            TextColor = Body,
+            WidthRequest = 64,
+            VerticalOptions = LayoutOptions.Center,
+        };
+        age.SetBinding(Entry.FontSizeProperty, ScaledFontBinding.For(13));
+        var days = Line(Muted, 13);
+        days.Text = "days";
+        days.VerticalOptions = LayoutOptions.Center;
+        var trim = ActionButton("Trim", "Trim old Sessions", async () =>
+        {
+            if (!int.TryParse(age.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var older) || older > MaxDays)
+                return $"The age is a whole number of days, from 0 to {MaxDays}.";
+            var database = MuckaPaths.GetDatabasePath();
+            return await WorkAsync("Trim old Sessions", "Trimming old Sessions", "They could not be trimmed", () =>
+            {
+                var r = WireTrim.Trim(database, older, DateTimeOffset.UtcNow);
+                var text = r.RowsMoved == 0 ? "There was nothing to remove." : $"Removed {Size(r.BytesMoved)}, kept as trim backup.";
+                return r.RunsRefused == 0 ? text
+                    : text + " Some were left alone: trimming them would have changed what they show.";
+            });
+        });
+        var restore = ActionButton("Restore", "Restore", async () =>
+        {
+            var database = MuckaPaths.GetDatabasePath();
+            return await WorkAsync("Restore", "Restoring the trim backup", "It could not be restored", () =>
+            {
+                var (restored, skipped) = WireTrim.Revert(database);
+                const string Tidy = " Mucka tidies those Sessions when it next starts, and they cannot be trimmed until then.";
+                return restored == 0 && skipped == 0 ? "There was nothing to restore."
+                    : skipped == 0 ? "All of it is back." + Tidy
+                    : $"{skipped:N0} pieces could not go back and are kept in the trim backup."
+                        + (restored > 0 ? Tidy : "");
+            });
+        });
+        var flush = ActionButton("Flush", "Flush", async () =>
+        {
+            if (!await DisplayAlertAsync("Flush", "Delete the trim backup? Trimmed Sessions stay trimmed and cannot "
+                    + "be restored after this.", "Flush", "Cancel"))
+                return null;
+            var database = MuckaPaths.GetDatabasePath();
+            return await WorkAsync("Flush", "Flushing the trim backup", "It could not be flushed", () =>
+                WireTrim.Expire(database, 0, DateTimeOffset.UtcNow) == 0 ? "There was nothing to flush." : "Flushed.");
+        });
+
+        var trimSection = Section("Trim old Sessions",
+            "Removes extra lines from Sessions that ended more than this many days ago: the status checks Mucka "
+            + "sends to keep the status bar up to date (FES, FEW, FEI, FEX), and the game's replies to them that "
+            + "say the same as the reply before. What each Session shows, its logs and its replay stay the same. "
+            + "What is removed is kept as a trim backup, so you can restore it, until you flush it.");
+        trimSection.Add(Row(age, days, trim));
+        trimSection.Add(Row(_waiting, restore,
+            Info("Restore", "Puts everything Trim removed back into the Sessions it came from."),
+            Separator(), flush,
+            Info("Flush", "Deletes the trim backup for good. Trimmed Sessions stay trimmed and can no longer be "
+                + "restored.")));
+
+        // Save space.
+        var shrink = ActionButton("Shrink mucka.db", "Shrink mucka.db", async () =>
+        {
+            var database = MuckaPaths.GetDatabasePath();
+            return await WorkAsync("Shrink mucka.db", "Shrinking mucka.db", "It could not be shrunk", () =>
+            {
+                var r = DatabaseVacuum.Shrink(database);
+                return $"{Size(r.BytesBefore)} is now {Size(r.BytesAfter)}.";
+            });
+        });
+        var deleteBackups = ActionButton("Delete backups", "Delete backups", async () =>
+        {
+            if (!await DisplayAlertAsync("Delete backups", $"Delete {DatabaseBackup.FileName}, the older copy of "
+                    + "mucka.db? The next risky change Mucka is allowed to back up saves a new one.", "Delete", "Cancel"))
+                return null;
+            var database = MuckaPaths.GetDatabasePath();
+            return await WorkAsync("Delete backups", "Deleting backups", "They could not be deleted", () =>
+                DatabaseBackup.Delete(database) is var freed && freed == 0 ? "There was no backup." : $"Freed {Size(freed)}.");
+        });
+
+        var spaceSection = Section("Save space",
+            "Shrink rebuilds mucka.db without the space deleted and trimmed recording leaves behind. Delete "
+            + "backups deletes the older copy of mucka.db that Mucka may save before a risky change.");
+        spaceSection.Add(_fileSize);
+        spaceSection.Add(Row(shrink,
+            Info("Shrink mucka.db", "Rebuilds mucka.db without its empty space. It needs free space of twice its "
+                + "size. Close any other Mucka first: one that is recording may stop until it restarts."),
+            Separator(), deleteBackups, _backupSize,
+            Info("Delete backups", $"Deletes {DatabaseBackup.FileName}, a copy of mucka.db from before a risky "
+                + "change: an upgrade, a Delete, a Flush. Mucka keeps one copy, saves at most one each time it "
+                + "starts and only as often as Settings, Data allows, so what was recorded after the copy is "
+                + "not in it. The next risky change it is allowed to back up saves a new one.")));
+
+        var stack = new VerticalStackLayout { Spacing = 24, Padding = new Thickness(16, 16, 16, 32) };
+        stack.Add(trimSection);
+        stack.Add(spaceSection);
+        return new ScrollView { Content = stack };
+    }
+
+    /// <summary>A Maintenance section: its title and what it does; its rows follow.</summary>
+    private static VerticalStackLayout Section(string title, string text)
+    {
+        var heading = Line(Body, 14, bold: true);
+        heading.Text = title;
+        var about = Line(Muted, 12);
+        about.LineBreakMode = LineBreakMode.WordWrap;
+        about.Text = text;
+        var section = new VerticalStackLayout { Spacing = 8 };
+        section.Add(heading);
+        section.Add(about);
+        return section;
+    }
+
+    /// <summary>A Maintenance row, which wraps on a window too narrow for it.</summary>
+    private static FlexLayout Row(params View[] views)
+    {
+        var row = new FlexLayout { Wrap = Microsoft.Maui.Layouts.FlexWrap.Wrap, AlignItems = Microsoft.Maui.Layouts.FlexAlignItems.Center };
+        foreach (var view in views)
+        {
+            view.Margin = new Thickness(0, 2, 8, 2);
+            row.Add(view);
+        }
+        return row;
+    }
+
+    private static Label Separator()
+    {
+        var bar = Line(Muted, 13);
+        bar.Text = "|";
+        return bar;
+    }
+
+    /// <summary>An (i): its tooltip, and on a tap an alert, say what <paramref name="title"/> does.</summary>
+    private View Info(string title, string text)
+    {
+        var info = new IconButton(InfoPath, text);
+        info.Tapped += async () =>
+        {
+            if (!_busy)
+                await AlertAsync(title, text);
+        };
+        return info.View;
+    }
+
+    /// <summary>A Maintenance button. <paramref name="act"/> returns the message to show, or null when it
+    /// showed its own; the tab's figures are read again afterwards. One action at a time, and Escape
+    /// belongs to its prompts meanwhile, as a row's menu's do.</summary>
+    private Button ActionButton(string text, string title, Func<Task<string?>> act)
+    {
+        var button = new Button
+        {
+            Text = text,
+            TextColor = Accent,
+            BackgroundColor = Colors.Transparent,
+            BorderColor = Accent,
+            BorderWidth = 1,
+            CornerRadius = 4,
+            Padding = new Thickness(14, 4),
+        };
+        button.SetBinding(Button.FontSizeProperty, ScaledFontBinding.For(13));
+        button.Clicked += async (_, _) =>
+        {
+            if (_busy)
+                return;
+            _busy = true;
+            try
+            {
+                var message = await act();
+                if (message is not null)
+                    await AlertAsync(title, message);
+                await ShowStoredAsync();
+            }
+            finally
+            {
+                _busy = false;
+            }
+        };
+        return button;
+    }
+
+    /// <summary>The longest age a Maintenance pass takes: ten years.</summary>
+    private const int MaxDays = 3650;
+
+    /// <summary>Reads what the Maintenance tab's figures say - the trim backup, mucka.db's size and its
+    /// backup's - off the UI thread.</summary>
+    private async Task ShowStoredAsync()
+    {
+        var database = MuckaPaths.GetDatabasePath();
+        try
+        {
+            var (waiting, size, backup) = await Task.Run(() =>
+            {
+                var backupFile = new FileInfo(DatabaseBackup.PathFor(database));
+                return File.Exists(database)
+                    ? (WireTrim.Waiting(database).Bytes, new FileInfo(database).Length, backupFile.Exists ? backupFile.Length : 0L)
+                    : (0L, 0L, 0L);
+            });
+            _waiting.Text = waiting == 0 ? "No trim backup:" : $"{Size(waiting)} of trim backup:";
+            _fileSize.Text = $"mucka.db is {Size(size)}.";
+            _backupSize.Text = backup == 0 ? "none" : Size(backup);
+        }
+        catch (Exception ex) when (ex is SqliteException or IOException)
+        {
+            _waiting.Text = string.Empty;
+            _backupSize.Text = string.Empty;
+            _fileSize.Text = $"Your Sessions could not be read: {ex.Message}";
         }
     }
 
@@ -1814,7 +2196,7 @@ internal sealed class HistoryPage : ContentPage
     }
 
     /// <summary>Escape, or the system back button, closes the innermost thing open: the viewer's Find
-    /// or Filters panel, then the viewer, then History.</summary>
+    /// or Filters panel, then the viewer, then Logs.</summary>
     private void Back()
     {
         if (Viewing && (_searchPanel.IsVisible || _filterPopup.IsVisible))
@@ -1834,7 +2216,12 @@ internal sealed class HistoryPage : ContentPage
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
 #elif UIKIT
         MacEscape.Detach(_macEscape);
-        _macEscape = MacEscape.Attach(this, Back);
+        // An action and its prompts own Escape until it ends, as on Windows.
+        _macEscape = MacEscape.Attach(this, () =>
+        {
+            if (!_busy)
+                Back();
+        });
 #endif
     }
 
@@ -1867,7 +2254,9 @@ internal sealed class HistoryPage : ContentPage
 
     protected override bool OnBackButtonPressed()
     {
-        Back();
+        // An action and its prompts own the page until it ends, as they own Escape.
+        if (!_busy)
+            Back();
         return true;
     }
 
@@ -1875,7 +2264,7 @@ internal sealed class HistoryPage : ContentPage
     private void OnWindowPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         // A row's menu, its prompt or alert, and its write own the keys until the action ends (_busy).
-        if (_busy || Navigation.ModalStack is not [.., HistoryPage])
+        if (_busy || Navigation.ModalStack is not [.., LogsPage])
             return;
         if (e.Key == Windows.System.VirtualKey.Escape)
         {
@@ -2012,10 +2401,5 @@ internal sealed class HistoryPage : ContentPage
             Size(entry.Bytes),
             entry.Packaged ? "comes with Mucka" : null,
         }.Where(s => s is not null));
-
-        private static string Size(long bytes)
-            => bytes < 1024 * 1024
-                ? $"{Math.Max(1, bytes / 1024)} KB"
-                : $"{bytes / (1024.0 * 1024.0):0.0} MB";
     }
 }

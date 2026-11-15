@@ -50,6 +50,7 @@ internal static class MigrationScripts
         Load("0008_wire_heal_and_trim.sql"),
         Load("0009_wire_run_index.sql"),
         Load("0010_session_names_and_tags.sql"),
+        Load("0011_wire_unwrap.sql"),
     ];
 
     /// <summary>The scripts that only add: each statement creates an index or table that is not there
@@ -57,7 +58,8 @@ internal static class MigrationScripts
     /// are all in this set takes no backup (<see cref="MuckaDb.ApplySchema(Microsoft.Data.Sqlite.SqliteConnection, MaintenanceTracker, bool, string)"/>);
     /// one with any other script backs up first. A script is in the set by being listed here, and a
     /// guard test refuses a listed script that contains anything but a creation.</summary>
-    private static readonly HashSet<string> Additive = ["0009_wire_run_index.sql", "0010_session_names_and_tags.sql"];
+    private static readonly HashSet<string> Additive =
+        ["0009_wire_run_index.sql", "0010_session_names_and_tags.sql", "0011_wire_unwrap.sql"];
 
     /// <summary>True when <paramref name="scriptName"/> is listed as only adding.</summary>
     internal static bool IsAdditive(string scriptName) => Additive.Contains(scriptName);
