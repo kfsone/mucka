@@ -24,11 +24,11 @@ namespace Mucka.WireLog;
 /// per play-hour and made <c>SELECT data</c> print the magic number instead of the line. See the
 /// <c>wire</c> table's comment in MuckaDb for why legibility wins that trade.</para>
 ///
-/// <para>The writes themselves are not per row: the store's single background task drains whatever has
+/// <para>The writes themselves are not per row: the store's single writer thread drains whatever has
 /// queued and commits it as one transaction, so a busy second is one commit, not a hundred.</para>
 ///
 /// <para><b>What a crash costs.</b> Whatever has not yet drained, which is bounded by how fast the
-/// store's task gets to it rather than by any buffer here - there is no buffer here.
+/// store's writer thread gets to it rather than by any buffer here - there is no buffer here.
 /// <see cref="Flush"/> exists for the shape of the call sites that end a connection and has nothing to
 /// do; draining is <see cref="MuckaStore.Dispose"/>'s job.</para>
 /// </summary>

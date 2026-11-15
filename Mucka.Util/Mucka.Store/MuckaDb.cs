@@ -9,7 +9,7 @@ namespace Mucka.Store;
 /// The client's one database: <c>~/.mucka/mucka.db</c>. Combat corpus, raw wire log and
 /// per-encounter combat logs, in one file. See <c>docs/persistence-design.md</c>, which governs this.
 ///
-/// <para><b>Threading.</b> Writes go through a single connection owned by one background task - see
+/// <para><b>Threading.</b> Writes go through a single connection owned by one writer thread - see
 /// <see cref="MuckaStore"/>. Reads open their own short-lived connection and must never run on the UI
 /// thread (Invariant #1); the live combat rail reads a warmed in-memory cache, never SQL. WAL is on so
 /// a read can never block the writer or vice versa.</para>

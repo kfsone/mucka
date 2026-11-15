@@ -12,7 +12,7 @@ namespace Mucka.Store;
 /// still builds encounter rows - and only the connection and the transaction move to one owner.</para>
 ///
 /// <para><b>A row must be fully materialised before it is enqueued.</b> <see cref="Write"/> runs on the
-/// writer task, not on the thread that created the row, so it may not read anything that the producer
+/// writer thread, not on the thread that created the row, so it may not read anything that the producer
 /// thread can still be mutating.</para>
 /// </summary>
 public interface IStoreRow

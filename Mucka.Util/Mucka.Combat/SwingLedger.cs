@@ -16,7 +16,7 @@ namespace Mucka.Combat;
 ///
 /// <para>Threading: every On* method is called from the session Feed thread (same contract as
 /// ClogWriter and FightHistoryRecorder) and does nothing but cheap in-memory bookkeeping plus an
-/// enqueue onto <see cref="MuckaStore"/>, whose single background task owns the only write
+/// enqueue onto <see cref="MuckaStore"/>, whose single writer thread owns the only write
 /// connection. The thread parsing incoming combat text never pays for the write - stalling it delays
 /// the combat text itself, which no UI-side throttle can fix (Invariant #1).</para>
 ///
@@ -629,7 +629,7 @@ public sealed class SwingLedger
     }
 
     /// <summary>Hands one row to the store. Cheap, never blocks, never throws; the write happens on
-    /// the store's single background task. Three shapes go down that one queue - the per-swing
+    /// the store's single writer thread. Three shapes go down that one queue - the per-swing
     /// stream, the rare `diagnose` reading and the score announcements - and one ordered channel is
     /// what keeps the order between them, which is the whole basis on which an award is later
     /// attributed to a kill.</summary>

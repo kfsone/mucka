@@ -6,7 +6,7 @@ namespace Mucka.Store;
 
 /// <summary>
 /// The one owner of the one database. Opens <c>~/.mucka/mucka.db</c>, writes its <c>mucka_runs</c> row,
-/// and runs the single background task that owns the only write connection for as long as the store
+/// and runs the single background writer thread that owns the only write connection for as long as the store
 /// lives. Every producer - the swing ledger, the fight history store, the clog writer, the wire log -
 /// builds a row on its own thread and hands it over; none of them touches SQLite.
 ///
@@ -15,7 +15,7 @@ namespace Mucka.Store;
 ///
 /// <para><b>Threading.</b> <see cref="Enqueue"/> is called from the socket read loop, the socket write
 /// loop and the Feed thread, concurrently. It serialises nothing and does no I/O - it is a channel
-/// write. Exactly one task reads, batching whatever is queued into one transaction. This is Invariant
+/// write. Exactly one thread reads, batching whatever is queued into one transaction. This is Invariant
 /// #1 at the storage layer.</para>
 ///
 /// <para><b>The queue is unbounded.</b> The bound it used to have defended against a writer wedged
@@ -44,11 +44,17 @@ public sealed class MuckaStore : IDisposable
     private readonly string? _accountId;
     private readonly SqliteConnection? _connection;
     private readonly StoreWrite? _write;
-    private readonly Task? _writerTask;
+    private readonly Thread? _writerThread;
     private readonly Action<string, Exception>? _onError;
 
-    // Held by the writer for each batch and by Optimize for its whole run, so the writer's connection
-    // is never used by two threads and never has a batch open while the file is compacted.
+    // Set by every Enqueue, and by Dispose; the writer thread waits on it and resets it before each
+    // pass. A thread of its own waits on an event rather than on the channel's async wait, because
+    // that wait resumes on a thread-pool thread, and a pool whose threads are all blocked would hold
+    // the writer back past DrainTimeout.
+    private readonly ManualResetEventSlim _wake = new(false);
+    private volatile bool _stopping;
+
+    // Held by the writer for each batch, so the writer's connection is never used by two threads.
     private readonly object _batchGate = new();
 
     private volatile bool _disposed;
@@ -60,7 +66,7 @@ public sealed class MuckaStore : IDisposable
     /// <para><b>The database is opened here, on the caller's thread, and a failure to open it is
     /// reported here.</b> A failure that is not reported at start is a failure that is never reported:
     /// this is a store that is switched on once and then trusted forever. The session row is written
-    /// before the writer task starts, so <see cref="SessionId"/> is available immediately and nothing
+    /// before the writer thread starts, so <see cref="SessionId"/> is available immediately and nothing
     /// has to reach into the connection behind the writer's back.</para>
     ///
     /// <para>A store that could not be opened does not throw and does not block the connection - the
@@ -96,7 +102,8 @@ public sealed class MuckaStore : IDisposable
 
         _connection = connection;
         _write = new StoreWrite(connection);
-        _writerTask = Task.Run(DrainAsync);
+        _writerThread = new Thread(Drain) { IsBackground = true, Name = "MuckaStore writer" };
+        _writerThread.Start();
     }
 
     /// <summary>Where this store is writing. Shown to the player.</summary>
@@ -270,64 +277,15 @@ public sealed class MuckaStore : IDisposable
         command.ExecuteNonQuery();
     }
 
-    /// <summary>What <see cref="Optimize"/> did to the file.</summary>
-    public readonly record struct OptimizeResult(long BytesBefore, long BytesAfter);
-
-    /// <summary>
-    /// Compacts the database: checkpoints the WAL, refreshes the planner's statistics, rebuilds the
-    /// file without its free pages, and drops the pooled read connections so the next reader opens
-    /// the new file. Blocks for as long as that takes, which grows with the file - never call it on the
-    /// UI thread.
-    ///
-    /// <para><b>The writer waits, it does not fail.</b> The compaction runs on the writer's own
-    /// connection while it holds the batch gate, so no batch can be open and none can lose the lock
-    /// to it - the failure that would fault the store. Producers are unaffected: <see cref="Enqueue"/>
-    /// is a channel write, and what they queue is written when the gate opens. A quit during the run
-    /// is bounded by <see cref="DrainTimeout"/> like any other, and can lose what is queued.</para>
-    ///
-    /// <para><b>Another process is not protected.</b> A second Mucka on the same file has its own
-    /// writer, whose commit gives up after the busy timeout and faults its store, so it stops
-    /// recording for the rest of its session if this runs past that; so
-    /// do this process's own short-lived connections (a login's attribution).</para>
-    ///
-    /// <para>Needs free space of twice the file's size, on its drive and on the temp drive; without it
-    /// nothing is attempted and the exception says how much is needed. The check is skipped on a
-    /// platform whose drive information cannot be read for the path.</para>
-    /// </summary>
-    public OptimizeResult Optimize()
-    {
-        if (_disposed || _faulted)
-            throw new InvalidOperationException("the store is not recording, so there is no connection to compact");
-
-        var before = FileLength(_path);
-        var needed = before * 2;
-        DatabaseBackup.RequireFreeSpace(System.IO.Path.GetFullPath(_path), needed, "compacting");
-        DatabaseBackup.RequireFreeSpace(System.IO.Path.GetTempPath(), needed, "compacting");
-
-        lock (_batchGate)
-        {
-            if (_disposed || _faulted)
-                throw new InvalidOperationException("the store stopped recording before it could be compacted");
-            Execute(_connection!, "PRAGMA wal_checkpoint(TRUNCATE);");
-            Execute(_connection!, "ANALYZE;");
-            Execute(_connection!, "VACUUM;");
-            Execute(_connection!, "PRAGMA wal_checkpoint(TRUNCATE);");
-        }
-
-        using (var pooled = new SqliteConnection(MuckaDb.ConnectionString(_path)))
-            SqliteConnection.ClearPool(pooled);
-        using (var pooledRead = new SqliteConnection(MuckaDb.ReadConnectionString(_path)))
-            SqliteConnection.ClearPool(pooledRead);
-        return new OptimizeResult(before, FileLength(_path));
-    }
-
-    private static long FileLength(string path) => new FileInfo(path).Exists ? new FileInfo(path).Length : 0;
-
     /// <summary>Hands one row to the writer. Cheap, thread-safe, never blocks, never throws.</summary>
     public void Enqueue(IStoreRow row)
     {
         if (_disposed || _faulted) return;
         _queue.Writer.TryWrite(row);
+        // Once per pass: while the writer is busy the event is already set, so a producer pays a read.
+        // The fence orders the write before that read, as the writer's Reset orders its read of the queue.
+        Interlocked.MemoryBarrier();
+        if (!_wake.IsSet) _wake.Set();
     }
 
     /// <summary>Stops accepting, drains what is queued and stamps the session's end time. Blocks up
@@ -346,9 +304,11 @@ public sealed class MuckaStore : IDisposable
         if (_disposed) return;
         _disposed = true;
         _queue.Writer.TryComplete();
+        _stopping = true;
+        _wake.Set();
         try
         {
-            _writerTask?.Wait(DrainTimeout);
+            _writerThread?.Join(DrainTimeout);
         }
         catch
         {
@@ -356,19 +316,28 @@ public sealed class MuckaStore : IDisposable
         }
     }
 
-    /// <summary>The single background writer. Owns the only write connection for the store's lifetime.
-    /// <c>WaitToReadAsync</c> completes only once the queue is both closed and drained, which is the
-    /// "nothing queued is lost on shutdown" property <see cref="Dispose"/> relies on.</summary>
-    private async Task DrainAsync()
+    /// <summary>The single background writer, on a thread of its own. Owns the only write connection for
+    /// the store's lifetime. Each pass writes everything queued; the pass after <see cref="Dispose"/>
+    /// sets <c>_stopping</c> is the last, and it reads the flag before it drains, so every row queued
+    /// before the flag was set is in it - the "nothing queued is lost on shutdown" property
+    /// <see cref="Dispose"/> relies on.</summary>
+    private void Drain()
     {
         var reader = _queue.Reader;
         try
         {
-            while (await reader.WaitToReadAsync().ConfigureAwait(false))
+            bool last;
+            do
             {
+                _wake.Wait();
+                // Reset first, then read the flag: a Dispose that sets it after the reset leaves the
+                // event set for the next pass, and one that set it before is seen here.
+                _wake.Reset();
+                last = _stopping;
                 lock (_batchGate)
                     WriteBatch(reader);
             }
+            while (!last);
             lock (_batchGate)
                 CloseSession();
         }
@@ -392,7 +361,7 @@ public sealed class MuckaStore : IDisposable
     /// <summary>
     /// Writes everything already queued in one transaction.
     ///
-    /// <para><b>A row that throws takes the store down with it</b>, through <see cref="DrainAsync"/>'s
+    /// <para><b>A row that throws takes the store down with it</b>, through <see cref="Drain"/>'s
     /// handler: one failure policy, not two. The writers this replaced caught per row and carried on,
     /// which reads as resilience and is not - with one arbiter the only two things that make a row
     /// throw are a dead database and a schema bug, and swallowing either produces an error per row

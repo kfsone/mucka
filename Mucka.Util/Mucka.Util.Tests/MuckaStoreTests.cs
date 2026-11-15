@@ -288,7 +288,7 @@ public sealed class MuckaStoreTests : IDisposable
         {
             id = store.SessionId;
 
-            // Open and readable immediately: the session row is written before the writer task
+            // Open and readable immediately: the session row is written before the writer thread
             // starts, so nothing has to reach into the connection behind the writer's back.
             using var live = MuckaDb.OpenRead(DbPath);
             using var probe = live.CreateCommand();

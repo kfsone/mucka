@@ -12,7 +12,7 @@ is no shared database - each install has its own local file, and only code trave
 
 One SQLite file, `~/.mucka/mucka.db`. It holds the combat corpus, the raw wire log and the
 per-encounter combat logs. Everything is always on; nothing is armed by hand and no setting turns
-anything off. One background task owns the only write connection; every producer thread does nothing
+anything off. One writer thread owns the only write connection; every producer thread does nothing
 but build a row and hand it over. Readers open their own short-lived connections and never run on the
 UI thread.
 
@@ -202,17 +202,22 @@ command-line reader can take this library alone.
 The discipline, which is Invariant #1 in concrete form:
 
 > The Feed/socket thread only serializes a row and `TryWrite`s it onto a `Channel<T>`. Exactly one
-> background task owns a write connection and batches whatever is queued into one transaction.
+> writer thread owns a write connection and batches whatever is queued into one transaction.
 > Readers take a lock only to swap an in-memory snapshot. `Dispose` blocks up to 5 s to drain. The
 > live combat rail reads a warmed in-memory cache, never SQL.
 
-There is **one** such task, not one per store.
+There is **one** such thread, not one per store.
 
 ### The arbiter
 
-One `Channel<IStoreRow>`, unbounded, single-reader. One task, `DrainAsync`, owning one
+One `Channel<IStoreRow>`, unbounded, single-reader. One thread, `Drain`, owning one
 `SqliteConnection` for the store's whole lifetime. Each pass drains whatever is queued into one
 transaction, dispatching each row to the prepared statement for its own table.
+
+**A thread of its own, not a pool task.** `Drain` waits on an event that `Enqueue` sets, never on the
+channel's async wait, so the writer needs no thread-pool thread at any point.
+`MuckaStoreStarvedPoolTests` blocks every pool thread and requires `Dispose` to drain regardless; a
+pool-task writer failed it with an empty table after `MuckaStore.DrainTimeout`.
 
 `IStoreRow` is the seam: a row knows its own INSERT statement and how to bind itself. Row *building*
 stays with the class that understands the data - the ledger still builds swing rows, the clog writer
@@ -230,7 +235,7 @@ machinery: at the measured 0.156 KB/s an hour of total write stall is about half
 backlog. A gapless `seq` is still worth keeping as a per-session ordinal, because it is the order
 things happened and a replay walks it.
 
-**A dead writer stops accepting.** If the background task falls over it sets a faulted flag,
+**A dead writer stops accepting.** If the writer thread falls over it sets a faulted flag,
 discards what is queued, and every producer's enqueue becomes a no-op. Without that, an unbounded
 channel with no reader is a memory leak whose size is the rest of the session. Retrying is not
 done: if the database cannot be written at all, a retry turns one failure into one a minute forever.

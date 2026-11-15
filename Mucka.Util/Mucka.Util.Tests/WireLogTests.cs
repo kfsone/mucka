@@ -278,7 +278,7 @@ public sealed class WireLogTests : IDisposable
     [Fact]
     public void Records_become_readable_without_closing_the_session()
     {
-        // Nothing is held back by the writer, so records reach the file as fast as the store's task
+        // Nothing is held back by the writer, so records reach the file as fast as the store's writer thread
         // drains them - no flush needed, and the session stays open while they do.
         var records = SampleRecords();
         using var store = NewStore();

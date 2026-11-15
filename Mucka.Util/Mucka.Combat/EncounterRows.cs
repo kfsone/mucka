@@ -4,7 +4,7 @@ namespace Mucka.Combat;
 
 /// <summary>
 /// The rows <see cref="ClogWriter"/> produces, one type per encounter table. Each is fully
-/// materialised on the Feed thread and written on the store's writer task - nothing here may hold a
+/// materialised on the Feed thread and written on the store's writer thread - nothing here may hold a
 /// reference to state the Feed thread can still mutate, which is why the contents row copies its
 /// item list rather than pointing at the writer's live arrays.
 ///
