@@ -1,5 +1,6 @@
 #if UIKIT
 using Foundation;
+using Mucka.Commands;
 using UIKit;
 
 namespace Mucka;
@@ -27,7 +28,13 @@ internal static class MacHotkeys
     /// <summary>The 36 Fkey texts of the profile in play; an empty one gets no menu entry.</summary>
     public static Func<string[]>? Fkeys { get; set; }
 
+    /// <summary>The keys the navigation options are on right now: empty while the setting is off.</summary>
+    public static Func<IReadOnlyList<(NavKeyChoice Key, NavAction Action)>>? NavClaims { get; set; }
+
     internal const string Action = "muckaHotkey:";
+
+    /// <summary>The id prefix of a navigation key's command; the rest is the <see cref="NavAction"/> name.</summary>
+    internal const string NavIdPrefix = "nav-";
 
     /// <summary>True while the game page is showing and nothing is presented over it. A key command
     /// that is disabled is not consumed, so Esc, the arrows and Ctrl-D/F keep their ordinary meaning
@@ -62,6 +69,7 @@ internal static class MacHotkeys
 
     internal const string GameMenuId = "org.kfs.mucka.game";
     internal const string FkeysMenuId = "org.kfs.mucka.fkeys";
+    internal const string NavMenuId = "org.kfs.mucka.nav";
 
     public static UIMenu Build()
     {
@@ -121,6 +129,43 @@ internal static class MacHotkeys
 
         return UIMenu.Create("Fkeys", null, new NSString(FkeysMenuId), (UIMenuOptions)0, fkeyItems.ToArray());
     }
+
+    /// <summary>The Nav Keys menu: one entry for each navigation option that has a key. The number pad's
+    /// keys are registered with <see cref="UIKeyModifierFlags.NumericPad"/>; whether the Mac's menu then
+    /// leaves the main block's characters alone has not been checked on a Mac.</summary>
+    public static UIMenu BuildNav()
+    {
+        var items = new List<UIMenuElement>();
+        foreach (var (key, action) in NavClaims?.Invoke() ?? [])
+            if (NavInput(key.Name) is { } input)
+                items.Add(Key($"{NavKeyMap.For(action).Label}   {key.Display}", input.Input, input.Mods,
+                    NavIdPrefix + action));
+        return UIMenu.Create("Nav Keys", null, new NSString(NavMenuId), (UIMenuOptions)0, items.ToArray());
+    }
+
+    private static (NSString Input, UIKeyModifierFlags Mods)? NavInput(string name)
+    {
+        const UIKeyModifierFlags pad = UIKeyModifierFlags.NumericPad;
+        if (name.Length == 4 && name.StartsWith("Pad", StringComparison.Ordinal) && char.IsAsciiDigit(name[3]))
+            return (new NSString(name[3].ToString()), pad);
+        if (name.Length >= 2 && name[0] == 'F' && int.TryParse(name.AsSpan(1), out var f) && f is >= 1 and <= 12)
+            return (FunctionKeys[f - 1], 0);
+        return name switch
+        {
+            "PadMultiply" => (new NSString("*"), pad),
+            "PadSubtract" => (new NSString("-"), pad),
+            "PadAdd" => (new NSString("+"), pad),
+            "PadPeriod" => (new NSString("."), pad),
+            "PadDivide" => (new NSString("/"), pad),
+            _ => null,
+        };
+    }
+
+    private static readonly NSString[] FunctionKeys =
+    [
+        UIKeyCommand.F1, UIKeyCommand.F2, UIKeyCommand.F3, UIKeyCommand.F4, UIKeyCommand.F5, UIKeyCommand.F6,
+        UIKeyCommand.F7, UIKeyCommand.F8, UIKeyCommand.F9, UIKeyCommand.F10, UIKeyCommand.F11, UIKeyCommand.F12,
+    ];
 
     private static UIKeyCommand Key(string title, string input, UIKeyModifierFlags mods, string id)
         => Key(title, new NSString(input), mods, id);

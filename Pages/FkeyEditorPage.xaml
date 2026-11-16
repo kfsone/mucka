@@ -165,7 +165,7 @@
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Navkeys" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Nav Keys" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
                             <DataTrigger TargetType="Label" Binding="{Binding IsNavkeysTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
@@ -444,7 +444,7 @@
                             FontSize="{core:ScaledFont 12}" HeightRequest="30"
                             CornerRadius="4" Padding="10,0" HorizontalOptions="Start"/>
 
-                    <Label Text="Pick the key for each option. Scan sends a quick scan, at most once a second unless you have moved since the last one. Letters, digits, Enter, Backspace, Shift and Ctrl cannot be used, nor an F-key that has a macro; the number pad needs Num Lock on. While a pad key does something here, it no longer types its digit."
+                    <Label Text="Pick the key for each option. Scan sends a quick scan, at most once a second unless you have moved since the last one. Letters, digits, Enter, Backspace, Shift and Ctrl cannot be used, nor an F-key that has a macro; on Windows the number pad needs Num Lock on. While a pad key does something here, it no longer types its digit."
                            TextColor="#888888" FontSize="{core:ScaledFont 12}"/>
                 </VerticalStackLayout>
             </ScrollView>

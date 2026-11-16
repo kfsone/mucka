@@ -19,6 +19,7 @@ public class AppDelegate : MauiUIApplicationDelegate
 			return;
 		builder.InsertSiblingMenuAfter(MacHotkeys.Build(), UIMenuIdentifier.Edit.GetConstant()!);
 		builder.InsertSiblingMenuAfter(MacHotkeys.BuildFkeys(), new NSString(MacHotkeys.GameMenuId));
+		builder.InsertSiblingMenuAfter(MacHotkeys.BuildNav(), new NSString(MacHotkeys.FkeysMenuId));
 	}
 
 	public override void ValidateCommand(UICommand command)

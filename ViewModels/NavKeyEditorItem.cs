@@ -2,7 +2,7 @@ using Mucka.Commands;
 
 namespace Mucka.ViewModels;
 
-/// <summary>One navigation option's row on the Navkeys tab: its name and the key picked for it.</summary>
+/// <summary>One navigation option's row on the Nav Keys tab: its name and the key picked for it.</summary>
 public sealed class NavKeyEditorItem : BaseViewModel
 {
     /// <summary>The drop-down's entries: "(none)", then <see cref="NavKeyMap.Choices"/> in order.</summary>

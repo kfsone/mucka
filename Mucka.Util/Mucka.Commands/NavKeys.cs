@@ -12,7 +12,7 @@ public enum NavAction
     Out, In, Up, Down, Swampward,
 }
 
-/// <summary>One option as the Navkeys tab lists it: what it is called, the line it sends, and the key
+/// <summary>One option as the Nav Keys tab lists it: what it is called, the line it sends, and the key
 /// that does it until the player picks another. <see cref="Command"/> is empty for scan, which is not
 /// a line but a command interrupt (<see cref="NavKeyMap.ScanBytes"/>).</summary>
 public sealed record NavActionInfo(NavAction Action, string Label, string Command, string DefaultKey);
@@ -36,7 +36,7 @@ public static class NavKeyMap
         System.Text.Encoding.Latin1.GetBytes("\x1b-[quickscan\x1b-]");
 
     /// <summary>Every option, in the number pad's own layout - rows top to bottom, then the bottom row
-    /// and the keys down its right-hand side - which is the order of the Navkeys tab.</summary>
+    /// and the keys down its right-hand side - which is the order of the Nav Keys tab.</summary>
     public static readonly IReadOnlyList<NavActionInfo> Actions =
     [
         new(NavAction.NorthWest, "North-west", ExitWords.NorthWest, "Pad7"),
@@ -55,7 +55,7 @@ public static class NavKeyMap
         new(NavAction.Swampward, "Swampward",  SwampwardCommand,    "PadPeriod"),
     ];
 
-    /// <summary>The keys the Navkeys tab offers: the number pad and F1-F12. The main block, Enter,
+    /// <summary>The keys the Nav Keys tab offers: the number pad and F1-F12. The main block, Enter,
     /// Backspace and the modifiers are not offered, and <see cref="KeyCollision"/> refuses them anyway.</summary>
     public static readonly IReadOnlyList<NavKeyChoice> Choices = BuildChoices();
 
