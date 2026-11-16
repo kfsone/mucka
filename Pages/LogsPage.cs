@@ -129,10 +129,12 @@ internal sealed class LogsPage : ContentPage
     private readonly Label _searchStatus;
     private readonly VerticalStackLayout _filterPanel;
     private readonly Label _copied;
+#if WINDOWS || MACCATALYST
     // Counts copy notes, so only the latest one hides itself.
     private int _copiedNote;
     /// <summary>How long the "Copied" note stays over the log.</summary>
     private const int CopiedNoteMs = 1500;
+#endif
     private readonly List<FilterRule> _rules = [];
     // Each rule row's count, and the counts last worked out, so a rebuilt table shows them at once.
     private readonly List<Label> _ruleCounts = [];
@@ -1506,6 +1508,7 @@ internal sealed class LogsPage : ContentPage
         _searchStatus.TextColor = Muted;
     }
 
+#if WINDOWS || MACCATALYST
     /// <summary>Says a copy was made, over the log's foot for a moment: the panels may all be shut.</summary>
     private async void ShowCopied()
     {
@@ -1515,6 +1518,7 @@ internal sealed class LogsPage : ContentPage
         if (shown == _copiedNote)
             _copied.IsVisible = false;
     }
+#endif
 
     /// <summary>Writes the Session's recording as a replay in the player's replay folder, where the
     /// Replays tab lists it; on a phone or tablet the share sheet then offers it. Returns where it went,
