@@ -282,6 +282,35 @@ public sealed class SessionSliceTests : IDisposable
     }
 
     [Fact]
+    public async Task AWebPage_IsTheTextLog_InThePanesColours()
+    {
+        var (first, _) = SeedTwoPersonae();
+        var slice = SessionSlice.Read(Db, first)!;
+        var writer = new StringWriter();
+        await Mucka.Combat.SessionTextLog.WriteHtmlAsync(slice, "mud2.com", writer, ChatColorizer.DefaultPalette,
+            "Ollie", "Ollie <first>");
+
+        var html = writer.ToString();
+        static string Hex(int rgb) => "#" + (rgb & 0xFFFFFF).ToString("X6", System.Globalization.CultureInfo.InvariantCulture);
+        Assert.StartsWith("<!DOCTYPE html>", html, StringComparison.Ordinal);
+        Assert.Contains("<title>Ollie &lt;first&gt;</title>", html, StringComparison.Ordinal);
+        Assert.EndsWith(Mucka.Terminal.HtmlText.Foot + Environment.NewLine, html, StringComparison.Ordinal);
+        Assert.All(html, c => Assert.True(char.IsAscii(c)));
+        // The persona's own say, restyled over the whole Session as in the ANSI log: italic, in the
+        // say colour, between the emote-coloured words.
+        var emote = Hex(ChatColorizer.DefaultPalette.Emote);
+        var say = Hex(ChatColorizer.DefaultPalette.Say);
+        Assert.Contains($"<span style=\"color:{emote}\">Ollie says &quot;</span><span style=\"color:{say};font-style:italic\">hello"
+            + $"</span><span style=\"color:{emote}\">&quot;.</span>", html, StringComparison.Ordinal);
+        Assert.Contains($"<span style=\"color:{Hex(CampbellPalette.Rgb[10])}\">first persona play</span>", html, StringComparison.Ordinal);
+        // Inside the pre, with the markup taken out, it is the text log, line for line.
+        var start = html.IndexOf("<pre>", StringComparison.Ordinal) + "<pre>".Length + Environment.NewLine.Length;
+        var body = html[start..html.LastIndexOf(Mucka.Terminal.HtmlText.Foot, StringComparison.Ordinal)];
+        var text = System.Net.WebUtility.HtmlDecode(System.Text.RegularExpressions.Regex.Replace(body, "<[^>]*>", ""));
+        Assert.Equal(TextLog(slice), text);
+    }
+
+    [Fact]
     public void TheViewersLines_AreTheTextLogsLines_MarkedForTheChatColours()
     {
         var (first, second) = SeedTwoPersonae();

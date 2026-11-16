@@ -12,7 +12,8 @@ public sealed record LogColours(ChatColorizer.Palette Palette, string? Persona, 
 
 /// <summary>
 /// A Session's text log: the screen as plain text - or, as an ANSI log, with each span's colour and
-/// face as ANSI SGR (<see cref="SgrText"/>) - written by the live transcript's own
+/// face as ANSI SGR (<see cref="SgrText"/>), or as a web page (<see cref="HtmlText"/>) - written by
+/// the live transcript's own
 /// <see cref="SessionRecorder"/>, made afterwards from the Session's recording
 /// (<see cref="SessionSlice"/>) instead of from the socket.
 ///
@@ -44,24 +45,54 @@ public static class SessionTextLog
     /// whose own messages they mark, and the colour depth. Null writes plain text.</param>
     /// <exception cref="IOException">The write failed.</exception>
     /// <exception cref="InvalidOperationException">The recording never enters the game.</exception>
-    public static async Task WriteAsync(SessionSlice slice, string host, TextWriter writer,
+    public static Task WriteAsync(SessionSlice slice, string host, TextWriter writer,
         LogColours? colours = null)
+        => WriteAsync(slice, host, writer,
+            colours is { } c ? line => SgrText.Format(line, c.Palette, c.Colours) : null, colours?.Persona);
+
+    /// <summary>Writes the log as a web page (<see cref="HtmlText"/>) to <paramref name="writer"/>,
+    /// which it closes, whatever happens: the same lines as the ANSI log, in the pane's colours and the
+    /// player's chat colours, the persona's own messages marked as <paramref name="persona"/>'s.</summary>
+    /// <param name="title">The page's title.</param>
+    /// <exception cref="IOException">The write failed.</exception>
+    /// <exception cref="InvalidOperationException">The recording never enters the game.</exception>
+    public static Task WriteHtmlAsync(SessionSlice slice, string host, TextWriter writer,
+        ChatColorizer.Palette palette, string? persona, string title)
     {
         ArgumentNullException.ThrowIfNull(writer);
-        Func<StyledLine, string>? format = colours is { } c ? line => SgrText.Format(line, c.Palette, c.Colours) : null;
+        HtmlPageWriter page;
+        try
+        {
+            page = new HtmlPageWriter(writer, title);
+        }
+        catch
+        {
+            writer.Dispose();
+            throw;
+        }
+        // The recorder writes the host into its first and last lines as it is.
+        return WriteAsync(slice, HtmlText.Encode(host), page, line => HtmlText.Format(line, palette), persona);
+    }
+
+    /// <param name="format">How a line is written; plain text when null. A formatted log's lines are
+    /// held and marked over the whole Session before they are written.</param>
+    private static async Task WriteAsync(SessionSlice slice, string host, TextWriter writer,
+        Func<StyledLine, string>? format, string? persona)
+    {
+        ArgumentNullException.ThrowIfNull(writer);
         var play = new Play(holds: format is not null,
             ms => new SessionRecorder(writer, host, Local(ms), format));
         try
         {
             Feed(slice, play);
-            // An ANSI log's lines were held back: whose message each chat span is, and its channel,
+            // A coloured log's lines were held back: whose message each chat span is, and its channel,
             // are marked as the pane marks them before drawing (ChatColorizer.ApplyAll) - over the
             // whole Session at once, so a wrapped message's earlier rows see the channel its later
             // rows show. A plain log's went straight to the recorder.
-            if (colours is not null && play.Recorder is { } recorder)
+            if (format is not null && play.Recorder is { } recorder)
             {
                 var carry = default(ChatColorizer.Carry);
-                ChatColorizer.ApplyAll(play.Held, colours.Persona, ref carry);
+                ChatColorizer.ApplyAll(play.Held, persona, ref carry);
                 foreach (var line in play.Held)
                     recorder.Append(line);
             }

@@ -68,6 +68,10 @@ internal sealed class LogsPage : ContentPage
     private const string BackupText = "Save a Text log first";
     private const string BackupSimple = "Save a Simple Color Log first";
     private const string BackupFancy = "Save a Fancy Color Log first";
+    private const string BackupWeb = "Save a Web page first";
+
+    /// <summary>What a log is saved as.</summary>
+    private enum LogKind { Text, SimpleColor, FancyColor, Web }
     private const string DeleteWithoutBackup = "Delete without saving";
 
     private enum Shown { Sessions, Replays, Maintenance }
@@ -989,28 +993,27 @@ internal sealed class LogsPage : ContentPage
                 case ReplayFormat:
                     await MakeReplayAsync(item);
                     break;
-                case TextFormat or SimpleColorFormat or FancyColorFormat
+                case TextFormat or SimpleColorFormat or FancyColorFormat or WebFormat
                     when !OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst():
                     await AlertAsync(pick, "If you want this on your phone, send Ollie a mudmail.");
                     break;
                 case TextFormat:
-                    await SaveLogAsync(item, null);
+                    await SaveLogAsync(item, LogKind.Text);
                     break;
                 case SimpleColorFormat:
-                    await SaveLogAsync(item, SgrColours.Simple);
+                    await SaveLogAsync(item, LogKind.SimpleColor);
                     break;
                 case FancyColorFormat:
-                    await SaveLogAsync(item, SgrColours.Fancy);
+                    await SaveLogAsync(item, LogKind.FancyColor);
+                    break;
+                case WebFormat:
+                    await SaveLogAsync(item, LogKind.Web);
                     break;
                 case TrimChoice:
                     await TrimAsync(item);
                     break;
                 case DeleteChoice:
                     await DeleteAsync(item, button);
-                    break;
-                // A placeholder: on the menu so the shape is visible, and it says it is not built.
-                case WebFormat:
-                    await AlertAsync(pick, $"{pick} is not built yet.");
                     break;
             }
         }
@@ -1575,21 +1578,27 @@ internal sealed class LogsPage : ContentPage
         }
     }
 
-    /// <summary>Writes the Session's text log (<see cref="SessionTextLog"/>), or with
-    /// <paramref name="depth"/> its Color Log (ANSI SGR) in that many colours, the player's chat
-    /// colours among them, where the player picks in the system's save dialog. Desktop only: a phone
-    /// or tablet never offers it. Returns where it went, or null when nothing was saved; with
-    /// <paramref name="quiet"/> a save that worked is not announced.</summary>
-    private async Task<string?> SaveLogAsync(SessionItem item, SgrColours? depth, bool quiet = false)
+    /// <summary>Writes the Session's text log (<see cref="SessionTextLog"/>), its Color Log (ANSI SGR)
+    /// in 16 or 24-bit colours, or its web page (HTML), the coloured ones in the player's chat colours,
+    /// where the player picks in the system's save dialog. Desktop only: a phone or tablet never offers
+    /// it. Returns where it went, or null when nothing was saved; with <paramref name="quiet"/> a save
+    /// that worked is not announced.</summary>
+    private async Task<string?> SaveLogAsync(SessionItem item, LogKind format, bool quiet = false)
     {
-        var kind = depth switch
+        var kind = format switch
         {
-            SgrColours.Simple => "Simple Color Log",
-            SgrColours.Fancy => "Fancy Color Log",
+            LogKind.SimpleColor => "Simple Color Log",
+            LogKind.FancyColor => "Fancy Color Log",
+            LogKind.Web => "web page",
             _ => "text log",
         };
         var heading = "Save as " + kind;
-        var extension = depth is null ? ".txt" : ".log";
+        var extension = format switch
+        {
+            LogKind.Text => ".txt",
+            LogKind.Web => ".html",
+            _ => ".log",
+        };
         var summary = item.Summary;
         var name = ReplayLibrary.OfferedName(summary.Title ?? summary.DefaultTitle);
         string? path = null;
@@ -1614,9 +1623,13 @@ internal sealed class LogsPage : ContentPage
             var host = summary.Host;
             var database = MuckaPaths.GetDatabasePath();
             // The settings file is read off the UI thread, as everything on the save path is.
-            var colours = depth is { } colourDepth
-                ? new LogColours((await Task.Run(SettingsStore.LoadChatColoursAsync)).Palette, summary.Persona, colourDepth)
+            MudSharp.Models.ChatColorizer.Palette? palette = format == LogKind.Text
+                ? null
+                : (await Task.Run(SettingsStore.LoadChatColoursAsync)).Palette;
+            var colours = palette is { } chat && format is LogKind.SimpleColor or LogKind.FancyColor
+                ? new LogColours(chat, summary.Persona, format == LogKind.SimpleColor ? SgrColours.Simple : SgrColours.Fancy)
                 : null;
+            var title = summary.Title ?? summary.DefaultTitle;
             var written = await Task.Run(async () =>
             {
                 if (SessionSlice.Read(database, id) is not { IsEmpty: false } slice)
@@ -1626,8 +1639,11 @@ internal sealed class LogsPage : ContentPage
                 var stream = new FileStream(target, OperatingSystem.IsWindows() ? FileMode.Create : FileMode.CreateNew,
                     FileAccess.Write);
                 opened = true;
-                await SessionTextLog.WriteAsync(slice, host, new StreamWriter(stream, new System.Text.UTF8Encoding(false)),
-                    colours);
+                var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false));
+                if (format == LogKind.Web)
+                    await SessionTextLog.WriteHtmlAsync(slice, host, writer, palette!.Value, summary.Persona, title);
+                else
+                    await SessionTextLog.WriteAsync(slice, host, writer, colours);
                 return true;
             });
             if (!written)
@@ -1766,7 +1782,7 @@ internal sealed class LogsPage : ContentPage
     {
         const string Heading = "Delete";
         string[] backups = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst()
-            ? [BackupReplay, BackupText, BackupSimple, BackupFancy]
+            ? [BackupReplay, BackupText, BackupSimple, BackupFancy, BackupWeb]
             : [BackupReplay];
         var pick = await ActionMenu.ShowAsync(this, anchor, item.Described + "\n\nDelete this Session's recording?",
             "Cancel", DeleteWithoutBackup, backups);
@@ -1783,9 +1799,10 @@ internal sealed class LogsPage : ContentPage
         var saved = pick switch
         {
             BackupReplay => await MakeReplayAsync(item, quiet: true),
-            BackupText => await SaveLogAsync(item, null, quiet: true),
-            BackupSimple => await SaveLogAsync(item, SgrColours.Simple, quiet: true),
-            BackupFancy => await SaveLogAsync(item, SgrColours.Fancy, quiet: true),
+            BackupText => await SaveLogAsync(item, LogKind.Text, quiet: true),
+            BackupSimple => await SaveLogAsync(item, LogKind.SimpleColor, quiet: true),
+            BackupFancy => await SaveLogAsync(item, LogKind.FancyColor, quiet: true),
+            BackupWeb => await SaveLogAsync(item, LogKind.Web, quiet: true),
             _ => string.Empty,
         };
         if (saved is null)

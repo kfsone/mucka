@@ -84,11 +84,12 @@ that had both; the other 24 are points made elsewhere. Rows recorded before `sco
 sheet: a Session with no save line has no opening and its points are blank.
 
 Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
-Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last (below). Web
-page is a placeholder that says it is not built. On a phone or tablet, Text log, Simple Color Log and
-Fancy Color Log ask the player to send Ollie a mudmail.
+Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last (below). On a
+phone or tablet, Text log, Simple Color Log, Fancy Color Log and Web page ask the player to send
+Ollie a mudmail.
 
-DECISION (operator) Replays are saved on every platform, text and color logs on desktop only.
+DECISION (operator) Replays are saved on every platform, text and color logs and web pages on
+desktop only.
 
 Every Session has a title: until the player sets one it is `SessionSummary.DefaultTitle`, the
 character and the local start time, which is also the name a file saved from it is offered. The
@@ -161,7 +162,8 @@ DECISION (operator) Delete removes the recording only. Removing the Session's fa
 rejected: the score graph and Combat Insights would change under the player.
 
 Delete first offers a drop-down: on a desktop Save a Replay first, Save a Text log first, Save a Simple
-Color Log first, Save a Fancy Color Log first, and Delete without saving; on a phone or tablet Save a
+Color Log first, Save a Fancy Color Log first, Save a Web page first, and Delete without saving; on a
+phone or tablet Save a
 Replay first and Delete without saving. A confirmation then repeats the row and says what deleting
 does, because the Windows drop-down has no title. A backup is the same save as Save as..., and a save
 that fails or is cancelled deletes nothing. The overlay covers the page while it runs.
@@ -245,11 +247,11 @@ Replays tab lists it and `replay:<name>` plays it; on a phone or tablet the shar
 the file. The name offered is the Session's title (`SessionSummary.DefaultTitle` until one is set). A save-location picker on desktop was rejected: a replay saved elsewhere does not play by
 name and is not listed, and the Replays tab already shares one.
 
-## Save as Text log, Color Log
+## Save as Text log, Color Log, Web page
 
 The Session's screen as plain text (`SessionTextLog`) - or, as a Simple Color Log or a Fancy Color Log
-(`.log`), with each span in the colour and face the pane draws it in, as ANSI SGR (`SgrText`) - written
-by the live transcript's own
+(`.log`), with each span in the colour and face the pane draws it in, as ANSI SGR (`SgrText`), or as
+a web page (`.html`, `HtmlText`) - written by the live transcript's own
 `SessionRecorder`, so a line means what it means in a transcript armed live
 (`docs/session-rec-design.md`). Desktop only, saved where the player picks in the system's save
 dialog, which opens on Mucka's own folder (`MuckaPaths.GetDataDirectory`, beside the live
@@ -317,6 +319,22 @@ rejected (operator): the two logs then looked the same, differing only in chat c
 either, because the pane never promotes one. Chat spans are drawn in the player's chat colours and faces as they are when the log is
 saved, marked as the persona's own or another's (`LogColours`, `ChatColorizer.ApplyAll`) over the
 whole Session at once.
+
+A Web page is the same lines as a Color Log, marked the same way, as HTML: one page whose `pre`
+holds the log, on the pane's page colour in its default text colour, in a monospace face, long lines
+wrapped at the window's edge as the pane wraps them (`HtmlText.Head`). Every span is in the colour
+the pane draws it in, exactly (`CampbellPalette.ForegroundRgb`, so a Fancy Color Log's colours), a
+span in the default text colour or on the page colour taking nothing; bold, italic and underline as
+in a Color Log, and neighbouring spans of one look share one element. The page title is the
+Session's title. `HtmlPageWriter` writes the page's head before the recorder's first line and its
+foot when the recorder closes it. Markup characters and everything outside ASCII are written as
+character references, so the page is ASCII whatever the server sent, and control characters other
+than a tab are dropped. Taking the tags out of the `pre` and decoding the references gives the text
+log exactly.
+
+DECISION The page is drawn on the pane's own colours, unlike a Color Log, which leaves the
+terminal's: a browser has no terminal theme to fall back on, and the pane's game text is light on
+near-black.
 
 FACT The client's own system lines and F-key notes are not in the recording, so they are not in
 the log.
