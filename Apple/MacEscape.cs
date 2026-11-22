@@ -6,8 +6,9 @@ using UIKit;
 namespace Mucka;
 
 /// <summary>
-/// Escape on a page presented over the game: a UIKeyCommand on the page's view controller, added in
-/// OnAppearing and removed in OnDisappearing. Ignored while something is presented over that page.
+/// Escape on a page presented over the game, or a window of its own: a UIKeyCommand on the page's view
+/// controller, added in OnAppearing and removed in OnDisappearing. Ignored while something is presented
+/// over that page.
 /// </summary>
 internal static class MacEscape
 {
@@ -17,13 +18,15 @@ internal static class MacEscape
     // its own is showing at the same time as the page in the main window.
     private static readonly List<Registration> Registrations = [];
 
-    // The page Escape goes to: the one attached last in the key window, else the one attached last.
+    // The page Escape goes to: the one attached last in the key window of the active scene, else the one
+    // attached last. Each scene has a key window of its own, so the key window alone is not enough.
     private static Registration? Current
     {
         get
         {
             for (var i = Registrations.Count - 1; i >= 0; i--)
-                if (Registrations[i].Controller.View?.Window?.IsKeyWindow == true)
+                if (Registrations[i].Controller.View?.Window is { IsKeyWindow: true } window
+                    && window.WindowScene?.ActivationState == UISceneActivationState.ForegroundActive)
                     return Registrations[i];
             return Registrations.Count > 0 ? Registrations[^1] : null;
         }

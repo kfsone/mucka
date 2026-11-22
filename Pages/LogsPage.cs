@@ -1103,7 +1103,6 @@ internal sealed class LogsPage : ContentPage
         // The viewer it was deleted from closes with it; what is said next is said over this page.
         if (_viewers.TryGetValue(id, out var viewer))
             await viewer.CloseAsync();
-        _host = null;
         // Read again, so a character whose last Session this was leaves the character drop-down.
         await LoadSessionsAsync();
         await AlertAsync(Heading, saved.Length == 0 ? done : $"Saved as {saved}.\n{done}");
@@ -1572,7 +1571,7 @@ internal sealed class LogsPage : ContentPage
 #endif
             // Closed from its own title bar, or with this page: what it held is let go either way.
             window.Destroying += (_, _) => viewer.Release();
-            // Closed in the meantime, with Logs: there is nothing left to show.
+            // Closed in the meantime, with Logs or by deleting its Session: there is nothing left to show.
             AfterClick(() =>
             {
                 if (!viewer.Released)

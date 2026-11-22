@@ -36,21 +36,45 @@ public partial class ChatColorPage : ContentPage
 
     private async void OnDoneClicked(object? sender, EventArgs e) => await CloseAsync();
 
+#if WINDOWS || UIKIT
 #if UIKIT
     private MacEscape.Registration? _macEscape;
+#endif
 
     protected override void OnAppearing()
     {
         base.OnAppearing();
+#if WINDOWS
+        if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
+            win.Content is Microsoft.UI.Xaml.UIElement root)
+            root.PreviewKeyDown += OnWindowPreviewKeyDown;
+#else
         MacEscape.Detach(_macEscape);
         _macEscape = MacEscape.Attach(this, () => _ = CloseAsync());
+#endif
     }
 
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+#if WINDOWS
+        if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
+            win.Content is Microsoft.UI.Xaml.UIElement root)
+            root.PreviewKeyDown -= OnWindowPreviewKeyDown;
+#else
         MacEscape.Detach(_macEscape);
         _macEscape = null;
+#endif
+    }
+#endif
+
+#if WINDOWS
+    private void OnWindowPreviewKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        if (e.Key != Windows.System.VirtualKey.Escape)
+            return;
+        e.Handled = true;
+        _ = CloseAsync();
     }
 #endif
 

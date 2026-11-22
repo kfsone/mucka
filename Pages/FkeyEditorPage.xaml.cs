@@ -111,14 +111,8 @@ public partial class FkeyEditorPage : ContentPage
     }
 
 #if WINDOWS || UIKIT
-    /// <summary>Escape: closes the colour page when one is open over this page, else cancels the editor.</summary>
-    private void OnEscape()
-    {
-        if (_colorPage is { } colour)
-            _ = colour.CloseAsync();
-        else
-            _vm.CancelCommand.Execute(null);
-    }
+    /// <summary>Escape cancels the editor. A colour page open over this page takes its own Escape.</summary>
+    private void OnEscape() => _vm.CancelCommand.Execute(null);
 #endif
 
     protected override void OnAppearing()
