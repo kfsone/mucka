@@ -150,6 +150,13 @@
 		<Content Include="Platforms\Windows\muckabase.ico" CopyToOutputDirectory="PreserveNewest" />
 	</ItemGroup>
 
+	<!-- The Windows CI runner's workload carries MAUI 10.0.0, below the 10.0.20 that
+	     SkiaSharp.Views.Maui.Controls needs, and its restore failed with NU1605. The Android and Mac Catalyst
+	     workloads and a dev machine resolve 10.0.20 or later, so only Windows is set. -->
+	<PropertyGroup Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+		<MauiVersion>10.0.20</MauiVersion>
+	</PropertyGroup>
+
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
