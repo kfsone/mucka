@@ -529,7 +529,7 @@ public class ChatColorizerTests
     /// The own-line colour settings, their ini keys, the Ctrl-L clear-screen plumbing, the shout
     /// offset rule and the parser's label italics were removed without migration. The names are
     /// built by concatenation so this file does not match itself. The two old ini keys may appear
-    /// in ChatColorKeys.cs alone, which names them to delete them on save.
+    /// in ChatColorKeys.cs, which deletes them on save, and in docs/port-spec, which tells a port to.
     /// </summary>
     [Fact]
     public void NoReferenceToTheRemovedSettingsOrClearScreenRemains()
@@ -559,10 +559,11 @@ public class ChatColorizerTests
             {
                 if (!extensions.Contains(file.Extension)) continue;
                 var text = File.ReadAllText(file.FullName);
-                bool deleter = file.Name == "ChatColorKeys.cs";
+                var relative = Path.GetRelativePath(root.FullName, file.FullName).Replace('\\', '/');
+                bool deleter = file.Name == "ChatColorKeys.cs" || relative.StartsWith("docs/port-spec/", StringComparison.Ordinal);
                 foreach (var name in names)
                     if (!(deleter && iniKeys.Contains(name)) && text.Contains(name, StringComparison.Ordinal))
-                        offenders.Add($"{Path.GetRelativePath(root.FullName, file.FullName)}: {name}");
+                        offenders.Add($"{relative}: {name}");
             }
         }
         Assert.Empty(offenders);
