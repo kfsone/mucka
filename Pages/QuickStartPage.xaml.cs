@@ -43,10 +43,17 @@ public partial class QuickStartPage : ContentPage
     // A second tap while the sheet is closing would pop the page beneath it.
     private bool _closing;
 
+    private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completes once one of this sheet's own buttons has popped it. A sheet pushed before then
+    /// is lost. Not completed by the system back button.</summary>
+    public Task Closed => _closed.Task;
+
     private async Task CloseAsync()
     {
         if (_closing) return;
         _closing = true;
         await Navigation.PopModalAsync();
+        _closed.TrySetResult();
     }
 }

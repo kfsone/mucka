@@ -55,8 +55,8 @@
     <ScrollView>
         <VerticalStackLayout Padding="16,12,16,32" Spacing="14" MaximumWidthRequest="560">
 
-            <!-- Header: Cancel (sheet only), title, Apply (save only), Connect (save, then connect)
-                 and its drop-down, which holds Connect without Saving -->
+            <!-- Header: Cancel (sheet only), title, Save (wide only), Connect (save, then connect) and
+                 its drop-down: Connect without saving, and when narrow also Connect and Save -->
             <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
                 <Button x:Name="CloseButton"
                         Grid.Column="0"
@@ -76,13 +76,14 @@
                        VerticalOptions="Center"
                        Margin="4,0" />
                 <Button Grid.Column="2"
-                        Text="{Binding ApplyButtonText}"
+                        Text="{Binding SaveButtonText}"
                         Command="{Binding SaveProfileCommand}"
                         IsEnabled="{Binding CanConnect}"
+                        IsVisible="{Binding IsWideLayout}"
                         Style="{StaticResource Ghost}"
                         HeightRequest="{OnPlatform Default=40, WinUI=-1}"
                         MinimumHeightRequest="{OnPlatform Default=44, WinUI=32}"
-                        SemanticProperties.Description="Apply: save the profile without connecting" />
+                        SemanticProperties.Description="Save the profile without connecting" />
                 <Border Grid.Column="3"
                         StrokeThickness="0"
                         StrokeShape="RoundRectangle 6"

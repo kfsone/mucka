@@ -44,17 +44,29 @@ public partial class ProfileEditView : ContentView
         }
     }
 
-    private const string ConnectUnsavedChoice = "Connect without Saving";
+    private const string ConnectChoice = "Connect";
+    private const string ConnectUnsavedChoice = "Connect without saving";
+    private const string SaveChoice = "Save";
 
     /// <summary>Connect's drop-down. MAUI has no long-press gesture, and a mouse would not find one,
-    /// so the other way to connect is on a menu.</summary>
+    /// so the other way to connect is on a menu. Narrow, where the header has no room for Save, the
+    /// menu holds Connect and Save as well.</summary>
     private async void OnConnectMenuClicked(object? sender, EventArgs e)
     {
         if (BindingContext is not ConnectViewModel vm || HostPage is not { } page || !vm.CanConnect) return;
-        var pick = await ActionMenu.ShowAsync(page, ConnectMenuButton, "Connect", "Cancel", null,
-            ConnectUnsavedChoice);
-        if (pick == ConnectUnsavedChoice && vm.ConnectUnsavedCommand.CanExecute(null))
-            vm.ConnectUnsavedCommand.Execute(null);
+        string[] choices = vm.IsWideLayout
+            ? [ConnectUnsavedChoice]
+            : [ConnectChoice, ConnectUnsavedChoice, SaveChoice];
+        var pick = await ActionMenu.ShowAsync(page, ConnectMenuButton, "Connect", "Cancel", null, choices);
+        var command = pick switch
+        {
+            ConnectChoice => vm.ConnectFromEditorCommand,
+            ConnectUnsavedChoice => vm.ConnectUnsavedCommand,
+            SaveChoice => vm.SaveProfileCommand,
+            _ => null,
+        };
+        if (command is not null && command.CanExecute(null))
+            command.Execute(null);
     }
 
     private const string SecureChoice = "Secure (SSH)";

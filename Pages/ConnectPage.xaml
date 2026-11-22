@@ -94,7 +94,6 @@
                             Text="Score"
                             Style="{StaticResource HeaderButton}"
                             Clicked="OnScoreClicked"
-                            IsEnabled="{Binding HasSelectedProfile}"
                             SemanticProperties.Description="Score history" />
                     <Button Grid.Column="4"
                             Text="Settings"
@@ -323,6 +322,13 @@
             </Border>
             <pages:ProfileEditView x:Name="WidePane" Grid.Row="1" IsVisible="{Binding ShowEditorPane}" />
             <pages:WelcomeView x:Name="WideWelcome" Grid.Row="1" IsVisible="{Binding ShowWelcome}" />
+        </Grid>
+
+        <!-- Over the page from a tap that opens a big page until that page is up: building one holds the
+             UI thread for most of a second on a phone, and the tap would seem to have done nothing. -->
+        <Grid x:Name="BusyScrim" Grid.ColumnSpan="3" IsVisible="False" BackgroundColor="#99000000">
+            <ActivityIndicator IsRunning="True" Color="#58a6ff" WidthRequest="40" HeightRequest="40"
+                               HorizontalOptions="Center" VerticalOptions="Center" />
         </Grid>
 
         <!-- Over everything while the database is upgraded on first launch after an update. -->

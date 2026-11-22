@@ -139,7 +139,33 @@ public partial class ConnectPage : ContentPage
     private async void OnAddClicked(object? sender, EventArgs e) => await ChooseQuickStartAsync(showGuest: false);
 
     // Observed: an editor sheet pushed while the Quick Start sheet was still closing never appeared.
-    private const int ChooserCloseDelayMs = 400;
+    // The most that is waited for the sheet to report it has closed.
+    private const int ChooserCloseTimeoutMs = 400;
+
+    // A tap that opens a big page puts the scrim up, then waits this long for it to be drawn before
+    // the UI thread is taken to build the page. Counted: Add's scrim stays up through the editor's.
+    private const int ScrimFrameMs = 50;
+    private int _scrims;
+
+    private void Scrim(bool on)
+    {
+        _scrims += on ? 1 : -1;
+        BusyScrim.IsVisible = _scrims > 0;
+    }
+
+    private async Task WithScrimAsync(Func<Task> open)
+    {
+        Scrim(true);
+        try
+        {
+            await Task.Delay(ScrimFrameMs);
+            await open();
+        }
+        finally
+        {
+            Scrim(false);
+        }
+    }
 
     // The guest note and the welcome both open Quick Start with its guest servers showing.
     private void OnGuestIntroClicked(object? sender, EventArgs e)
@@ -153,7 +179,7 @@ public partial class ConnectPage : ContentPage
     private async void OnLogsClicked(object? sender, EventArgs e)
     {
         if (Navigation.ModalStack.Count > 0) return;
-        await Navigation.PushModalAsync(new LogsPage(PlayReplayRefusal, _vm.PlayReplayAsync));
+        await WithScrimAsync(() => Navigation.PushModalAsync(new LogsPage(PlayReplayRefusal, _vm.PlayReplayAsync)));
     }
 
     /// <summary>Playing a replay refills the form, so a new profile still being typed would be lost.
@@ -162,18 +188,16 @@ public partial class ConnectPage : ContentPage
         ? "Finish or cancel the new profile first: playing a replay would replace what you have typed."
         : null;
 
+    /// <summary>The header's Score: the highlighted profile's server, or with no profile highlighted a
+    /// score page with no server selected.</summary>
     private async void OnScoreClicked(object? sender, EventArgs e)
-    {
-        if (_vm.SelectedProfile is { } profile)
-            await OpenScoreAsync(profile);
-    }
+        => await OpenScoreAsync(_vm.SelectedProfile);
 
     /// <summary>The score history of a profile's server, without connecting.</summary>
-    private async Task OpenScoreAsync(Profile profile)
+    private async Task OpenScoreAsync(Profile? profile)
     {
-        var host = profile.Host.Trim();
-        if (Navigation.ModalStack.Count > 0 || host.Length == 0) return;
-        await Navigation.PushModalAsync(new ScorePage(host));
+        if (Navigation.ModalStack.Count > 0) return;
+        await WithScrimAsync(() => Navigation.PushModalAsync(new ScorePage(profile?.Host.Trim() ?? string.Empty)));
     }
 
     private bool _settingsOpen;
@@ -186,13 +210,7 @@ public partial class ConnectPage : ContentPage
         _settingsOpen = true;
         try
         {
-            var (settings, fkeys, name) = await _vm.LoadSettingsForEditorAsync();
-            Func<ClientSettings, string[], Task>? onSave = _vm.IsDirectConnectMode
-                ? null
-                : (saved, keys) => _vm.SaveProfileSettingsAsync(name, saved, keys);
-            var editorVm = new FkeyEditorViewModel(fkeys, settings,
-                (applied, _) => UiFontScaleState.Current.Step = applied.UiFontStep, onSave);
-            await Navigation.PushModalAsync(new FkeyEditorPage(editorVm), NavAnimation.ModalAnimated);
+            await WithScrimAsync(OpenSettingsAsync);
         }
         catch (Exception ex)
         {
@@ -204,12 +222,24 @@ public partial class ConnectPage : ContentPage
         }
     }
 
+    private async Task OpenSettingsAsync()
+    {
+        var (settings, fkeys, name) = await _vm.LoadSettingsForEditorAsync();
+        Func<ClientSettings, string[], Task>? onSave = _vm.IsDirectConnectMode
+            ? null
+            : (saved, keys) => _vm.SaveProfileSettingsAsync(name, saved, keys);
+        var editorVm = new FkeyEditorViewModel(fkeys, settings,
+            (applied, _) => UiFontScaleState.Current.Step = applied.UiFontStep, onSave);
+        await Navigation.PushModalAsync(new FkeyEditorPage(editorVm), NavAnimation.ModalAnimated);
+    }
+
     /// <summary>Add: the Quick Start chooser, then the editor on the chosen preset.</summary>
     private async Task ChooseQuickStartAsync(bool showGuest)
     {
         if (Navigation.ModalStack.Count > 0) return;
         var chosen = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        await Navigation.PushModalAsync(new QuickStartPage(_vm, chosen, showGuest));
+        var quickStart = new QuickStartPage(_vm, chosen, showGuest);
+        await WithScrimAsync(() => Navigation.PushModalAsync(quickStart));
         if (await chosen.Task is not { } key) return;
         // A guest server connects at once, with nothing to fill in and nothing saved.
         if (ConnectViewModel.QuickStarts.Any(q => q.Key == key && q.Guest))
@@ -217,9 +247,17 @@ public partial class ConnectPage : ContentPage
             await _vm.ConnectAsGuestAsync(key);
             return;
         }
-        // The chooser is still on its way out: a sheet pushed now is lost.
-        await Task.Delay(ChooserCloseDelayMs);
-        _vm.BeginNewProfile(key);
+        // The chooser is still on its way out: a sheet pushed now is lost. The scrim covers the wait.
+        Scrim(true);
+        try
+        {
+            await Task.WhenAny(quickStart.Closed, Task.Delay(ChooserCloseTimeoutMs));
+            _vm.BeginNewProfile(key);
+        }
+        finally
+        {
+            Scrim(false);
+        }
     }
 
     private async void OnConnectClicked(object? sender, EventArgs e)
@@ -266,7 +304,7 @@ public partial class ConnectPage : ContentPage
     private async void OnEditRequested()
     {
         if (_isWideLayout == true || Navigation.ModalStack.Count > 0) return;
-        await Navigation.PushModalAsync(new EditProfilePage(_vm));
+        await WithScrimAsync(() => Navigation.PushModalAsync(new EditProfilePage(_vm)));
     }
 
     /// <summary>What App's start-up found: an import outcome to report and whether the Text size page
@@ -479,7 +517,7 @@ public partial class ConnectPage : ContentPage
         {
             try
             {
-                // Connect without Saving leaves the editor's sheet open until the connection is
+                // Connect without saving leaves the editor's sheet open until the connection is
                 // made, because closing it drops an unsaved new profile's form. Nothing may sit
                 // above the login and game pages.
                 if (Navigation.ModalStack is [.., EditProfilePage])

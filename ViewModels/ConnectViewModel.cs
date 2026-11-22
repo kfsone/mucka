@@ -261,9 +261,9 @@ public sealed class ConnectViewModel : BaseViewModel
     }
     public ICommand DeleteProfileCommand { get; }
     public ICommand SaveProfileCommand { get; }
-    /// <summary>The editor's Connect: the form is saved as Apply saves it, then connected.</summary>
+    /// <summary>The editor's Connect: the form is saved as Save saves it, then connected.</summary>
     public ICommand ConnectFromEditorCommand { get; }
-    /// <summary>The editor's "Connect without Saving": the form as it stands, nothing written.</summary>
+    /// <summary>The editor's "Connect without saving": the form as it stands, nothing written.</summary>
     public ICommand ConnectUnsavedCommand { get; }
     public ICommand RenameProfileCommand { get; }
     public ICommand DismissGuestIntroCommand { get; }
@@ -529,10 +529,6 @@ public sealed class ConnectViewModel : BaseViewModel
         => OnPropertiesChanged(nameof(ShowNarrowGuestIntro), nameof(ShowNarrowWelcome), nameof(ShowWideEmptyNote),
             nameof(ShowListError));
 
-    /// <summary>The header's Score opens the highlighted profile's server; with none highlighted it
-    /// has nothing to open.</summary>
-    public bool HasSelectedProfile => _selectedProfile is not null;
-
     /// <summary>No profiles at all: the first run, or every profile deleted.</summary>
     public bool HasNoProfiles => SavedProfiles.Count == 0;
     public bool HasProfiles => SavedProfiles.Count > 0;
@@ -543,7 +539,8 @@ public sealed class ConnectViewModel : BaseViewModel
     {
         var name = _selectedProfile?.Name ?? string.Empty;
         var p = new Profile { Name = name };
-        (await SettingsStore.LoadProfileAsync(name).ConfigureAwait(true))?.ApplyTo(p);
+        // Off the UI thread: the read of mucka.ini is synchronous inside the gate.
+        (await Task.Run(() => SettingsStore.LoadProfileAsync(name)).ConfigureAwait(true))?.ApplyTo(p);
         return (p.ToClientSettings(UiFontScaleState.Current.Step), p.Fkeys, name);
     }
 
@@ -567,11 +564,11 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    /// <summary>"Apply", or "Applied" for a moment after a save.</summary>
-    public string ApplyButtonText { get => _applyButtonText; private set => Set(ref _applyButtonText, value); }
-    private string _applyButtonText = ApplyLabel;
-    private const string ApplyLabel = "Apply";
-    private const string AppliedLabel = "Applied";
+    /// <summary>"Save", or "Saved" for a moment after a save.</summary>
+    public string SaveButtonText { get => _saveButtonText; private set => Set(ref _saveButtonText, value); }
+    private string _saveButtonText = SaveLabel;
+    private const string SaveLabel = "Save";
+    private const string SavedLabel = "Saved";
 
     public Func<PasswordPromptArgs, Task<PasswordResult?>>? PasswordRequired { get; set; }
 
@@ -595,8 +592,6 @@ public sealed class ConnectViewModel : BaseViewModel
         {
             if (e.PropertyName is nameof(Port) or nameof(UseSsh))
                 OnPropertyChanged(nameof(ConnectionLabel));
-            else if (e.PropertyName is nameof(SelectedProfile))
-                OnPropertyChanged(nameof(HasSelectedProfile));
             else if (e.PropertyName is nameof(ShowGuestIntro) or nameof(ShowWelcome) or nameof(HasNoProfiles)
                      or nameof(ShowEditorPane))
                 RaiseLayoutFlags();
@@ -950,17 +945,17 @@ public sealed class ConnectViewModel : BaseViewModel
         }
     }
 
-    /// <summary>Apply: writes the form to its profile without connecting.</summary>
+    /// <summary>Save: writes the form to its profile without connecting.</summary>
     private async Task SaveProfileAsync()
     {
         if (!await TrySaveFormAsync()) return;
-        ApplyButtonText = AppliedLabel;
+        SaveButtonText = SavedLabel;
         EditFinished?.Invoke();
         await Task.Delay(TimeSpan.FromSeconds(1.5));
-        ApplyButtonText = ApplyLabel;
+        SaveButtonText = SaveLabel;
     }
 
-    /// <summary>Connect from the editor: saved first, by the same rules as Apply, so a new profile
+    /// <summary>Connect from the editor: saved first, by the same rules as Save, so a new profile
     /// cannot connect under the name of one that exists and overwrite it.</summary>
     private async Task ConnectFromEditorAsync()
     {
@@ -973,7 +968,7 @@ public sealed class ConnectViewModel : BaseViewModel
         await ConnectAsync();
     }
 
-    /// <summary>Connect without Saving: the form as it stands, and connecting writes nothing - not
+    /// <summary>Connect without saving: the form as it stands, and connecting writes nothing - not
     /// the profile list, not mucka.ini, not the stored password. Settings saved from the game's own
     /// settings dialog are still written under the form's name, as a guest's are.</summary>
     private async Task ConnectUnsavedAsync()
