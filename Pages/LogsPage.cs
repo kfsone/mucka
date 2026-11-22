@@ -18,17 +18,17 @@ namespace Mucka.Pages;
 /// </summary>
 internal sealed class LogsPage : ContentPage
 {
-    private static readonly Color PageColor = Color.FromArgb("#0C0C0C");
+    internal static readonly Color PageColor = Color.FromArgb("#0C0C0C");
     /// <summary>Every other row: <see cref="PageColor"/> plus 10 on each channel.</summary>
-    private static readonly Color AlternateRow = Color.FromArgb("#161616");
+    internal static readonly Color AlternateRow = Color.FromArgb("#161616");
     /// <summary>The selected row: the page colour pulled toward <see cref="Accent"/>.</summary>
-    private static readonly Color SelectedRow = Color.FromArgb("#16263A");
-    private static readonly Color Rule = Color.FromArgb("#222222");
-    private static readonly Color Body = Color.FromArgb("#E6E6E6");
-    private static readonly Color Muted = Color.FromArgb("#8B949E");
-    private static readonly Color Accent = Color.FromArgb("#58A6FF");
-    private static readonly Color Gain = Color.FromArgb("#3FB950");
-    private static readonly Color Loss = Color.FromArgb("#F85149");
+    internal static readonly Color SelectedRow = Color.FromArgb("#16263A");
+    internal static readonly Color Rule = Color.FromArgb("#222222");
+    internal static readonly Color Body = Color.FromArgb("#E6E6E6");
+    internal static readonly Color Muted = Color.FromArgb("#8B949E");
+    internal static readonly Color Accent = Color.FromArgb("#58A6FF");
+    internal static readonly Color Gain = Color.FromArgb("#3FB950");
+    internal static readonly Color Loss = Color.FromArgb("#F85149");
 
     /// <summary>The widest the lists grow on a desktop window; past it a row is mostly gap.</summary>
     private const double MaxContentWidth = 820;
@@ -76,31 +76,10 @@ internal sealed class LogsPage : ContentPage
 
     private enum Shown { Sessions, Replays, Maintenance }
 
-    /// <summary>The viewer card's surface: the page colour lifted, so it reads as a layer over it.</summary>
-    private static readonly Color CardColor = Color.FromArgb("#161B22");
-    /// <summary>The backdrop over Logs while the viewer is open.</summary>
-    private static readonly Color Scrim = Color.FromRgba(0, 0, 0, 0.6);
-    /// <summary>The widest the viewer card grows on a desktop window.</summary>
-    private const double MaxCardWidth = 1100;
-    /// <summary>The backdrop left showing round the card on a desktop window.</summary>
-    private const double CardMargin = 32;
-    /// <summary>A magnifying glass, on a 16-unit square: the Find icon.</summary>
-    private const string MagnifierPath = "M 11,6.5 A 4.5,4.5 0 1 1 2,6.5 A 4.5,4.5 0 1 1 11,6.5 M 10,10 L 14.5,14.5";
-    /// <summary>A funnel, on a 16-unit square: the Filters icon.</summary>
-    private const string FunnelPath = "M 1.5,2.5 L 14.5,2.5 L 9.5,8.5 L 9.5,14 L 6.5,12.5 L 6.5,8.5 Z";
     /// <summary>A head and shoulders, on a 16-unit square: the Sessions list's Character icon.</summary>
     private const string PersonPath = "M 10.5,5 A 2.5,2.5 0 1 1 5.5,5 A 2.5,2.5 0 1 1 10.5,5 M 2.5,14.5 C 2.5,9.5 13.5,9.5 13.5,14.5";
     /// <summary>An up arrow beside a down arrow, on a 16-unit square: the Sessions list's Sort icon.</summary>
     private const string SortPath = "M 5,13.5 L 5,2.5 M 2.5,5 L 5,2.5 L 7.5,5 M 11,2.5 L 11,13.5 M 8.5,11 L 11,13.5 L 13.5,11";
-    /// <summary>Chevrons, on a 16-unit square: Find's previous and next match.</summary>
-    private const string ChevronUpPath = "M 3,10.5 L 8,5.5 L 13,10.5";
-    private const string ChevronDownPath = "M 3,5.5 L 8,10.5 L 13,5.5";
-    /// <summary>An open eye, on a 16-unit square: a rule shows what it matches.</summary>
-    private const string EyePath = "M 1.5,8 C 4,3.5 12,3.5 14.5,8 C 12,12.5 4,12.5 1.5,8 Z M 10,8 A 2,2 0 1 1 6,8 A 2,2 0 1 1 10,8";
-    /// <summary>The eye struck through: a rule hides what it matches.</summary>
-    private const string EyeClosedPath = EyePath + " M 2.5,13.5 L 13.5,2.5";
-    /// <summary>An x, on a 16-unit square: remove a rule, the x that closes and removes elsewhere.</summary>
-    private const string RemovePath = "M 4,4 L 12,12 M 12,4 L 4,12";
 
     private readonly Func<string?> _playRefusal;
     private readonly Func<string, Task> _playReplay;
@@ -111,58 +90,10 @@ internal sealed class LogsPage : ContentPage
     // The Maintenance tab: the passes over every Session's recording, and what they would work on.
     private readonly ScrollView _maintenance;
     private readonly Label _waiting;
+    // Restore and Flush with their (i)s: shown while there is a trim backup.
+    private View[] _trimBackupControls = [];
     private readonly Label _fileSize;
     private readonly Label _backupSize;
-    // The viewer: a card over Logs, on a backdrop, holding the opened Session's row, its Find and
-    // Filters icons and their panels, and the Session as a log.
-    private readonly Grid _cardLayer;
-    private readonly Border _card;
-    private readonly Grid _cardHeader;
-    private readonly SessionLines _cardLines;
-    // Find and Filters: each an icon in the card's header, opening its own panel over the log, one
-    // at a time.
-    private readonly IconButton _searchIcon;
-    private readonly IconButton _filterIcon;
-    private readonly Border _searchPanel;
-    private readonly Border _filterPopup;
-    private readonly Entry _search;
-    private readonly Label _searchStatus;
-    private readonly VerticalStackLayout _filterPanel;
-    private readonly Label _copied;
-#if WINDOWS || MACCATALYST
-    // Counts copy notes, so only the latest one hides itself.
-    private int _copiedNote;
-    /// <summary>How long the "Copied" note stays over the log.</summary>
-    private const int CopiedNoteMs = 1500;
-#endif
-    private readonly List<FilterRule> _rules = [];
-    // Each rule row's count, and the counts last worked out, so a rebuilt table shows them at once.
-    private readonly List<Label> _ruleCounts = [];
-    private List<string> _ruleCountValues = [];
-    // How many of the opened Session's lines each kind holds, for "+ Add a rule".
-    private readonly Dictionary<RuleKind, int> _kindCounts = [];
-    // Counts typing in a rule's pattern box, so only the last pause refilters.
-    private int _patternVersion;
-    // While any rule is set: "Showing N of M lines - ..." and Show all, under the card's header.
-    private readonly Grid _filteredStrip;
-    private readonly Label _filteredText;
-    private readonly Mucka.Rendering.TerminalView _log;
-    // The opened Session's lines as the parser made them, and what the filters leave of them on screen.
-    private List<MudSharp.Models.StyledLine> _fedLines = [];
-    // The opened Session has been read: until then a rule change waits, and counts nothing.
-    private bool _fedReady;
-    // How many lines of screen the opened Session has unfiltered, once worked out: the strip's "of M".
-    private int? _allLineCount;
-    private List<MudSharp.Models.StyledLine> _logLines = [];
-    private SessionItem? _opened;
-    private TextMatch? _match;
-    // Counts openings, so a Session read after another was opened is dropped.
-    private int _openVersion;
-    // Counts filterings, so only the latest filter change is shown.
-    private int _filterRun;
-#if WINDOWS || MACCATALYST
-    private readonly Mucka.Rendering.TerminalPointer _logPointer;
-#endif
     private readonly CollectionView _sessions;
     private readonly CollectionView _replays;
     private readonly Label _empty;
@@ -178,7 +109,7 @@ internal sealed class LogsPage : ContentPage
     private int _filterVersion;
 
     /// <summary>How long the filter box waits after a keystroke before the list is rebuilt.</summary>
-    private const int FilterPauseMs = 200;
+    internal const int FilterPauseMs = 200;
     private ObservableCollection<SessionItem> _sessionItems = [];
     private List<ReplayItem> _replayItems = [];
     private Shown _shown;
@@ -310,149 +241,8 @@ internal sealed class LogsPage : ContentPage
         _root.Add(_sessionTools, 0, 2);
         _root.Add(body, 0, 3);
 
-        // ---- the viewer card ----
-        _cardLines = new SessionLines();
-        _search = new Entry
-        {
-            Placeholder = "Find in this Session",
-            TextColor = Body,
-            PlaceholderColor = Muted,
-            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        _search.SetBinding(Entry.FontSizeProperty, ScaledFontBinding.For(13));
-        // New text is a new search, from what the view shows.
-        _search.TextChanged += (_, _) => ShowMatch(null, string.Empty);
-#if !WINDOWS
-        // Windows takes Enter, and Shift+Enter, before the box does (OnWindowPreviewKeyDown).
-        _search.Completed += (_, _) => Find(backward: false);
-#endif
-        // A fixed-width status, so "3 of 12" and "No match" never change the panel's width.
-        _searchStatus = Line(Muted, 12);
-        _searchStatus.VerticalOptions = LayoutOptions.Center;
-        _searchStatus.HorizontalTextAlignment = TextAlignment.End;
-        _searchStatus.WidthRequest = 84;
-        var previous = new IconButton(ChevronUpPath, "Previous match (Shift+Enter)");
-        previous.Tapped += () => Find(backward: true);
-        var next = new IconButton(ChevronDownPath, "Next match (Enter)");
-        next.Tapped += () => Find(backward: false);
-        var searchRow = new Grid
-        {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto)],
-            ColumnSpacing = 2,
-        };
-        searchRow.Add(_search, 0);
-        searchRow.Add(_searchStatus, 1);
-        searchRow.Add(previous.View, 2);
-        searchRow.Add(next.View, 3);
-        _searchPanel = Popup(searchRow);
-
-        _filterPanel = new VerticalStackLayout { Spacing = 4 };
-        _filterPopup = Popup(_filterPanel);
-
-        _searchIcon = new IconButton(MagnifierPath, "Find in this Session");
-        _searchIcon.Tapped += () => ShowPanel(_searchPanel.IsVisible ? null : _searchPanel);
-        _filterIcon = new IconButton(FunnelPath, "Filter this Session");
-        _filterIcon.Tapped += () => ShowPanel(_filterPopup.IsVisible ? null : _filterPopup);
-        ShowRules();
-
-        var more = ToolbarButton(Glyph.More, "More: set title, tags, save as, trim, delete", size: 18);
-        more.Clicked += async (_, _) =>
-        {
-            if (!_busy && _opened is { } opened)
-                await RowMenuAsync(opened, more, fromViewer: true);
-        };
-        var closeCard = ToolbarButton(Glyph.Close, "Close the Session");
-        closeCard.Clicked += (_, _) => CloseCard();
-
-        _cardHeader = new Grid
-        {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto), new(GridLength.Auto), new(GridLength.Auto),
-                new(GridLength.Auto)],
-            ColumnSpacing = 4,
-        };
-        _cardHeader.Add(_cardLines.View, 0);
-        _cardHeader.Add(_searchIcon.View, 1);
-        _cardHeader.Add(_filterIcon.View, 2);
-        _cardHeader.Add(more, 3);
-        _cardHeader.Add(closeCard, 4);
-
-        _log = new Mucka.Rendering.TerminalView();
-#if WINDOWS || MACCATALYST
-        _logPointer = new Mucka.Rendering.TerminalPointer(_log, ShowCopied);
-#endif
-        // The panels float over the log's top right, under their icons, and push nothing down.
-        var logArea = new Grid();
-        logArea.Add(_log);
-        logArea.Add(_searchPanel);
-        logArea.Add(_filterPopup);
-        _copied = new Label
-        {
-            Text = "Copied",
-            TextColor = Body,
-            BackgroundColor = CardColor,
-            Padding = new Thickness(10, 4),
-            HorizontalOptions = LayoutOptions.End,
-            VerticalOptions = LayoutOptions.End,
-            Margin = new Thickness(0, 0, 24, 12),
-            IsVisible = false,
-        }.Scaled(12);
-        logArea.Add(_copied);
-        // The filtered strip: always in sight while rules are set, whether or not their panel is open.
-        _filteredText = Line(Body, 12);
-        _filteredText.VerticalOptions = LayoutOptions.Center;
-        var showAll = ToolbarButton("Show all", "Remove every rule", size: 12);
-        showAll.TextColor = Accent;
-        showAll.Clicked += (_, _) =>
-        {
-            _rules.Clear();
-            RulesChanged();
-        };
-        _filteredStrip = new Grid
-        {
-            ColumnDefinitions = [new(GridLength.Star), new(GridLength.Auto)],
-            Padding = new Thickness(16, 0, 8, 0),
-            BackgroundColor = Color.FromArgb("#1F2A38"),
-            IsVisible = false,
-        };
-        _filteredStrip.Add(_filteredText, 0);
-        _filteredStrip.Add(showAll, 1);
-
-        var cardContent = new Grid
-        {
-            RowDefinitions = [new(GridLength.Auto), new(1), new(GridLength.Auto), new(GridLength.Star)],
-        };
-        cardContent.Add(_cardHeader, 0, 0);
-        cardContent.Add(new BoxView { Color = Rule, HeightRequest = 1 }, 0, 1);
-        cardContent.Add(_filteredStrip, 0, 2);
-        cardContent.Add(logArea, 0, 3);
-        _card = new Border
-        {
-            Stroke = Accent,
-            StrokeThickness = 1,
-            StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 8 },
-            BackgroundColor = CardColor,
-            Padding = 0,
-            Content = cardContent,
-            HorizontalOptions = LayoutOptions.Center,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        // The backdrop is the card's sibling, not its parent, so a click on the card never reaches it.
-        var scrim = new BoxView { Color = Scrim };
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst())
-        {
-            // A click beside the card closes it on a desktop; on a phone the card fills the screen.
-            var outside = new TapGestureRecognizer();
-            outside.Tapped += (_, _) => CloseCard();
-            scrim.GestureRecognizers.Add(outside);
-        }
-        _cardLayer = new Grid { IsVisible = false };
-        _cardLayer.Add(scrim);
-        _cardLayer.Add(_card);
-
         var page = new Grid();
         page.Add(_root);
-        page.Add(_cardLayer);
         // Over everything while a delete, a trim or a Maintenance pass runs (Maintenance.Current).
         page.Add(new MaintenanceOverlay());
         Content = page;
@@ -478,39 +268,10 @@ internal sealed class LogsPage : ContentPage
     }
 
 
-    /// <summary>One of the viewer card's panels: floating over the log's top right, under the header's
-    /// icons, hidden until its icon opens it. It shuts by its icon, the other icon, or Escape: it has
-    /// no close button of its own (operator).</summary>
-    private static Border Popup(View content) => new()
-    {
-        Content = content,
-        Padding = new Thickness(10, 6),
-        BackgroundColor = CardColor,
-        Stroke = Accent,
-        StrokeThickness = 1,
-        StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = 6 },
-        HorizontalOptions = LayoutOptions.End,
-        VerticalOptions = LayoutOptions.Start,
-        IsVisible = false,
-    };
-
-    /// <summary>Opens <paramref name="panel"/> - Find or Filters - and closes the other; null closes
-    /// both. Opening Find puts the keyboard in its box.</summary>
-    private void ShowPanel(Border? panel)
-    {
-        _searchPanel.IsVisible = ReferenceEquals(panel, _searchPanel);
-        _filterPopup.IsVisible = ReferenceEquals(panel, _filterPopup);
-        _searchIcon.Open = _searchPanel.IsVisible;
-        _filterIcon.Open = _filterPopup.IsVisible;
-        // A tick later: a box made visible in this pass may not take focus until it has been laid out.
-        if (_searchPanel.IsVisible)
-            Dispatcher.Dispatch(() => _search.Focus());
-    }
-
     /// <summary>A flat icon button drawn as a path, since no icon font is on every platform. Its
     /// stroke and outline are the accent colour while its panel is open, and its stroke alone while
     /// what it opens has something set (a filter).</summary>
-    private sealed class IconButton
+    internal sealed class IconButton
     {
         private readonly Microsoft.Maui.Controls.Shapes.Path _path;
         private readonly Border _frame;
@@ -576,7 +337,7 @@ internal sealed class LogsPage : ContentPage
     }
 
     /// <summary>A flat text button for the viewer card: its "...", its close, its panels' buttons.</summary>
-    private static Button ToolbarButton(string text, string what, double size = 13)
+    internal static Button ToolbarButton(string text, string what, double size = 13)
     {
         var button = new Button
         {
@@ -599,7 +360,7 @@ internal sealed class LogsPage : ContentPage
         SelectionMode = SelectionMode.None,
     };
 
-    private static Label Line(Color color, double size, bool bold = false) => new Label
+    internal static Label Line(Color color, double size, bool bold = false) => new Label
     {
         TextColor = color,
         LineBreakMode = LineBreakMode.TailTruncation,
@@ -667,9 +428,11 @@ internal sealed class LogsPage : ContentPage
 
     /// <summary>What a Session shows, in its row of the list and over its log in the viewer, built
     /// once so the two cannot differ: the date, the character and the points; the title or server,
-    /// and how long it lasted and how it ended; and its tags.</summary>
-    private sealed class SessionLines
+    /// and how long it lasted and how it ended; and its tags. Title first, as over a log, a title the
+    /// player gave comes first and the date and character under it.</summary>
+    internal sealed class SessionLines
     {
+        private readonly bool _titleFirst;
         private readonly Label _when = Line(Body, 14);
         private readonly Label _persona = Line(Body, 14, bold: true);
         private readonly Label _points = Line(Body, 14);
@@ -677,8 +440,9 @@ internal sealed class LogsPage : ContentPage
         private readonly Label _played = Line(Muted, 12);
         private readonly Label _labels = Line(Accent, 12);
 
-        public SessionLines()
+        public SessionLines(bool titleFirst)
         {
+            _titleFirst = titleFirst;
             _when.SetBinding(WidthRequestProperty, ScaledFontBinding.For(DateColumnWidth));
             _points.HorizontalOptions = LayoutOptions.End;
             _points.Margin = new Thickness(12, 0, 0, 0);
@@ -703,12 +467,14 @@ internal sealed class LogsPage : ContentPage
 
         public void Show(SessionItem item)
         {
+            var titled = _titleFirst && item.Summary.ShownTitle is not null;
+            _when.IsVisible = !titled;
             _when.Text = item.When;
-            _persona.Text = item.Persona;
+            _persona.Text = titled ? item.Summary.ShownTitle : item.Persona;
             _points.Text = item.Points;
             _points.TextColor = item.PointsColor;
-            _host.Text = item.Where;
-            _host.TextColor = item.Summary.ShownTitle is null ? Muted : Body;
+            _host.Text = titled ? item.Who : item.Where;
+            _host.TextColor = titled || item.Summary.ShownTitle is null ? Muted : Body;
             _played.Text = item.Played;
             _labels.Text = item.Labels;
             _labels.IsVisible = item.Labels.Length > 0;
@@ -717,7 +483,7 @@ internal sealed class LogsPage : ContentPage
 
     private DataTemplate SessionTemplate() => new(() =>
     {
-        var lines = new SessionLines();
+        var lines = new SessionLines(titleFirst: false);
         var row = Row(lines.View, "More: open, set title, tags, save as, trim, delete", OnSessionMore, OnSessionOpen,
             OnSessionSelect);
         // The row follows its item's selection in place: the item is never replaced to repaint it,
@@ -947,27 +713,37 @@ internal sealed class LogsPage : ContentPage
         if (_busy || sender is not View { BindingContext: SessionItem item } button)
             return;
         Select(item);
-        await RowMenuAsync(item, button, fromViewer: false);
+        await RowMenuAsync(item, button, viewer: null);
     }
 
-    /// <summary>A Session's "..." menu, from its row or from the viewer's card, which leaves Open out:
-    /// the Session is open there already.</summary>
-    private async Task RowMenuAsync(SessionItem item, View button, bool fromViewer)
+    // The page the menu being run, and every dialog it opens, belongs to: this page, or the viewer
+    // it was called from (a window of its own on a desktop). One action runs at a time (_busy).
+    private Page? _host;
+    private Page Host => _host ?? this;
+
+    /// <summary>A Session's "..." menu, from its row or from <paramref name="viewer"/>, which leaves Open
+    /// out: the Session is open there already. Its dialogs open over the page it was called from.</summary>
+    internal async Task RowMenuAsync(SessionItem item, View button, LogViewerPage? viewer)
     {
         _busy = true;
+        _host = viewer;
         try
         {
             // Every dialog this menu opens names the whole row, so a mis-click shows which Session it is.
-            string[] choices = fromViewer
+            string[] choices = viewer is not null
                 ? [TitleChoice, TagsChoice, SaveAsChoice, TrimChoice]
                 : [OpenChoice, TitleChoice, TagsChoice, SaveAsChoice, TrimChoice];
-            var pick = await ActionMenu.ShowAsync(this, button, item.Described, "Cancel", DeleteChoice, choices,
-                new Dictionary<string, string[]> { [SaveAsChoice] = SaveFormats });
+            // The formats are offered only where they can be saved; elsewhere Save as... answers at once.
+            var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
+            var pick = await ActionMenu.ShowAsync(Host, button, item.Described, "Cancel", DeleteChoice, choices,
+                desktop
+                    ? new Dictionary<string, string[]> { [SaveAsChoice] = SaveFormats }
+                    : new Dictionary<string, string[]>());
             var id = item.Summary.Id;
             switch (pick)
             {
                 case TitleChoice:
-                    var typed = await DisplayPromptAsync("Set title",
+                    var typed = await Host.DisplayPromptAsync("Set title",
                         item.Described + "\n\nLeave it blank to show the server again.",
                         "Save", "Cancel", initialValue: item.Summary.Title ?? item.Summary.DefaultTitle);
                     if (typed is null)
@@ -978,7 +754,7 @@ internal sealed class LogsPage : ContentPage
                         item.Summary with { Title = title });
                     break;
                 case TagsChoice:
-                    var line = await DisplayPromptAsync("Tags", item.Described + "\n\nSeparate tags with commas.",
+                    var line = await Host.DisplayPromptAsync("Tags", item.Described + "\n\nSeparate tags with commas.",
                         "Save", "Cancel", initialValue: string.Join(SessionLabels.Separator + " ", item.Summary.Tags));
                     if (line is null)
                         return;
@@ -988,16 +764,15 @@ internal sealed class LogsPage : ContentPage
                         item.Summary with { Tags = SessionLabels.Ordered(tags) });
                     break;
                 case OpenChoice:
-                    // The card owns the keys from here; reading the Session is not an action to wait on.
+                    // The viewer owns the keys from here; reading the Session is not an action to wait on.
                     _busy = false;
                     await OpenAsync(item);
                     break;
                 case ReplayFormat:
                     await MakeReplayAsync(item);
                     break;
-                case TextFormat or SimpleColorFormat or FancyColorFormat or WebFormat
-                    when !OperatingSystem.IsWindows() && !OperatingSystem.IsMacCatalyst():
-                    await AlertAsync(pick, "If you want this on your phone, send Ollie a mudmail.");
+                case SaveAsChoice:
+                    await AlertAsync(SaveAsChoice, "If you want this on your phone, send \"Ollie\" a mudmail.");
                     break;
                 case TextFormat:
                     await SaveLogAsync(item, LogKind.Text);
@@ -1022,503 +797,9 @@ internal sealed class LogsPage : ContentPage
         finally
         {
             _busy = false;
+            _host = null;
         }
     }
-
-    // ------------------------------------------------------------------------ Viewer ----
-
-    /// <summary>True while the viewer's card is open over Logs.</summary>
-    private bool Viewing => _cardLayer.IsVisible;
-
-    /// <summary>Opens the Session in the viewer's card: its log (<see cref="SessionTextLog.Lines"/>,
-    /// through the filters), in the player's chat colours and game text size, read off the UI
-    /// thread.</summary>
-    private async Task OpenAsync(SessionItem item)
-    {
-        var version = ++_openVersion;
-        var summary = item.Summary;
-        _opened = item;
-        _cardLines.Show(item);
-        _fedLines = [];
-        _fedReady = false;
-        _allLineCount = null;
-        // Counts are the Session's: the rules carry over to the next one opened, their counts do not.
-        _kindCounts.Clear();
-        _ruleCountValues = [];
-        foreach (var count in _ruleCounts)
-            count.Text = string.Empty;
-        _filteredStrip.IsVisible = false;
-        _search.IsEnabled = false;
-        ShowMatch(null, string.Empty);
-        ShowNote("Reading the Session...");
-        _cardLayer.IsVisible = true;
-        LayOutCard();
-
-        List<MudSharp.Models.StyledLine>? lines;
-        MudSharp.Models.ChatColorizer.Palette palette;
-        string? fontSize;
-        try
-        {
-            var database = MuckaPaths.GetDatabasePath();
-            var id = summary.Id;
-            var persona = summary.Persona;
-            // The settings file is read off the UI thread, as the Session is.
-            var colours = Task.Run(SettingsStore.LoadChatColoursAsync);
-            var font = Task.Run(() => SettingsStore.GetGlobalValueAsync("fontsize"));
-            var read = Task.Run(() => SessionSlice.Read(database, id) is { IsEmpty: false } slice
-                ? SessionTextLog.Lines(slice, persona)
-                : null);
-            palette = (await colours).Palette;
-            fontSize = await font;
-            lines = await read;
-        }
-        // Whatever stopped it, the player is told in the card: a Session that never reached the game, a
-        // failed schema upgrade, a maintenance pass holding the file, or a recording the parser trips on.
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            if (version == _openVersion)
-                ShowNote($"This Session could not be shown: {ex.Message}");
-            return;
-        }
-        if (version != _openVersion || _closed)
-            return;
-        if (lines is null)
-        {
-            ShowNote("This Session has no recording left.");
-            return;
-        }
-        _fedLines = lines;
-        _fedReady = true;
-        _log.ChatPalette = palette;
-        if (int.TryParse(fontSize, NumberStyles.Integer, CultureInfo.InvariantCulture, out var px))
-            _log.SetFontSize(Mucka.Ui.FontSetup.ClampGameFont(px));
-        await ShowFilteredAsync();
-        if (version != _openVersion || _closed)
-            return;
-        _search.IsEnabled = true;
-    }
-
-    /// <summary>Closes the viewer's card. Logs underneath is as it was left.</summary>
-    private void CloseCard()
-    {
-        ++_openVersion;   // a read still running for it is dropped
-        _cardLayer.IsVisible = false;
-        ShowPanel(null);
-        _opened = null;
-        _fedLines = [];
-        _fedReady = false;
-        _allLineCount = null;
-        _logLines = [];
-        _log.ShowDocument(_logLines);
-        _match = null;
-    }
-
-    /// <summary>The card's size for the window: on a desktop it leaves <see cref="CardMargin"/> of
-    /// backdrop showing and is at most <see cref="MaxCardWidth"/> wide, and on a phone or tablet it is
-    /// the whole screen, where its panels span the log's width.</summary>
-    private void LayOutCard()
-    {
-        if (Width <= 0 || Height <= 0)
-            return;
-        var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
-        var margin = desktop ? CardMargin : 0;
-        var width = Math.Min(Width - 2 * margin, MaxCardWidth);
-        _card.WidthRequest = width;
-        _card.HeightRequest = Height - 2 * margin;
-        _card.StrokeThickness = desktop ? 1 : 0;
-        _card.StrokeShape = new Microsoft.Maui.Controls.Shapes.RoundRectangle { CornerRadius = desktop ? 8 : 0 };
-        // A full-screen card's top clears Android's status bar, as the page's own header does.
-        // Less below than above: the panels hang close under their icons.
-        _cardHeader.Padding = new Thickness(16, desktop ? 8 : 24, 4, 4);
-        foreach (var panel in new[] { _searchPanel, _filterPopup })
-        {
-            panel.HorizontalOptions = desktop ? LayoutOptions.End : LayoutOptions.Fill;
-            // On a desktop, clear of the log's scrollbar on the right.
-            panel.Margin = desktop ? new Thickness(0, 0, 16, 0) : new Thickness(8, 0, 8, 0);
-        }
-        // Find is one row: on a desktop as wide as a comfortable search, on a phone the log's width.
-        _searchPanel.WidthRequest = desktop ? 380 : -1;
-        // The rule table's six columns need a wide panel; never wider than the card leaves.
-        _filterPopup.WidthRequest = desktop ? Math.Min(700, width - 40) : -1;
-    }
-
-    /// <summary>Shows the filter rules as a table - a header, then per rule its eye, what it picks out,
-    /// which of it, the pattern it must hold, how many lines it matches, and a remove button - then a
-    /// button that adds a rule. Operator rule: a rule is its kind, its "which" where the kind has one,
-    /// and its pattern where it takes one.</summary>
-    private void ShowRules()
-    {
-        _filterPanel.Clear();
-        _ruleCounts.Clear();
-        var desktop = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
-        if (_rules.Count == 0)
-        {
-            var empty = Line(Muted, 13);
-            empty.Text = "No rules: every line of the Session is shown.";
-            empty.Margin = new Thickness(4, 4, 4, 2);
-            _filterPanel.Add(empty);
-        }
-        else
-        {
-            if (desktop)
-                _filterPanel.Add(RuleHeader());
-            for (var i = 0; i < _rules.Count; i++)
-            {
-                _filterPanel.Add(new BoxView { Color = Rule, HeightRequest = 1 });
-                _filterPanel.Add(RuleRow(i, desktop));
-            }
-            _filterPanel.Add(new BoxView { Color = Rule, HeightRequest = 1 });
-        }
-        var add = ToolbarButton("+ Add a rule", "Add a rule");
-        add.HorizontalOptions = LayoutOptions.Start;
-        add.TextColor = Accent;
-        add.Clicked += async (_, _) => await AddRuleAsync(add);
-        _filterPanel.Add(add);
-        // The funnel stays lit while any rule is set, open or not, so a filtered log is never mistaken
-        // for the whole Session.
-        _filterIcon.Set = _rules.Count > 0;
-    }
-
-    // The rule table's columns on a desktop: eye, what, which, matching, lines, remove.
-    private static Grid RuleGrid() => new()
-    {
-        ColumnDefinitions = [new(36), new(140), new(GridLength.Auto), new(GridLength.Star), new(70), new(36)],
-        ColumnSpacing = 6,
-        Padding = new Thickness(0, 2),
-    };
-
-    private static Grid RuleHeader()
-    {
-        var header = RuleGrid();
-        string[] titles = ["SHOW", "WHAT", "WHICH", "MATCHING", "LINES"];
-        for (var i = 0; i < titles.Length; i++)
-        {
-            var title = Line(Muted, 11);
-            title.Text = titles[i];
-            title.VerticalOptions = LayoutOptions.Center;
-            if (i == 4)
-                title.HorizontalTextAlignment = TextAlignment.End;
-            header.Add(title, i);
-        }
-        return header;
-    }
-
-    /// <summary>One rule's row. On a phone it takes two lines: the eye, what, lines and remove, then
-    /// which and matching.</summary>
-    private Grid RuleRow(int index, bool desktop)
-    {
-        var rule = _rules[index];
-        var row = RuleGrid();
-        if (!desktop)
-        {
-            row.ColumnDefinitions = [new(36), new(GridLength.Star), new(60), new(36)];
-            row.RowDefinitions = [new(GridLength.Auto), new(GridLength.Auto)];
-        }
-
-        var eye = new IconButton(rule.Show ? EyePath : EyeClosedPath,
-            rule.Show ? "Showing what this rule matches; click to hide it instead"
-                : "Hiding what this rule matches; click to show it instead") { Set = rule.Show };
-        // Every handler here checks its row still stands: a table rebuilt under a late event has fewer rows.
-        eye.Tapped += () =>
-        {
-            if (index >= _rules.Count)
-                return;
-            _rules[index] = _rules[index] with { Show = !_rules[index].Show };
-            RulesChanged();
-        };
-
-        var kinds = Enum.GetValues<RuleKind>();
-        var kind = new Picker { TextColor = Body, VerticalOptions = LayoutOptions.Center };
-        kind.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
-        kind.ItemsSource = kinds.Select(KindName).ToList();
-        kind.SelectedIndex = Array.IndexOf(kinds, rule.Kind);
-        kind.SelectedIndexChanged += (_, _) =>
-        {
-            if (index >= _rules.Count || kind.SelectedIndex < 0 || kinds[kind.SelectedIndex] == _rules[index].Kind)
-                return;
-            _rules[index] = NewRule(kinds[kind.SelectedIndex]) with { Show = _rules[index].Show };
-            // Its old count was the old kind's.
-            if (index < _ruleCountValues.Count)
-                _ruleCountValues[index] = string.Empty;
-            RulesChanged();
-        };
-
-        var which = SubControl(index, rule);
-        View matching = LogFilter.PatternOf(rule.Kind) is { } hint ? PatternBox(index, rule, hint) : new ContentView();
-
-        var count = Line(Muted, 12);
-        count.HorizontalTextAlignment = TextAlignment.End;
-        count.VerticalOptions = LayoutOptions.Center;
-        count.Text = _ruleCountValues.Count > index ? _ruleCountValues[index] : string.Empty;
-        _ruleCounts.Add(count);
-
-        var remove = new IconButton(RemovePath, "Remove this rule");
-        remove.Tapped += () =>
-        {
-            if (index >= _rules.Count)
-                return;
-            _rules.RemoveAt(index);
-            // The rows below move up, and their counts with them.
-            if (index < _ruleCountValues.Count)
-                _ruleCountValues.RemoveAt(index);
-            RulesChanged();
-        };
-
-        if (desktop)
-        {
-            row.Add(eye.View, 0);
-            row.Add(kind, 1);
-            row.Add(which, 2);
-            row.Add(matching, 3);
-            row.Add(count, 4);
-            row.Add(remove.View, 5);
-        }
-        else
-        {
-            row.Add(eye.View, 0, 0);
-            row.Add(kind, 1, 0);
-            row.Add(count, 2, 0);
-            row.Add(remove.View, 3, 0);
-            var second = new Grid
-            {
-                ColumnDefinitions = [new(GridLength.Auto), new(GridLength.Star)],
-                ColumnSpacing = 6,
-            };
-            second.Add(which, 0);
-            second.Add(matching, 1);
-            row.Add(second, 1, 1);
-            Grid.SetColumnSpan(second, 3);
-        }
-        return row;
-    }
-
-    /// <summary>A rule's "which": the Room text sub as its four segments (operator), any other kind's
-    /// as a drop-down; nothing for a kind without one.</summary>
-    private View SubControl(int index, FilterRule rule)
-    {
-        var subs = LogFilter.SubsOf(rule.Kind);
-        if (subs.Count == 0)
-            return new ContentView();
-        if (rule.Kind == RuleKind.RoomText)
-        {
-            var segments = new HorizontalStackLayout { Spacing = 0, VerticalOptions = LayoutOptions.Center };
-            for (var i = 0; i < subs.Count; i++)
-            {
-                var sub = i;
-                var chosen = sub == rule.Sub;
-                var segment = new Button
-                {
-                    Text = subs[i],
-                    TextColor = chosen ? Colors.White : Body,
-                    BackgroundColor = chosen ? Color.FromArgb("#1F6FEB") : Colors.Transparent,
-                    BorderColor = Color.FromArgb("#30363D"),
-                    BorderWidth = 1,
-                    CornerRadius = 0,
-                    Padding = new Thickness(10, 0),
-                    MinimumHeightRequest = 30,
-                };
-                segment.SetBinding(Button.FontSizeProperty, ScaledFontBinding.For(12));
-                segment.Clicked += (_, _) =>
-                {
-                    if (index >= _rules.Count)
-                        return;
-                    _rules[index] = _rules[index] with { Sub = sub };
-                    RulesChanged();
-                };
-                segments.Add(segment);
-            }
-            return segments;
-        }
-        var picker = new Picker { TextColor = Body, VerticalOptions = LayoutOptions.Center, MinimumWidthRequest = 110 };
-        picker.SetBinding(Picker.FontSizeProperty, ScaledFontBinding.For(13));
-        picker.ItemsSource = subs.ToList();
-        picker.SelectedIndex = Math.Clamp(rule.Sub, 0, subs.Count - 1);
-        picker.SelectedIndexChanged += (_, _) =>
-        {
-            if (index >= _rules.Count || picker.SelectedIndex < 0 || picker.SelectedIndex == _rules[index].Sub)
-                return;
-            _rules[index] = _rules[index] with { Sub = picker.SelectedIndex };
-            RulesChanged();
-        };
-        return picker;
-    }
-
-    /// <summary>A rule's pattern box. Typing does not rebuild the table, which would take the box's
-    /// focus; it refilters once typing pauses.</summary>
-    private Entry PatternBox(int index, FilterRule rule, string hint)
-    {
-        var box = new Entry
-        {
-            Text = rule.Pattern,
-            Placeholder = hint,
-            TextColor = Body,
-            PlaceholderColor = Muted,
-            ClearButtonVisibility = ClearButtonVisibility.WhileEditing,
-            VerticalOptions = LayoutOptions.Center,
-        };
-        box.SetBinding(Entry.FontSizeProperty, ScaledFontBinding.For(13));
-        box.TextChanged += async (_, e) =>
-        {
-            if (index >= _rules.Count)
-                return;
-            _rules[index] = _rules[index] with { Pattern = e.NewTextValue ?? string.Empty };
-            var typed = ++_patternVersion;
-            await Task.Delay(FilterPauseMs);
-            if (typed == _patternVersion)
-                await ShowFilteredAsync();
-        };
-        return box;
-    }
-
-    /// <summary>"+ Add a rule": a drop-down of the kinds, each with how many of the Session's lines it
-    /// holds.</summary>
-    private async Task AddRuleAsync(View anchor)
-    {
-        if (_busy)
-            return;
-        var kinds = Enum.GetValues<RuleKind>();
-        var items = kinds.Select(k => _kindCounts.TryGetValue(k, out var n)
-            ? string.Create(CultureInfo.CurrentCulture, $"{KindName(k)}   ({n:N0})")
-            : KindName(k)).ToArray();
-        _busy = true;
-        try
-        {
-            var pick = await ActionMenu.ShowAsync(this, anchor, "Add a rule", "Cancel", null, items);
-            if (pick is null)
-                return;
-            _rules.Add(NewRule(kinds[Array.IndexOf(items, pick)]));
-            RulesChanged();
-        }
-        finally
-        {
-            _busy = false;
-        }
-    }
-
-    /// <summary>A new rule of <paramref name="kind"/>, showing what it matches; Room text starts on All.</summary>
-    private static FilterRule NewRule(RuleKind kind)
-        => new(kind, kind == RuleKind.RoomText ? LogFilter.DefaultRoomSub : 0);
-
-    private static string KindName(RuleKind kind) => kind switch
-    {
-        RuleKind.Chat => "Chat",
-        RuleKind.RoomText => "Room text",
-        RuleKind.Combat => "Combat",
-        RuleKind.Kills => "Kills",
-        RuleKind.Flees => "Flees",
-        RuleKind.Weather => "Weather",
-        RuleKind.Text => "Any text",
-        _ => kind.ToString(),
-    };
-
-    /// <summary>The rules in a few words, for the strip under the header.</summary>
-    private string RulesSummary() => string.Join("; ", _rules.Select(r =>
-    {
-        var subs = LogFilter.SubsOf(r.Kind);
-        var text = (r.Show ? string.Empty : "hiding ") + KindName(r.Kind).ToLowerInvariant();
-        if (subs.Count > 0 && r.Sub > 0 && r.Sub < subs.Count)
-            text += " (" + subs[r.Sub] + ")";
-        if (r.Pattern.Trim().Length > 0 && LogFilter.PatternOf(r.Kind) is { } hint)
-            text += " " + hint.Split(' ')[0] + " \"" + r.Pattern.Trim() + "\"";
-        return text;
-    }));
-
-    private void RulesChanged()
-    {
-        ShowRules();
-        _ = ShowFilteredAsync();
-    }
-
-    /// <summary>Shows what the rules leave of the opened Session, from its start, with each rule's
-    /// count and the strip saying how much is shown; a search starts again from there. Filtered and
-    /// counted off the UI thread; a later change or opening wins.</summary>
-    private async Task ShowFilteredAsync()
-    {
-        // While the Session is still being read there is nothing to filter: OpenAsync filters once it is.
-        if (_opened is null || !_fedReady)
-            return;
-        var version = ++_filterRun;
-        var fed = _fedLines;
-        var rules = _rules.ToArray();
-        var countKinds = _kindCounts.Count == 0;
-        var known = _allLineCount;
-        var (screen, all, counts, kindCounts) = await Task.Run(() =>
-        {
-            var filtered = TerminalBuffer.ScreenOf(LogFilter.Apply(fed, rules));
-            var total = known ?? (rules.Length == 0 ? filtered.Count : TerminalBuffer.ScreenOf(fed).Count);
-            var each = rules.Select(r => LogFilter.Count(fed, r)).ToArray();
-            var kinds = countKinds
-                ? Enum.GetValues<RuleKind>().Where(k => k != RuleKind.Text)
-                    .ToDictionary(k => k, k => LogFilter.Count(fed, NewRule(k)))
-                : null;
-            return (filtered, total, each, kinds);
-        });
-        if (version != _filterRun || !ReferenceEquals(fed, _fedLines))
-            return;
-        _allLineCount = all;
-        if (kindCounts is not null)
-            foreach (var (kind, n) in kindCounts)
-                _kindCounts[kind] = n;
-        _ruleCountValues = [.. counts.Select(n => n.ToString("N0", CultureInfo.CurrentCulture))];
-        for (var i = 0; i < _ruleCounts.Count && i < _ruleCountValues.Count; i++)
-            _ruleCounts[i].Text = _ruleCountValues[i];
-        _filteredStrip.IsVisible = rules.Length > 0;
-        _filteredText.Text = string.Create(CultureInfo.CurrentCulture,
-            $"Showing {screen.Count:N0} of {all:N0} lines - {RulesSummary()}");
-        _logLines = screen;
-        _log.ShowDocument(_logLines);
-        ShowMatch(null, string.Empty);
-        if (_logLines.Count == 0)
-            ShowNote(fed.Count == 0 ? "This Session has no lines in the game." : "No lines are left by these rules.");
-    }
-
-    /// <summary>A note in place of the log: while it is read, or why it cannot be shown.</summary>
-    private void ShowNote(string note)
-    {
-        _logLines = [];
-        _log.ShowDocument([new MudSharp.Models.StyledLine(
-            [new MudSharp.Models.StyledSpan(note, MudSharp.Models.TextStyle.Default)])]);
-    }
-
-    /// <summary>The search box's next match, or with <paramref name="backward"/> the one before: from
-    /// the current match, or with none from the first line the log shows (the last, backward).
-    /// <see cref="LogSearch"/> has the rules.</summary>
-    private void Find(bool backward)
-    {
-        var text = _search.Text ?? string.Empty;
-        if (!Viewing || _logLines.Count == 0 || text.Length == 0)
-            return;
-        var shown = _log.ShownLines ?? (0, 0);
-        var match = LogSearch.Find(_logLines, text, _match, backward ? shown.Last : shown.First, backward);
-        if (match is null)
-        {
-            ShowMatch(null, "No match");
-            _searchStatus.TextColor = Loss;
-            return;
-        }
-        var (index, count) = LogSearch.Place(_logLines, text, match);
-        ShowMatch(match, string.Create(CultureInfo.CurrentCulture, $"{index:N0} of {count:N0}"));
-    }
-
-    private void ShowMatch(TextMatch? match, string status)
-    {
-        _match = match;
-        _log.ShowMatch(match);
-        _searchStatus.Text = status;
-        _searchStatus.TextColor = Muted;
-    }
-
-#if WINDOWS || MACCATALYST
-    /// <summary>Says a copy was made, over the log's foot for a moment: the panels may all be shut.</summary>
-    private async void ShowCopied()
-    {
-        var shown = ++_copiedNote;
-        _copied.IsVisible = true;
-        await Task.Delay(CopiedNoteMs);
-        if (shown == _copiedNote)
-            _copied.IsVisible = false;
-    }
-#endif
 
     /// <summary>Writes the Session's recording as a replay in the player's replay folder, where the
     /// Replays tab lists it; on a phone or tablet the share sheet then offers it. Returns where it went,
@@ -1528,7 +809,7 @@ internal sealed class LogsPage : ContentPage
     {
         const string Heading = "Save as replay";
         var summary = item.Summary;
-        var typed = await DisplayPromptAsync(Heading,
+        var typed = await Host.DisplayPromptAsync(Heading,
             item.Described + "\n\nName the replay. It is listed on the Replays tab.", "Save",
             "Cancel", initialValue: ReplayLibrary.OfferedName(summary.Title ?? summary.DefaultTitle));
         if (typed is null)
@@ -1740,9 +1021,10 @@ internal sealed class LogsPage : ContentPage
     }
 #endif
 
-    /// <summary>An alert over this page, or nothing once it has closed.</summary>
+    /// <summary>An alert over the page the running action belongs to (<see cref="Host"/>), or nothing
+    /// once this page has closed.</summary>
     private Task AlertAsync(string title, string message)
-        => _closed ? Task.CompletedTask : DisplayAlertAsync(title, message, "OK");
+        => _closed ? Task.CompletedTask : Host.DisplayAlertAsync(title, message, "OK");
 
     /// <summary>One edit, off the UI thread; then the row shows <paramref name="after"/> in place, so
     /// the list keeps its scroll position.</summary>
@@ -1754,18 +1036,15 @@ internal sealed class LogsPage : ContentPage
             var all = _allSessions.FindIndex(s => s.Id == after.Id);
             if (all >= 0)
                 _allSessions[all] = after;
-            // By id: the viewer's card holds the item it opened, which the list may have replaced since.
+            // By id: the viewer holds the item it opened, which the list may have replaced since.
             for (var index = 0; index < _sessionItems.Count; index++)
             {
                 var listed = _sessionItems[index];
                 if (listed.Summary.Id == after.Id)
                     _sessionItems[index] = new SessionItem(after, listed.Index) { Selected = listed.Selected };
             }
-            if (_opened?.Summary.Id == after.Id)
-            {
-                _opened = new SessionItem(after, item.Index);
-                _cardLines.Show(_opened);
-            }
+            if (_viewers.TryGetValue(after.Id, out var viewer))
+                viewer.Show(new SessionItem(after, item.Index));
         }
         // The write opens the store as the launch does, so it can also meet a failed schema upgrade
         // (InvalidOperationException) or a maintenance pass holding the file (OperationCanceledException).
@@ -1788,7 +1067,7 @@ internal sealed class LogsPage : ContentPage
         string[] backups = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst()
             ? [BackupReplay, BackupText, BackupSimple, BackupFancy, BackupWeb]
             : [BackupReplay];
-        var pick = await ActionMenu.ShowAsync(this, anchor, item.Described + "\n\nDelete this Session's recording?",
+        var pick = await ActionMenu.ShowAsync(Host, anchor, item.Described + "\n\nDelete this Session's recording?",
             "Cancel", DeleteWithoutBackup, backups);
         if (pick is null)
             return;
@@ -1796,7 +1075,7 @@ internal sealed class LogsPage : ContentPage
         // does are said, on every platform.
         var how = pick == DeleteWithoutBackup ? "without saving it first"
             : "after saving " + pick["Save ".Length..^" first".Length] + " of it";
-        if (!await DisplayAlertAsync(Heading, item.Described + $"\n\nDelete this Session's recording {how}? "
+        if (!await Host.DisplayAlertAsync(Heading, item.Described + $"\n\nDelete this Session's recording {how}? "
                 + "It cannot be put back. Its points and fights stay on the score graph and in Combat Insights.",
                 "Delete", "Cancel"))
             return;
@@ -1820,8 +1099,10 @@ internal sealed class LogsPage : ContentPage
             return;
         if (_selectedId == id)
             _selectedId = null;
-        if (_opened?.Summary.Id == id)
-            CloseCard();
+        // The viewer it was deleted from closes with it; what is said next is said over this page.
+        if (_viewers.TryGetValue(id, out var viewer))
+            await viewer.CloseAsync();
+        _host = null;
         // Read again, so a character whose last Session this was leaves the character drop-down.
         await LoadSessionsAsync();
         await AlertAsync(Heading, saved.Length == 0 ? done : $"Saved as {saved}.\n{done}");
@@ -1833,7 +1114,7 @@ internal sealed class LogsPage : ContentPage
     private async Task TrimAsync(SessionItem item)
     {
         const string Heading = "Trim";
-        var go = await DisplayAlertAsync(Heading, item.Described
+        var go = await Host.DisplayAlertAsync(Heading, item.Described
             + "\n\nTake the background status checks Mucka repeats out of this Session's recording? What it "
             + "shows, its logs and its replay stay the same. Restore, on the Maintenance tab, undoes it.",
             "Trim", "Cancel");
@@ -1950,12 +1231,42 @@ internal sealed class LogsPage : ContentPage
             + "sends to keep the status bar up to date (FES, FEW, FEI, FEX), and the game's replies to them that "
             + "say the same as the reply before. What each Session shows, its logs and its replay stay the same. "
             + "What is removed is kept as a trim backup, so you can restore it, until you flush it.");
-        trimSection.Add(Row(age, days, trim));
-        trimSection.Add(Row(_waiting, restore,
-            Info("Restore", "Puts everything Trim removed back into the Sessions it came from."),
-            Separator(), flush,
-            Info("Flush", "Deletes the trim backup for good. Trimmed Sessions stay trimmed and can no longer be "
-                + "restored.")));
+        trimSection.Add(Row(age, days));
+
+        // Trim, Restore and Flush share the buttons' column, so they line up at one width. Restore and
+        // Flush are there only while a trim backup is.
+        var restoreInfo = Info("Restore", "Puts everything Trim removed back into the Sessions it came from.");
+        var flushInfo = Info("Flush", "Deletes the trim backup for good. Trimmed Sessions stay trimmed and can no "
+            + "longer be restored.");
+        _trimBackupControls = [restore, restoreInfo, flush, flushInfo];
+        foreach (var control in _trimBackupControls)
+            control.IsVisible = false;
+        var trimGrid = new Grid
+        {
+            RowSpacing = 8,
+            ColumnSpacing = 8,
+            ColumnDefinitions = { new ColumnDefinition(GridLength.Auto), new ColumnDefinition(GridLength.Star) },
+            RowDefinitions =
+            {
+                new RowDefinition(GridLength.Auto), new RowDefinition(GridLength.Auto),
+                new RowDefinition(GridLength.Auto), new RowDefinition(GridLength.Auto),
+            },
+        };
+        foreach (var button in new[] { trim, restore, flush })
+            button.HorizontalOptions = LayoutOptions.Fill;
+        foreach (var info in new[] { restoreInfo, flushInfo })
+        {
+            info.HorizontalOptions = LayoutOptions.Start;
+            info.VerticalOptions = LayoutOptions.Center;
+        }
+        trimGrid.Add(trim, 0, 0);
+        trimGrid.Add(_waiting, 0, 1);
+        Grid.SetColumnSpan(_waiting, 2);
+        trimGrid.Add(restore, 0, 2);
+        trimGrid.Add(restoreInfo, 1, 2);
+        trimGrid.Add(flush, 0, 3);
+        trimGrid.Add(flushInfo, 1, 3);
+        trimSection.Add(trimGrid);
 
         // Save space.
         var shrink = ActionButton("Shrink mucka.db", "Shrink mucka.db", async () =>
@@ -1981,14 +1292,18 @@ internal sealed class LogsPage : ContentPage
             "Shrink rebuilds mucka.db without the space deleted and trimmed recording leaves behind. Delete "
             + "backups deletes the older copy of mucka.db that Mucka may save before a risky change.");
         spaceSection.Add(_fileSize);
-        spaceSection.Add(Row(shrink,
-            Info("Shrink mucka.db", "Rebuilds mucka.db without its empty space. It needs free space of twice its "
-                + "size. Close any other Mucka first: one that is recording may stop until it restarts."),
-            Separator(), deleteBackups, _backupSize,
-            Info("Delete backups", $"Deletes {DatabaseBackup.FileName}, a copy of mucka.db from before a risky "
-                + "change: an upgrade, a Delete, a Flush. Mucka keeps one copy, saves at most one each time it "
-                + "starts and only as often as Settings, Data allows, so what was recorded after the copy is "
-                + "not in it. The next risky change it is allowed to back up saves a new one.")));
+        // A button and its (i), and the backup's size, travel together: on a narrow screen the second
+        // button goes to the next line as a whole.
+        spaceSection.Add(Row(
+            Unit(shrink,
+                Info("Shrink mucka.db", "Rebuilds mucka.db without its empty space. It needs free space of twice its "
+                    + "size. Close any other Mucka first: one that is recording may stop until it restarts.")),
+            Unit(deleteBackups,
+                Info("Delete backups", $"Deletes {DatabaseBackup.FileName}, a copy of mucka.db from before a risky "
+                    + "change: an upgrade, a Delete, a Flush. Mucka keeps one copy, saves at most one each time it "
+                    + "starts and only as often as Settings, Data allows, so what was recorded after the copy is "
+                    + "not in it. The next risky change it is allowed to back up saves a new one."),
+                _backupSize)));
 
         var stack = new VerticalStackLayout { Spacing = 24, Padding = new Thickness(16, 16, 16, 32) };
         stack.Add(trimSection);
@@ -2022,11 +1337,16 @@ internal sealed class LogsPage : ContentPage
         return row;
     }
 
-    private static Label Separator()
+    /// <summary>Views that stay on one line of a <see cref="Row(View[])"/>, centred on each other.</summary>
+    private static HorizontalStackLayout Unit(params View[] views)
     {
-        var bar = Line(Muted, 13);
-        bar.Text = "|";
-        return bar;
+        var unit = new HorizontalStackLayout { Spacing = 8 };
+        foreach (var view in views)
+        {
+            view.VerticalOptions = LayoutOptions.Center;
+            unit.Add(view);
+        }
+        return unit;
     }
 
     /// <summary>An (i): its tooltip, and on a tap an alert, say what <paramref name="title"/> does.</summary>
@@ -2094,12 +1414,16 @@ internal sealed class LogsPage : ContentPage
                     ? (WireTrim.Waiting(database).Bytes, new FileInfo(database).Length, backupFile.Exists ? backupFile.Length : 0L)
                     : (0L, 0L, 0L);
             });
-            _waiting.Text = waiting == 0 ? "No trim backup:" : $"{Size(waiting)} of trim backup:";
+            _waiting.Text = waiting == 0 ? "(No current backup)" : $"{Size(waiting)} of trim backup:";
+            foreach (var control in _trimBackupControls)
+                control.IsVisible = waiting != 0;
             _fileSize.Text = $"mucka.db is {Size(size)}.";
             _backupSize.Text = backup == 0 ? "none" : Size(backup);
         }
         catch (Exception ex) when (ex is SqliteException or IOException)
         {
+            foreach (var control in _trimBackupControls)
+                control.IsVisible = false;
             _waiting.Text = string.Empty;
             _backupSize.Text = string.Empty;
             _fileSize.Text = $"Your Sessions could not be read: {ex.Message}";
@@ -2203,6 +1527,113 @@ internal sealed class LogsPage : ContentPage
         await Task.Run(() => ReplayLibrary.Rename(entry, name));
     }
 
+    // ------------------------------------------------------------------------ Viewer ----
+
+    /// <summary>A Session open in a viewer, by id: one viewer for each, so opening it again brings the
+    /// first forward.</summary>
+    private readonly Dictionary<long, LogViewerPage> _viewers = [];
+
+    /// <summary>The initial size of a viewer's window on a desktop.</summary>
+    private const double ViewerWindowWidth = 1000;
+    private const double ViewerWindowHeight = 720;
+
+    /// <summary>A row's menu or prompt is open or its write is running: the viewers hold their keys.</summary>
+    internal bool ActionRunning => _busy;
+
+    /// <summary>
+    /// Opens the Session in a viewer (<see cref="LogViewerPage"/>): a window of its own on a desktop,
+    /// so several can be open beside each other, and a page over this one on a phone or tablet. A Session
+    /// already open is brought forward instead.
+    /// </summary>
+    private async Task OpenAsync(SessionItem item)
+    {
+        var id = item.Summary.Id;
+        if (_viewers.TryGetValue(id, out var open))
+        {
+            AfterClick(open.BringForward);
+            return;
+        }
+        // By platform, not idiom: the Mac build runs as an iPad app and may report a tablet.
+        var windowed = OperatingSystem.IsWindows() || OperatingSystem.IsMacCatalyst();
+        var viewer = new LogViewerPage(this, item, windowed);
+        _viewers[id] = viewer;
+        if (windowed)
+        {
+            var window = new Window(viewer)
+            {
+                Title = viewer.WindowTitle,
+                Width = ViewerWindowWidth,
+                Height = ViewerWindowHeight,
+            };
+#if WINDOWS
+            // The title bar draws no text: the header's top line is the Session's title.
+            window.TitleBar = new TitleBar { ForegroundColor = Colors.White, BackgroundColor = Color.FromArgb("#161b22") };
+#endif
+            // Closed from its own title bar, or with this page: what it held is let go either way.
+            window.Destroying += (_, _) => viewer.Release();
+            AfterClick(() => Application.Current?.OpenWindow(window));
+        }
+        else
+        {
+            await Navigation.PushModalAsync(viewer);
+        }
+    }
+
+#if WINDOWS
+    private static bool LeftButtonDown() => (GetAsyncKeyState(0x01) & 0x8000) != 0;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+#endif
+
+    /// <summary>Runs <paramref name="action"/> once the click being handled is over. Observed on Windows: the main
+    /// window took the front back when the button of the double-click came up, behind a viewer opened or raised
+    /// before that, so the action waits for the release.</summary>
+    private void AfterClick(Action action)
+    {
+#if WINDOWS
+        var queue = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+        void Later()
+        {
+            if (queue is null || !queue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => action()))
+                action();
+        }
+        if (LeftButtonDown() && Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window { Content: Microsoft.UI.Xaml.UIElement root })
+        {
+            var done = false;
+            Microsoft.UI.Xaml.Input.PointerEventHandler? released = null;
+            void Finish()
+            {
+                if (done)
+                    return;
+                done = true;
+                root.RemoveHandler(Microsoft.UI.Xaml.UIElement.PointerReleasedEvent, released!);
+                Later();
+            }
+            released = (_, _) => Finish();
+            root.AddHandler(Microsoft.UI.Xaml.UIElement.PointerReleasedEvent, released, handledEventsToo: true);
+            // A release that never reaches the window must not leave the viewer unopened.
+            Dispatcher.StartTimer(TimeSpan.FromSeconds(2), () =>
+            {
+                Finish();
+                return false;
+            });
+            return;
+        }
+        Later();
+#else
+        Dispatcher.Dispatch(action);
+#endif
+    }
+
+    /// <summary>A viewer has closed: its Session can be opened again.</summary>
+    internal void ViewerClosed(LogViewerPage viewer)
+    {
+        foreach (var (id, open) in _viewers.ToList())
+            if (ReferenceEquals(open, viewer))
+                _viewers.Remove(id);
+    }
+
     // ------------------------------------------------------------------- open, close ----
 
     protected override void OnSizeAllocated(double width, double height)
@@ -2212,20 +1643,6 @@ internal sealed class LogsPage : ContentPage
         var side = Math.Max(0, (width - MaxContentWidth) / 2);
         if (width > 0 && Math.Abs(_root.Padding.Left - side) > 0.5)
             _root.Padding = new Thickness(side, 0);
-        if (Viewing)
-            LayOutCard();
-    }
-
-    /// <summary>Escape, or the system back button, closes the innermost thing open: the viewer's Find
-    /// or Filters panel, then the viewer, then Logs.</summary>
-    private void Back()
-    {
-        if (Viewing && (_searchPanel.IsVisible || _filterPopup.IsVisible))
-            ShowPanel(null);
-        else if (Viewing)
-            CloseCard();
-        else
-            _ = CloseAsync();
     }
 
     protected override void OnAppearing()
@@ -2241,7 +1658,7 @@ internal sealed class LogsPage : ContentPage
         _macEscape = MacEscape.Attach(this, () =>
         {
             if (!_busy)
-                Back();
+                _ = CloseAsync();
         });
 #endif
     }
@@ -2259,15 +1676,15 @@ internal sealed class LogsPage : ContentPage
 #endif
     }
 
-    /// <summary>Pops this page, at most once, and only while it is the top modal.</summary>
+    /// <summary>Pops this page, at most once, and only while it is the top modal. Its viewers are its
+    /// children and close with it.</summary>
     private async Task CloseAsync()
     {
         if (_closed)
             return;
         _closed = true;
-#if WINDOWS || MACCATALYST
-        _logPointer.Detach();
-#endif
+        foreach (var viewer in _viewers.Values.ToList())
+            await viewer.CloseAsync();
         var stack = Navigation.ModalStack;
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
             await Navigation.PopModalAsync();
@@ -2277,7 +1694,7 @@ internal sealed class LogsPage : ContentPage
     {
         // An action and its prompts own the page until it ends, as they own Escape.
         if (!_busy)
-            Back();
+            _ = CloseAsync();
         return true;
     }
 
@@ -2290,64 +1707,16 @@ internal sealed class LogsPage : ContentPage
         if (e.Key == Windows.System.VirtualKey.Escape)
         {
             e.Handled = true;
-            Back();
-        }
-        else if (Viewing && ViewerKey(e.Key))
-            e.Handled = true;
-    }
-
-    /// <summary>The viewer's keys: Enter in the Find box (or F3) finds the next match and with Shift the one before,
-    /// Ctrl+F goes to the Find box, Page Up and Page Down scroll a page, Ctrl+Home and Ctrl+End go to the start and the end, and
-    /// Ctrl+C copies the log's selection when the search box has none of its own.</summary>
-    private bool ViewerKey(Windows.System.VirtualKey key)
-    {
-        static bool Down(Windows.System.VirtualKey k) => (GetKeyState((int)k) & 0x8000) != 0;
-        var control = Down(Windows.System.VirtualKey.Control);
-        switch (key)
-        {
-            // Enter is the Find box's; on a filter's button or picker it is that control's own.
-            case Windows.System.VirtualKey.Enter when _searchPanel.IsVisible && _search.IsFocused:
-                Find(backward: Down(Windows.System.VirtualKey.Shift));
-                return true;
-            // F3 opens Find too, so where it lands and "no match" are never out of sight.
-            case Windows.System.VirtualKey.F3:
-                if (!_searchPanel.IsVisible)
-                    ShowPanel(_searchPanel);
-                Find(backward: Down(Windows.System.VirtualKey.Shift));
-                return true;
-            case Windows.System.VirtualKey.PageUp:
-                _log.ScrollByPages(1);
-                return true;
-            case Windows.System.VirtualKey.PageDown:
-                _log.ScrollByPages(-1);
-                return true;
-            case Windows.System.VirtualKey.F when control:
-                ShowPanel(_searchPanel);
-                return true;
-            case Windows.System.VirtualKey.Home when control:
-                _log.ScrollToTop();
-                return true;
-            case Windows.System.VirtualKey.End when control:
-                _log.ScrollToBottom();
-                return true;
-            case Windows.System.VirtualKey.C when control && _log.HasSelection && _search.SelectionLength == 0:
-                if (_log.CopySelectionToClipboard())
-                    ShowCopied();
-                return true;
-            default:
-                return false;
+            _ = CloseAsync();
         }
     }
-
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    private static extern short GetKeyState(int nVirtKey);
 #endif
 
     // ------------------------------------------------------------------- row models ----
 
     /// <summary>What one Sessions row shows, worked out once. <paramref name="index"/> is its place in
     /// the list as shown, which picks its background.</summary>
-    private sealed class SessionItem(SessionSummary summary, int index) : System.ComponentModel.INotifyPropertyChanged
+    internal sealed class SessionItem(SessionSummary summary, int index) : System.ComponentModel.INotifyPropertyChanged
     {
         public SessionSummary Summary { get; } = summary;
 
@@ -2392,10 +1761,16 @@ internal sealed class LogsPage : ContentPage
 
         public string Labels { get; } = string.Join("   ", summary.Tags.Select(t => "#" + t));
 
+        /// <summary>The date and the character, in that order.</summary>
+        public string Who => $"{When}   {Persona}";
+
+        /// <summary>The row's first line as text: <see cref="Who"/> and the points.</summary>
+        public string Ident => $"{Who}   {Points}".TrimEnd();
+
         /// <summary>Everything the row shows, as lines of text, for a dialog about it.</summary>
         public string Described => string.Join("\n", new[]
         {
-            $"{Persona}   {When}   {Points}".TrimEnd(),
+            Ident,
             string.Join("   ", new[] { Where, Played }.Where(s => s.Length > 0)),
             Labels,
         }.Where(s => s.Length > 0));

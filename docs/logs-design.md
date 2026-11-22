@@ -83,13 +83,14 @@ opening from the first reading equalled the reading before the Session in 428 of
 that had both; the other 24 are points made elsewhere. Rows recorded before `score_sheets` have no
 sheet: a Session with no save line has no opening and its points are blank.
 
-Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (Replay,
-Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete** last (below). On a
-phone or tablet, Text log, Simple Color Log, Fancy Color Log and Web page ask the player to send
-Ollie a mudmail.
+Each row's "..." button opens its menu: **Open**, **Set title**, **Tags**, **Save as...** (on a desktop
+a choice of Replay, Text log, Simple Color Log, Fancy Color Log, Web page), **Trim**, and **Delete**
+last (below). On a phone or tablet Save as... has no choice: it tells the player to send "Ollie" a
+mudmail.
 
-DECISION (operator) Replays are saved on every platform, text and color logs and web pages on
-desktop only.
+DECISION (operator) Save as... on a phone or tablet answers at once. Asking for a format first, when
+every format but Replay ends in that answer, was rejected as a tease. A Replay is saved there only by
+Delete's "Save a Replay first".
 
 Every Session has a title: until the player sets one it is `SessionSummary.DefaultTitle`, the
 character and the local start time, which is also the name a file saved from it is offered. The
@@ -103,7 +104,7 @@ DECISION (operator) "Set title", not "Rename": the date and character are what t
 a title is shown beside them, not over them.
 
 DECISION One **Save as...** entry leading to the formats, not an entry per format: on Windows a
-cascading entry of the drop-down, on a phone a second sheet (`ActionMenu`). "Export" was rejected
+cascading entry of the drop-down, on a Mac a second sheet (`ActionMenu`). "Export" was rejected
 because it implies a location the player chooses, and a replay goes to the replays folder.
 
 DECISION (operator) A row's actions are on its "..." button, as on the profile cards. Opening the
@@ -207,16 +208,20 @@ does:
 
 | Section | Row | Does |
 |---|---|---|
-| Trim old Sessions | an age in days (offered at `WireTrim.DefaultDays`) and Trim | `WireTrim.Trim` |
-| | the trim backup's size, Restore, Flush | `WireTrim.Revert`; `WireTrim.Expire` at an age of 0, after a confirmation |
-| Save space | mucka.db's size, then Shrink mucka.db, Delete backups and the backup's size | `DatabaseVacuum.Shrink`; `DatabaseBackup.Delete`, after a confirmation |
+| Trim old Sessions | an age in days (offered at `WireTrim.DefaultDays`), and Trim under it | `WireTrim.Trim` |
+| | with a trim backup: its size, then Restore and Flush, each on a line of its own, in the column Trim is in and at its width | `WireTrim.Revert`; `WireTrim.Expire` at an age of 0, after a confirmation |
+| | without one: "(No current backup)", and neither button | |
+| Save space | mucka.db's size, then Shrink mucka.db, and Delete backups with the backup's size | `DatabaseVacuum.Shrink`; `DatabaseBackup.Delete`, after a confirmation |
+
+Shrink mucka.db and Delete backups share a line where they fit and take a line each where they do not,
+each with its (i) and the backup's size: a button never wraps away from its own (i).
 
 DECISION (operator) The Maintenance tab is on the Logs page, not the settings page's Data tab: the
 settings page also opens during a game, and these passes do not run beside one. `$trimdb` is retired
 (persistence-design.md, "Shrink mucka.db").
 
-DECISION (operator) The layout and the words: one Trim section whose backup line holds Restore and
-Flush, and a Save space section. The rejected first draft had a section per action, with Put back,
+DECISION (operator) The layout and the words: one Trim section whose backup holds Restore and
+Flush, shown only while there is a backup, and a Save space section. The rejected first draft had a section per action, with Put back,
 Delete trimmed for good (with its own age), and Join broken lines.
 
 DECISION "Shrink mucka.db", not "Compact" or "Optimize": Compact is the operator's word for a later,
@@ -356,21 +361,37 @@ the player's own among them.
 ## The Viewer
 
 Opening a Session - Open on its menu, a double-click on a desktop, a tap on a phone or tablet -
-shows it in a card over Logs: Logs stays underneath on a dimmed backdrop, and the card has a
-border of the accent colour and a surface lighter than the page. On a desktop it leaves a margin of
-backdrop round it and is at most `LogsPage.MaxCardWidth` wide; on a phone or tablet it is the
-whole screen, with no border. Its X, Escape, the system back button, or on a desktop a click on the
-backdrop close the card and nothing else, and the list is as it was left. Escape and back close the
-innermost thing open: the Find or Filters panel, then the card, then Logs.
+shows it as a log in a viewer (`LogViewerPage`). On a desktop the viewer is a window of its own, so
+several Sessions can be open beside each other. Each Session has at most one, and opening it again
+brings its window forward. Logs stays as it was, and closing Logs, or the main window, closes its
+viewers. On a phone or tablet the viewer is a page over Logs, with `LogViewerPage.PhoneCardMargin` of
+black round a border of the accent colour and `LogViewerPage.PhoneCardTop` above it to clear the
+status bar. The log is drawn on the game pane's background with `LogViewerPage.LogBackgroundLift`
+added to each of red, green and blue (`TerminalView.ClearColor`), so a log is never mistaken for
+the game; a desktop window takes the smaller `LogViewerPage.WindowLogBackgroundLift`. Its X, Escape, or the system back button close the viewer and nothing else, and Logs is as
+it was left. Escape and back close the innermost thing open: the Find or Filters panel, then the
+viewer.
 
-DECISION (operator) A card over Logs, not a tab of it, and not a second modal page. The tab was
-tried and rejected: opening a Session reconfigured the page in place, and Escape from the list it
-had replaced closed Logs. A second modal page would rebuild the list it returns to.
+A window is titled with the Session's title - the one the player gave, else the date, the character
+and the points (`SessionItem.Ident`) - which is the header's top line. On Windows its title bar
+draws no text, so the title is not written twice, one above the other. A double-click opens, or
+raises, a viewer once its button has come up (`LogsPage.AfterClick`): on Windows the main window
+took the front back at the release, from behind a window opened or raised before it.
 
-The card's header is the Session's row, built by the same code as the list's (`LogsPage`'s
+DECISION (operator) A window of its own on a desktop, one for each Session, in place of a card over
+Logs on a dimmed backdrop. The card left a margin of backdrop round it, was capped in width, and
+only one Session could be open. A tab of Logs was tried before the card and rejected: opening a
+Session reconfigured the page in place, and Escape from the list it had replaced closed Logs.
+
+The viewer's header is the Session's row, built by the same code as the list's (`LogsPage`'s
 `SessionLines`), so the two read alike: the date, the character and the points; the title or the
-server, and how long it lasted and how it ended; its tags. Beside it are two icons, a magnifier for
-Find and a funnel for Filters, then the row's "..." menu without Open, and the X.
+server, and how long it lasted and how it ended; its tags. Over a log the title the player gave
+comes first, in the place of the date and the character, which go under it where the server was;
+with no title the date and the character are the title, and the server is under them
+(`SessionLines` with `titleFirst`). Beside it are two icons, a magnifier for
+Find and a funnel for Filters, then the row's "..." menu without Open, and the X. The menu is
+Logs's own (`LogsPage.RowMenuAsync`), its dialogs opening over the viewer it was called from; a
+Delete from a viewer closes it, and a new title or tags show in it at once.
 
 DECISION (operator) Find and Filters are two modes, each an icon that opens its own small panel
 floating over the log under the icons, one at a time; neither pushes the log down. An always-shown
@@ -385,8 +406,8 @@ They are drawn by the game's own pane (`TerminalView.ShowDocument`), in the play
 (read as a Color Log reads them) and game text size, a screen clear drawn as the pane's rule in
 scrollback. It is read only: no command box, no side panel, no stats, which a replay has. On Windows
 and the Mac, scrolling, selecting and copying are the game pane's scrollback's, with the same mouse
-(`TerminalPointer`); on a phone or tablet a finger scrolls it. The lines are filtered off the UI
-thread.
+(`TerminalPointer`), the scrollbar's thumb dragged and its track clicked a page at a time; on a
+phone or tablet a finger scrolls it. The lines are filtered off the UI thread.
 
 EVIDENCE On a copy of the operator's database, 2026-11-13, a Debug build on his Windows desktop: all
 854 Sessions read, and with no filters each one's lines were its text log's exactly. The longest was
@@ -415,10 +436,10 @@ kind takes one; an eye on its left says whether what it matches is shown or hidd
 how many of the Session's lines it matches, and an x removes it, the x that closes elsewhere. On a desktop the
 table has a header (SHOW, WHAT, WHICH, MATCHING, LINES) and a row per rule; on a phone a rule takes
 two lines. "+ Add a rule" offers the kinds, each with how many of the Session's lines it holds, and
-a new rule shows what it matches. While any rule is set, a strip under the card's header says
-"Showing N of M lines" with the rules in words, and Show all removes them all. The rules last for as
-long as Logs is open, across the Sessions opened in it, and a change shows the log from its
-start. Typing in a pattern refilters once typing pauses.
+a new rule shows what it matches. While any rule is set, a strip under the viewer's header says
+"Showing N of M lines" with the rules in words, and Show all removes them all. The rules belong to
+the viewer they are set in, and a change shows the log from its start. Typing in a pattern
+refilters once typing pauses.
 
 DECISION (operator) The panel has no close button: its icon, the other icon, or Escape shuts it. Two
 earlier panels were rejected: rows of a category and Show / Hide / Only buttons with a close-like x

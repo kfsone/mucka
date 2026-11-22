@@ -96,6 +96,16 @@ public sealed class TerminalView : SKCanvasView
     private float _pressX, _pressY;      // where the live press landed (dip), to seed the selection anchor
     private bool _selecting;
     private bool _hasSelection;
+
+    // -- Scrollbar (mouse, in history) ------------------------------------------
+    // The strip is 4 dp wide, so a press within this width of the right edge is on it.
+    private const float ScrollbarHitDp = 10f;
+    // The scrollbar as last drawn, in canvas pixels; _barHitLeftPx is infinity while none is drawn.
+    private float _barHitLeftPx = float.PositiveInfinity;
+    private float _thumbTopPx, _thumbHeightPx, _trackHeightPx;
+    private int _barMaxOffset;
+    private bool _barDragging;
+    private float _barGrabPx;            // how far down the thumb the press took hold
     private (int Row, int Col) _selAnchor;
     private (int Row, int Col) _selCaret;
     // Geometry cached from the last paint, so pointer events can hit-test rows/columns.
@@ -171,6 +181,20 @@ public sealed class TerminalView : SKCanvasView
         }
     }
     private ChatColorizer.Palette _chatPalette = ChatColorizer.DefaultPalette;
+
+    /// <summary>The colour the pane is cleared to: the theme's, unless a view of the same text is set to
+    /// look different from the game (the Logs viewer).</summary>
+    public SkiaSharp.SKColor ClearColor
+    {
+        get => _clearColor;
+        set
+        {
+            if (value == _clearColor) return;
+            _clearColor = value;
+            InvalidateSurface();
+        }
+    }
+    private SkiaSharp.SKColor _clearColor = TerminalTheme.Background;
 
     /// <summary>The font size the pane draws at, in dip.</summary>
     public int FontSizeDip => _fontSizeDip;
@@ -401,6 +425,11 @@ public sealed class TerminalView : SKCanvasView
             _pressY = dipY;
             return;
         }
+        if (dipX * _lastScale >= _barHitLeftPx)
+        {
+            PressScrollbar(dipY * _lastScale);
+            return;
+        }
         _selecting = true;
         _selAnchor = _selCaret = HitTest(dipX * _lastScale, dipY * _lastScale);
         _hasSelection = false;   // a bare click clears the previous selection
@@ -411,6 +440,11 @@ public sealed class TerminalView : SKCanvasView
     /// begins a selection from the press point; thereafter it extends the selection.</summary>
     public void PointerDrag(float dipX, float dipY)
     {
+        if (_barDragging)
+        {
+            DragThumb(dipY * _lastScale);
+            return;
+        }
         if (_pendingPress)
         {
             if (Math.Abs(dipX - _pressX) < DragThresholdDip && Math.Abs(dipY - _pressY) < DragThresholdDip)
@@ -435,8 +469,38 @@ public sealed class TerminalView : SKCanvasView
     public void PointerRelease()
     {
         _pendingPress = false;
+        if (_barDragging)
+        {
+            _barDragging = false;
+            // A thumb let go at the bottom of scrollback is at the live edge.
+            if (_scrollOffset <= 0 && !_document) ExitHistory();
+            InvalidateSurface();
+            return;
+        }
         if (!_selecting) return;
         _selecting = false;
+        InvalidateSurface();
+    }
+
+    // A press on the scrollbar in history: on the thumb it takes hold of it, on the track it pages
+    // toward the press. py is in canvas pixels.
+    private void PressScrollbar(float py)
+    {
+        if (py >= _thumbTopPx && py < _thumbTopPx + _thumbHeightPx)
+        {
+            _barDragging = true;
+            _barGrabPx = py - _thumbTopPx;
+        }
+        else
+        {
+            ScrollByPages(py < _thumbTopPx ? 1 : -1);
+        }
+    }
+
+    // The thumb follows the pointer from where it was taken hold of.
+    private void DragThumb(float py)
+    {
+        _scrollOffset = ScrollbarThumb.Offset(_trackHeightPx, _thumbHeightPx, py - _barGrabPx, _barMaxOffset);
         InvalidateSurface();
     }
 
@@ -588,7 +652,7 @@ public sealed class TerminalView : SKCanvasView
         var _paintStart = System.Diagnostics.Stopwatch.GetTimestamp();
 #endif
         var canvas = e.Surface.Canvas;
-        canvas.Clear(TerminalTheme.Background);
+        canvas.Clear(_clearColor);
 
         int pxW = e.Info.Width, pxH = e.Info.Height;
         if (pxW <= 0 || pxH <= 0 || Width <= 0 || Height <= 0) return;
@@ -654,7 +718,8 @@ public sealed class TerminalView : SKCanvasView
                     float runW = run.Text.Length * cellW;
                     if (TerminalTheme.SpanBackground(run.Style) is { } bgColor)
                     {
-                        _fillPaint.Color = bgColor;
+                        // A black background is the pane's own colour, which this view may have lifted.
+                        _fillPaint.Color = bgColor == TerminalTheme.Background ? _clearColor : bgColor;
                         canvas.DrawRect(x, rowTop, runW, cellH, _fillPaint);
                     }
                     x += runW;
@@ -746,6 +811,7 @@ public sealed class TerminalView : SKCanvasView
             _lastRows = null; _lastRowContinues = null;
         }
 
+        _barHitLeftPx = float.PositiveInfinity;
         if (_historyMode)
             DrawHistoryScrollbar(canvas, pxW, pxH, scale, rows.Count, viewportRows, offset, maxOffset);
         else
@@ -824,10 +890,14 @@ public sealed class TerminalView : SKCanvasView
         float x = pxW - barW;
         _fillPaint.Color = new SKColor(0x33, 0x33, 0x33, 0xB0);
         canvas.DrawRect(x, 0, barW, pxH, _fillPaint);
-        float thumbH = Math.Max(12f * scale, pxH * viewportRows / (float)contentRows);
-        float frac = maxOffset > 0 ? (float)(maxOffset - offset) / maxOffset : 1f;   // 1 = bottom
-        float thumbTop = frac * (pxH - thumbH);
+        float thumbH = ScrollbarThumb.Height(pxH, viewportRows, contentRows, minimum: 12f * scale);
+        float thumbTop = ScrollbarThumb.Top(pxH, thumbH, offset, maxOffset);
         _fillPaint.Color = new SKColor(0x99, 0x99, 0x99, 0xE0);
         canvas.DrawRect(x, thumbTop, barW, thumbH, _fillPaint);
+        _barHitLeftPx = pxW - Math.Max(barW, ScrollbarHitDp * scale);
+        _thumbTopPx = thumbTop;
+        _thumbHeightPx = thumbH;
+        _trackHeightPx = pxH;
+        _barMaxOffset = maxOffset;
     }
 }
