@@ -12,9 +12,8 @@
 
     <ContentPage.Resources>
         <!-- One chat example line (ChatExampleLabel): the pane's font, the speaker's and the quoted
-             words' own or other faces. Used beside each wide chat colour row and in the block below.
-             Not scaled by the system text size, which the pane does not follow either; the page's
-             wide/narrow test sizes the line from ChatExampleFontSize. -->
+             words' own or other faces. Used in the examples block below. Not scaled by the system
+             text size, which the pane does not follow either. -->
         <DataTemplate x:Key="ChatExampleLineTemplate" x:DataType="vm:ChatExampleLine">
             <pages:ChatExampleLabel/>
         </DataTemplate>

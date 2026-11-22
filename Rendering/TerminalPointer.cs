@@ -118,6 +118,11 @@ internal sealed class TerminalPointer
     private void OnPointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
     {
         var pt = e.GetCurrentPoint((Microsoft.UI.Xaml.UIElement)sender);
+        if (!pt.Properties.IsLeftButtonPressed)
+        {
+            _view.PointerRelease();   // a release the pane never saw: capture was lost mid-drag
+            return;
+        }
         _view.PointerDrag((float)pt.Position.X, (float)pt.Position.Y);   // no-op unless a drag is active
     }
 

@@ -36,6 +36,24 @@ public partial class ChatColorPage : ContentPage
 
     private async void OnDoneClicked(object? sender, EventArgs e) => await CloseAsync();
 
+#if UIKIT
+    private MacEscape.Registration? _macEscape;
+
+    protected override void OnAppearing()
+    {
+        base.OnAppearing();
+        MacEscape.Detach(_macEscape);
+        _macEscape = MacEscape.Attach(this, () => _ = CloseAsync());
+    }
+
+    protected override void OnDisappearing()
+    {
+        base.OnDisappearing();
+        MacEscape.Detach(_macEscape);
+        _macEscape = null;
+    }
+#endif
+
     protected override bool OnBackButtonPressed()
     {
         _ = CloseAsync();

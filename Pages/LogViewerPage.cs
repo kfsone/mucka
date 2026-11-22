@@ -59,8 +59,8 @@ internal sealed class LogViewerPage : ContentPage
     private MacEscape.Registration? _macEscape;
 #endif
 
-    // The viewer: a card over Logs, on a backdrop, holding the opened Session's row, its Find and
-    // Filters icons and their panels, and the Session as a log.
+    // The viewer's card, holding the opened Session's row, its Find and Filters icons and their
+    // panels, and the Session as a log. A desktop window is the card; a phone or tablet puts it in margins.
     private readonly Border _card;
     private readonly Grid _cardHeader;
     private readonly SessionLines _cardLines;
@@ -101,7 +101,7 @@ internal sealed class LogViewerPage : ContentPage
     private List<MudSharp.Models.StyledLine> _logLines = [];
     private SessionItem _opened;
     private TextMatch? _match;
-    // Counts openings, so a Session read after another was opened is dropped.
+    // Counts reads of the Session, and the close: a read that is not the latest is dropped.
     private int _openVersion;
     // Counts filterings, so only the latest filter change is shown.
     private int _filterRun;
@@ -669,7 +669,7 @@ internal sealed class LogViewerPage : ContentPage
     /// counted off the UI thread; a later change or opening wins.</summary>
     private async Task ShowFilteredAsync()
     {
-        // While the Session is still being read there is nothing to filter: OpenAsync filters once it is.
+        // While the Session is still being read there is nothing to filter: LoadAsync filters once it is.
         if (!_fedReady)
             return;
         var version = ++_filterRun;
@@ -794,6 +794,9 @@ internal sealed class LogViewerPage : ContentPage
         if (stack.Count > 0 && ReferenceEquals(stack[^1], this))
             await Navigation.PopModalAsync();
     }
+
+    /// <summary>True once this viewer has closed.</summary>
+    public bool Released => _released;
 
     /// <summary>Lets go of what this viewer holds: at most once, whichever way it closed.</summary>
     public void Release()

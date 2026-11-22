@@ -1010,7 +1010,8 @@ internal sealed class LogsPage : ContentPage
     /// </summary>
     private async Task<string?> LogPathAsync(string name, string heading, string type, string extension)
     {
-        if (Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window window)
+        // Over the window the action was started in: a viewer's, or this page's.
+        if (Host.Window?.Handler?.PlatformView is not Microsoft.UI.Xaml.Window window)
         {
             await AlertAsync(heading, "The save dialog could not be opened.");
             return null;
@@ -1571,7 +1572,12 @@ internal sealed class LogsPage : ContentPage
 #endif
             // Closed from its own title bar, or with this page: what it held is let go either way.
             window.Destroying += (_, _) => viewer.Release();
-            AfterClick(() => Application.Current?.OpenWindow(window));
+            // Closed in the meantime, with Logs: there is nothing left to show.
+            AfterClick(() =>
+            {
+                if (!viewer.Released)
+                    Application.Current?.OpenWindow(window);
+            });
         }
         else
         {
@@ -1632,6 +1638,9 @@ internal sealed class LogsPage : ContentPage
         foreach (var (id, open) in _viewers.ToList())
             if (ReferenceEquals(open, viewer))
                 _viewers.Remove(id);
+        // What an action started in the viewer has still to say is said over this page.
+        if (ReferenceEquals(_host, viewer))
+            _host = null;
     }
 
     // ------------------------------------------------------------------- open, close ----

@@ -13,7 +13,21 @@ internal static class MacEscape
 {
     internal const string Action = "muckaEscape:";
 
-    private static Registration? _current;
+    // Every page showing and closing on Escape, in the order they were attached. A page that is a window of
+    // its own is showing at the same time as the page in the main window.
+    private static readonly List<Registration> Registrations = [];
+
+    // The page Escape goes to: the one attached last in the key window, else the one attached last.
+    private static Registration? Current
+    {
+        get
+        {
+            for (var i = Registrations.Count - 1; i >= 0; i--)
+                if (Registrations[i].Controller.View?.Window?.IsKeyWindow == true)
+                    return Registrations[i];
+            return Registrations.Count > 0 ? Registrations[^1] : null;
+        }
+    }
 
     internal sealed class Registration
     {
@@ -30,7 +44,9 @@ internal static class MacEscape
         var command = UIKeyCommand.Create(UIKeyCommand.Escape, 0, new ObjCRuntime.Selector(Action));
         command.WantsPriorityOverSystemBehavior = true;
         controller.AddKeyCommand(command);
-        return _current = new Registration { Controller = controller, Command = command, OnEscape = onEscape };
+        var registration = new Registration { Controller = controller, Command = command, OnEscape = onEscape };
+        Registrations.Add(registration);
+        return registration;
     }
 
     /// <summary>Detach in OnDisappearing; safe with null and safe to call twice.</summary>
@@ -39,12 +55,11 @@ internal static class MacEscape
         if (registration is null)
             return;
         registration.Controller.RemoveKeyCommand(registration.Command);
-        if (ReferenceEquals(_current, registration))
-            _current = null;
+        Registrations.Remove(registration);
     }
 
     /// <summary>True while a page that closes on Escape is showing with nothing presented over it.</summary>
-    public static bool HasPage => _current is { } r && r.Controller.PresentedViewController is null;
+    public static bool HasPage => Current is { } r && r.Controller.PresentedViewController is null;
 
     private static long _lastFireTicks;
 
@@ -52,7 +67,7 @@ internal static class MacEscape
     /// command and as the Game menu's - so a second call within a moment is ignored.</summary>
     public static void Fire()
     {
-        if (_current is not { } registration || registration.Controller.PresentedViewController is not null)
+        if (Current is not { } registration || registration.Controller.PresentedViewController is not null)
             return;
         var now = Environment.TickCount64;
         if (now - _lastFireTicks < 250)

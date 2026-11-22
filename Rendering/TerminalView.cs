@@ -98,7 +98,7 @@ public sealed class TerminalView : SKCanvasView
     private bool _hasSelection;
 
     // -- Scrollbar (mouse, in history) ------------------------------------------
-    // The strip is 4 dp wide, so a press within this width of the right edge is on it.
+    // The strip (CombatRailResize.TerminalScrollbarDp) is narrow, so a press within this width of the right edge is on it.
     private const float ScrollbarHitDp = 10f;
     // The scrollbar as last drawn, in canvas pixels; _barHitLeftPx is infinity while none is drawn.
     private float _barHitLeftPx = float.PositiveInfinity;
