@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:Mucka.ViewModels"
+             xmlns:pages="clr-namespace:Mucka.Pages"
+             xmlns:core="clr-namespace:Mucka.Core"
+             x:Class="Mucka.Pages.ChatColorPage"
+             x:DataType="vm:ChatColorEditorItem"
+             Title="Chat colour"
+             BackgroundColor="#0C0C0C"
+             SafeAreaEdges="All">
+
+    <ContentPage.Resources>
+        <!-- One example line, as the pane draws it (ChatExampleLabel). -->
+        <DataTemplate x:Key="ChatExampleLineTemplate" x:DataType="vm:ChatExampleLine">
+            <pages:ChatExampleLabel/>
+        </DataTemplate>
+    </ContentPage.Resources>
+
+    <Grid RowDefinitions="Auto,*">
+
+        <Border Grid.Row="0" BackgroundColor="#161b22" StrokeThickness="0" Padding="12,8">
+            <Grid ColumnDefinitions="*,Auto">
+                <Label Grid.Column="0" Text="{Binding Label, StringFormat='{0} colour'}" TextColor="White"
+                       FontSize="{core:ScaledFont 16}" FontAttributes="Bold" VerticalOptions="Center"/>
+                <Button Grid.Column="1" Text="Done" Clicked="OnDoneClicked"
+                        BackgroundColor="#1f6feb" TextColor="White"
+                        FontSize="{core:ScaledFont 13}" WidthRequest="80" HeightRequest="34" MinimumHeightRequest="34"
+                        CornerRadius="4" Padding="0"/>
+            </Grid>
+        </Border>
+
+        <ScrollView Grid.Row="1">
+            <VerticalStackLayout x:Name="Body" Spacing="16" Padding="12,14,12,16" HorizontalOptions="Start">
+
+                <!-- The colour: its hex, and the square it is drawn in. -->
+                <HorizontalStackLayout Spacing="12">
+                    <Entry Text="{Binding Hex, Mode=TwoWay}" MaxLength="7"
+                           BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 14}"
+                           WidthRequest="110" HeightRequest="40" MinimumHeightRequest="40"
+                           SemanticProperties.Description="Colour, hex"/>
+                    <BoxView Color="{Binding Preview}" WidthRequest="40" HeightRequest="40" VerticalOptions="Center"/>
+                </HorizontalStackLayout>
+
+                <Grid ColumnDefinitions="Auto,*,36" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8">
+                    <Label Grid.Row="0" Text="R" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                    <Slider Grid.Row="0" Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding R, Mode=TwoWay}" VerticalOptions="Center"/>
+                    <Label Grid.Row="0" Grid.Column="2" Text="{Binding RText}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                           HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                    <Label Grid.Row="1" Text="G" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                    <Slider Grid.Row="1" Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding G, Mode=TwoWay}" VerticalOptions="Center"/>
+                    <Label Grid.Row="1" Grid.Column="2" Text="{Binding GText}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                           HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                    <Label Grid.Row="2" Text="B" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                    <Slider Grid.Row="2" Grid.Column="1" Minimum="0" Maximum="255" Value="{Binding B, Mode=TwoWay}" VerticalOptions="Center"/>
+                    <Label Grid.Row="2" Grid.Column="2" Text="{Binding BText}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                           HorizontalTextAlignment="End" VerticalOptions="Center"/>
+                </Grid>
+
+                <!-- Faces: italic, bold and dim, on your own lines and on other people's. -->
+                <VerticalStackLayout Spacing="2">
+                    <FlexLayout Wrap="Wrap" AlignItems="Center">
+                        <Label Text="own:" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center" Margin="0,0,4,0"/>
+                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                            <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
+                            <Label Text="italic" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Italic" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                            <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
+                            <Label Text="bold" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Bold" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="2">
+                            <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
+                            <Label Text="dim" TextColor="#777777" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                    </FlexLayout>
+                    <FlexLayout Wrap="Wrap" AlignItems="Center">
+                        <Label Text="other:" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center" Margin="0,0,4,0"/>
+                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                            <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
+                            <Label Text="italic" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Italic" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
+                            <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
+                            <Label Text="bold" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Bold" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                        <HorizontalStackLayout Spacing="2">
+                            <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
+                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
+                            <Label Text="dim" TextColor="#777777" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+                    </FlexLayout>
+                </VerticalStackLayout>
+
+                <!-- This colour's own example lines, drawn live as the controls above change. -->
+                <Border HorizontalOptions="Start"
+                        BackgroundColor="{x:Static vm:FkeyEditorViewModel.PaneBackground}" StrokeThickness="0"
+                        Padding="{x:Static pages:FkeyEditorPage.ChatExamplePadding}">
+                    <VerticalStackLayout Spacing="2"
+                                         BindableLayout.ItemsSource="{Binding Examples}"
+                                         BindableLayout.ItemTemplate="{StaticResource ChatExampleLineTemplate}"/>
+                </Border>
+
+            </VerticalStackLayout>
+        </ScrollView>
+    </Grid>
+</ContentPage>

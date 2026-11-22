@@ -15,7 +15,7 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     private readonly Action<ClientSettings, string[]> _onApply;
     private readonly Func<ClientSettings, string[], Task>? _onSave;
     private int _activeModifier;
-    private int _activeTab = 1;
+    private int _activeTab;
     private double _fontSize;
     private double _volume;
     private double _statUpdateFrequency;
@@ -63,10 +63,13 @@ public sealed class FkeyEditorViewModel : BaseViewModel
                 }
                 OnPropertiesChanged(nameof(IsSettingsTabActive), nameof(IsHotkeysTabActive),
                         nameof(IsSoundsTabActive), nameof(IsDisplayTabActive), nameof(IsNavkeysTabActive),
-                        nameof(IsDataTabActive));
+                        nameof(IsDataTabActive), nameof(IsOverflowTabActive));
             }
         }
     }
+
+    /// <summary>One of the tabs a narrow page moves to its overflow button's menu is the one shown.</summary>
+    public bool IsOverflowTabActive => IsHotkeysTabActive || IsNavkeysTabActive || IsDataTabActive;
 
     public bool IsSettingsTabActive => _activeTab == 0;
     public bool IsDisplayTabActive  => _activeTab == 1;
@@ -372,32 +375,60 @@ public sealed class FkeyEditorViewModel : BaseViewModel
     /// <summary>
     /// Every example line, in the order the single preview block below the rows lists them. Each
     /// row's <see cref="ChatColorEditorItem.Examples"/> holds the same line objects, so the block
-    /// and the beside-the-row layout draw one set of lines.
+    /// and the row's own page draw one set of lines.
     /// </summary>
     public IReadOnlyList<ChatExampleLine> ChatExamples { get; }
 
+    /// <summary>A phone or tablet: the settings fields start stacked, whatever the window's width.</summary>
+    internal const bool IsMobile =
+#if MOBILE
+        true;
+#else
+        false;
+#endif
+
     /// <summary>
-    /// True when the window is wide enough for each row's examples to sit beside its controls;
-    /// false keeps them in the one block below. The page decides from its width.
+    /// The narrow layout's fields: each setting's label on the line above its field
+    /// (<see cref="Pages.FieldRow.Stacked"/>) instead of beside it. The page sets it from its width.
     /// </summary>
-    public bool ChatExamplesBeside
+    public bool StackedFields
     {
-        get => _chatExamplesBeside;
+        get => _stackedFields;
         set
         {
-            if (!Set(ref _chatExamplesBeside, value)) return;
-            foreach (var row in ChatColors)
-                row.ShowExamples = value;
-            OnPropertyChanged(nameof(ChatExamplesBelow));
-            OnPropertyChanged(nameof(ChatResetText));
+            if (Set(ref _stackedFields, value))
+                OnPropertiesChanged(nameof(SliderFieldWidth), nameof(SliderFieldAlignment));
         }
     }
-    private bool _chatExamplesBeside;
+    private bool _stackedFields = IsMobile;
 
-    public bool ChatExamplesBelow => !_chatExamplesBeside;
+    /// <summary>A text size slider's width: fixed beside its label, as wide as the row when stacked.</summary>
+    public double SliderFieldWidth => _stackedFields ? -1 : 240;
 
-    /// <summary>The theme reset button's face: the word as well as the glyph when the window is wide.</summary>
-    public string ChatResetText => _chatExamplesBeside ? "Reset " + Glyph.Reset : Glyph.Reset;
+    /// <summary>A text size slider's row: as wide as the field when stacked, otherwise its own width.</summary>
+    public LayoutOptions SliderFieldAlignment => _stackedFields ? LayoutOptions.Fill : LayoutOptions.Start;
+
+    /// <summary>The example block under the chat colours has been asked for: the page does it a frame
+    /// after the rows, since a hidden view is still built.</summary>
+    public bool ChatExamplesShown
+    {
+        get => _chatExamplesShown;
+        internal set
+        {
+            if (Set(ref _chatExamplesShown, value))
+                OnPropertyChanged(nameof(ShownExamples));
+        }
+    }
+    private bool _chatExamplesShown;
+
+    /// <summary>The lines of the example block: all of <see cref="ChatExamples"/> once
+    /// <see cref="ChatExamplesShown"/>, until then none.</summary>
+    public IReadOnlyList<ChatExampleLine> ShownExamples => _chatExamplesShown ? ChatExamples : [];
+
+    /// <summary>The theme reset button's face.</summary>
+    [SuppressMessage("Performance", "CA1822:Mark members as static",
+        Justification = "Bound from XAML ({Binding ChatResetText}); a binding cannot resolve a static member.")]
+    public string ChatResetText => "Reset " + Glyph.Reset;
 
     /// <summary>The game pane's background, behind the chat preview.</summary>
     public static Microsoft.Maui.Graphics.Color PaneBackground { get; } = RgbColor(CampbellPalette.Rgb[CampbellPalette.BackgroundSlot]);
@@ -503,11 +534,12 @@ public sealed class FkeyEditorViewModel : BaseViewModel
         Action<ClientSettings, string[]> onApply,
         Func<ClientSettings, string[], Task>? onSave)
     {
-        _ = LoadBackupPolicyAsync().ContinueWith(
+        // Off the UI thread: the read of mucka.ini is synchronous inside the gate.
+        _ = Task.Run(LoadBackupPolicyAsync).ContinueWith(
             t => CrashLog.Write("LoadBackupPolicy", t.Exception!.GetBaseException()),
             TaskContinuationOptions.OnlyOnFaulted);
 #if MACCATALYST
-        _ = LoadStorePasswordsSecurelyAsync().ContinueWith(
+        _ = Task.Run(LoadStorePasswordsSecurelyAsync).ContinueWith(
             t => CrashLog.Write("LoadStorePasswordsSecurely", t.Exception!.GetBaseException()),
             TaskContinuationOptions.OnlyOnFaulted);
 #endif

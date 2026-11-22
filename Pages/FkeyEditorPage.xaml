@@ -11,35 +11,12 @@
              SafeAreaEdges="All">
 
     <ContentPage.Resources>
-        <!-- One chat example line, drawn as the pane draws it: its font, and the speaker's and the
-             quoted words' own or other faces. Used beside each chat colour row and in the block below.
+        <!-- One chat example line (ChatExampleLabel): the pane's font, the speaker's and the quoted
+             words' own or other faces. Used beside each wide chat colour row and in the block below.
              Not scaled by the system text size, which the pane does not follow either; the page's
-             wide/narrow test sizes the line from its FontSize. The lead is ChatExampleText.LeadRunCount
-             runs, the odd ones underlined, as the pane underlines a tell's sender and verb. -->
+             wide/narrow test sizes the line from ChatExampleFontSize. -->
         <DataTemplate x:Key="ChatExampleLineTemplate" x:DataType="vm:ChatExampleLine">
-            <Label FontFamily="Cascadia Mono" FontSize="{x:Static pages:FkeyEditorPage.ChatExampleFontSize}"
-                   FontAutoScalingEnabled="False" LineBreakMode="NoWrap">
-                <Label.FormattedText>
-                    <FormattedString>
-                        <Span Text="{Binding Lead0}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
-                        <Span Text="{Binding Lead1}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"
-                              TextDecorations="Underline"/>
-                        <Span Text="{Binding Lead2}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
-                        <Span Text="{Binding Lead3}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"
-                              TextDecorations="Underline"/>
-                        <Span Text="{Binding Lead4}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
-                        <Span Text="{Binding Quoted}" TextColor="{Binding WordsColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding WordsFontFamily}" FontAttributes="{Binding WordsAttributes}"/>
-                        <Span Text="{Binding Tail}" TextColor="{Binding EmoteColor}" FontAutoScalingEnabled="False"
-                              FontFamily="{Binding EmoteFontFamily}" FontAttributes="{Binding EmoteAttributes}"/>
-                    </FormattedString>
-                </Label.FormattedText>
-            </Label>
+            <pages:ChatExampleLabel/>
         </DataTemplate>
     </ContentPage.Resources>
 
@@ -105,29 +82,29 @@
                 <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="5"/>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="3"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsDataTabActive}" Value="True">
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="True">
                             <Setter Property="BackgroundColor" Value="#1f6feb"/>
                         </DataTrigger>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsDataTabActive}" Value="False">
+                        <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="False">
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Data" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Sounds" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsDataTabActive}" Value="True">
+                            <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
                             </DataTrigger>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsDataTabActive}" Value="False">
+                            <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="False">
                                 <Setter Property="TextColor" Value="#888888"/>
                             </DataTrigger>
                         </Label.Triggers>
                     </Label>
                 </Border>
 
-                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                <Border x:Name="FunctionKeysTab" Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="2"/>
@@ -152,7 +129,7 @@
                     </Label>
                 </Border>
 
-                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                <Border x:Name="NavKeysTab" Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
                         <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="4"/>
@@ -177,32 +154,58 @@
                     </Label>
                 </Border>
 
-                <Border Stroke="Transparent" StrokeThickness="0" Padding="14,5">
+                <Border x:Name="DataTab" Stroke="Transparent" StrokeThickness="0" Padding="14,5">
                     <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
                     <Border.GestureRecognizers>
-                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="3"/>
+                        <TapGestureRecognizer Command="{Binding SetTabCommand}" CommandParameter="5"/>
                     </Border.GestureRecognizers>
                     <Border.Triggers>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="True">
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDataTabActive}" Value="True">
                             <Setter Property="BackgroundColor" Value="#1f6feb"/>
                         </DataTrigger>
-                        <DataTrigger TargetType="Border" Binding="{Binding IsSoundsTabActive}" Value="False">
+                        <DataTrigger TargetType="Border" Binding="{Binding IsDataTabActive}" Value="False">
                             <Setter Property="BackgroundColor" Value="#2d333b"/>
                         </DataTrigger>
                     </Border.Triggers>
-                    <Label Text="Sounds" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                    <Label Text="Data" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
                         <Label.Triggers>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="True">
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDataTabActive}" Value="True">
                                 <Setter Property="TextColor" Value="White"/>
                             </DataTrigger>
-                            <DataTrigger TargetType="Label" Binding="{Binding IsSoundsTabActive}" Value="False">
+                            <DataTrigger TargetType="Label" Binding="{Binding IsDataTabActive}" Value="False">
                                 <Setter Property="TextColor" Value="#888888"/>
                             </DataTrigger>
                         </Label.Triggers>
                     </Label>
                 </Border>
 
-                
+                <!-- Narrow: Function Keys, Nav Keys and Data leave the bar for this button's menu
+                     (OnOverflowTabTapped); it lights while one of them is the tab shown. -->
+                <Border x:Name="OverflowTab" IsVisible="False" Stroke="Transparent" StrokeThickness="0" Padding="14,5"
+                        SemanticProperties.Description="More tabs: Function Keys, Nav Keys, Data">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                    <Border.GestureRecognizers>
+                        <TapGestureRecognizer Tapped="OnOverflowTabTapped"/>
+                    </Border.GestureRecognizers>
+                    <Border.Triggers>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsOverflowTabActive}" Value="True">
+                            <Setter Property="BackgroundColor" Value="#1f6feb"/>
+                        </DataTrigger>
+                        <DataTrigger TargetType="Border" Binding="{Binding IsOverflowTabActive}" Value="False">
+                            <Setter Property="BackgroundColor" Value="#2d333b"/>
+                        </DataTrigger>
+                    </Border.Triggers>
+                    <Label Text="&#x22EF;" FontSize="{core:ScaledFont 13}" FontAttributes="Bold" VerticalOptions="Center">
+                        <Label.Triggers>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsOverflowTabActive}" Value="True">
+                                <Setter Property="TextColor" Value="White"/>
+                            </DataTrigger>
+                            <DataTrigger TargetType="Label" Binding="{Binding IsOverflowTabActive}" Value="False">
+                                <Setter Property="TextColor" Value="#888888"/>
+                            </DataTrigger>
+                        </Label.Triggers>
+                    </Label>
+                </Border>
 
             </HorizontalStackLayout>
         </Border>
@@ -214,19 +217,19 @@
             <ScrollView IsVisible="{Binding IsSettingsTabActive}">
                 <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
 
-                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Volume" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="12" VerticalOptions="Center">
+                    <pages:FieldRow LabelWidth="140" Stacked="{Binding StackedFields}">
+                        <Label Text="Volume" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Spacing="12" VerticalOptions="Center">
                             <Label Text="{Binding VolumeDisplay}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    WidthRequest="28" VerticalOptions="Center"/>
                             <Slider Minimum="0" Maximum="100" WidthRequest="160"
                                     Value="{Binding Volume, Mode=TwoWay}"/>
                         </HorizontalStackLayout>
-                    </Grid>
+                    </pages:FieldRow>
 
-                    <Grid ColumnDefinitions="140,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Stat Update (FES)" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                    <pages:FieldRow LabelWidth="140" Stacked="{Binding StackedFields}">
+                        <Label Text="Stat Update (FES)" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrStatFreqCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
@@ -238,7 +241,7 @@
                                     FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
-                    </Grid>
+                    </pages:FieldRow>
 
                     <!-- Beep mute -->
                     <VerticalStackLayout Spacing="6">
@@ -286,28 +289,35 @@
 
 
                         <!-- Advanced (Debug builds only): reset-timer diagnostics into the recording -->
-                        <VerticalStackLayout Spacing="4" Margin="0,12,0,0"
-                                             IsVisible="{Binding IsTtrDiagAvailable}">
-                            <Label Text="Advanced" TextColor="#c9d1d9" FontSize="{core:ScaledFont 14}" FontAttributes="Bold"/>
-                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                                <CheckBox Grid.Column="0"
-                                          IsChecked="{Binding LogResetDiagnostics, Mode=TwoWay}"
-                                          Color="#1f6feb"
-                                          VerticalOptions="Center"/>
-                                <Label Grid.Column="1"
-                                       Text="Log reset-timer (TTR) diagnostics - requires session recording"
-                                       TextColor="#888888" FontSize="{core:ScaledFont 12}"
-                                       VerticalOptions="Center"/>
-                            </Grid>
-                        </VerticalStackLayout>
+                        <pages:LazyView IsVisible="{Binding IsTtrDiagAvailable}">
+                            <pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+                                <VerticalStackLayout Spacing="4" Margin="0,12,0,0">
+                                    <Label Text="Advanced" TextColor="#c9d1d9" FontSize="{core:ScaledFont 14}" FontAttributes="Bold"/>
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <CheckBox Grid.Column="0"
+                                                  IsChecked="{Binding LogResetDiagnostics, Mode=TwoWay}"
+                                                  Color="#1f6feb"
+                                                  VerticalOptions="Center"/>
+                                        <Label Grid.Column="1"
+                                               Text="Log reset-timer (TTR) diagnostics - requires session recording"
+                                               TextColor="#888888" FontSize="{core:ScaledFont 12}"
+                                               VerticalOptions="Center"/>
+                                    </Grid>
+                                </VerticalStackLayout>
+                            </DataTemplate></pages:LazyView.Template>
+                        </pages:LazyView>
 
                     </VerticalStackLayout>
 
                 </VerticalStackLayout>
             </ScrollView>
 
+            <!-- The tabs below the first are LazyViews: each builds its content, the DataTemplate that
+                 wraps it, when first shown, so the page opens with one tab's views, not six. -->
+
             <!-- - HOTKEYS TAB - -->
-            <Grid RowDefinitions="Auto,Auto,*" IsVisible="{Binding IsHotkeysTabActive}">
+            <pages:LazyView IsVisible="{Binding IsHotkeysTabActive}"><pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+            <Grid RowDefinitions="Auto,Auto,*">
 
                 <!-- Save scope: unchecked = global [fkeys]; checked = this profile's section -->
                 <Grid Grid.Row="0" ColumnDefinitions="Auto,*" ColumnSpacing="8" Margin="0,0,0,6">
@@ -366,14 +376,16 @@
                         </Button.Triggers>
                     </Button>
                     <!-- Column 3 is the * spacer -->
-                    <Button Grid.Column="4"
-                            x:Name="ImportButton"
-                            Text="Import"
-                            ToolTipProperties.Text="Import from clio.ini"
-                            IsVisible="False"
-                            BackgroundColor="#2d333b" TextColor="#888888"
-                            FontSize="{core:ScaledFont 12}" WidthRequest="72" HeightRequest="30"
-                            CornerRadius="4" Padding="0"/>
+                    <pages:LazyView Grid.Column="4" IsVisible="{x:Static pages:FkeyEditorPage.CanImport}">
+                        <pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+                            <Button Text="Import"
+                                    ToolTipProperties.Text="Import from clio.ini"
+                                    Clicked="OnImportClicked"
+                                    BackgroundColor="#2d333b" TextColor="#888888"
+                                    FontSize="{core:ScaledFont 12}" WidthRequest="72" HeightRequest="30"
+                                    CornerRadius="4" Padding="0"/>
+                        </DataTemplate></pages:LazyView.Template>
+                    </pages:LazyView>
                 </Grid>
 
                 <!-- F-key list -->
@@ -405,8 +417,11 @@
                 </ScrollView>
             </Grid>
 
+            </DataTemplate></pages:LazyView.Template></pages:LazyView>
+
             <!-- - NAVKEYS TAB - -->
-            <ScrollView IsVisible="{Binding IsNavkeysTabActive}">
+            <pages:LazyView IsVisible="{Binding IsNavkeysTabActive}"><pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+            <ScrollView>
                 <VerticalStackLayout Spacing="12" Padding="0,0,0,12">
                     <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                         <CheckBox Grid.Column="0"
@@ -449,8 +464,11 @@
                 </VerticalStackLayout>
             </ScrollView>
 
+            </DataTemplate></pages:LazyView.Template></pages:LazyView>
+
             <!-- - SOUNDS TAB - -->
-            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8" IsVisible="{Binding IsSoundsTabActive}">
+            <pages:LazyView IsVisible="{Binding IsSoundsTabActive}"><pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+            <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
 
                 <!-- Master row: on/off checkbox, volume slider, reset -->
                 <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnSpacing="8">
@@ -583,8 +601,11 @@
 
             
 
+            </DataTemplate></pages:LazyView.Template></pages:LazyView>
+
             <!-- - DISPLAY TAB - -->
-            <ScrollView IsVisible="{Binding IsDisplayTabActive}">
+            <pages:LazyView IsVisible="{Binding IsDisplayTabActive}" Built="OnDisplayTabBuilt"><pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+            <ScrollView>
                 <VerticalStackLayout Spacing="20" Padding="0,0,0,12">
 
                     <Label Text="These settings apply globally to all profiles."
@@ -595,61 +616,71 @@
 
                     <!-- The Text Wizard (Pages/FontSetupPage), for the two sizes and the chat colours
                          together, with examples. -->
-                    <Button Text="Mucka Text Wizard" Clicked="OnFontSetupClicked"
-                            IsVisible="{OnPlatform Default=True, Android=False, iOS=False}"
-                            HorizontalOptions="Start"
-                            BackgroundColor="#2d333b" TextColor="#58a6ff"
-                            FontSize="{core:ScaledFont 13}" MinimumHeightRequest="30"
-                            CornerRadius="4" Padding="12,0"
-                            ToolTipProperties.Text="Choose the Mucka and game text sizes and the chat colours, with examples. Takes effect on Apply or Save."/>
+                    <pages:LazyView IsVisible="{OnPlatform Default=True, Android=False, iOS=False}" HorizontalOptions="Start">
+                        <pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+                            <Button Text="Mucka Text Wizard" Clicked="OnFontSetupClicked"
+                                    HorizontalOptions="Start"
+                                    BackgroundColor="#2d333b" TextColor="#58a6ff"
+                                    FontSize="{core:ScaledFont 13}" MinimumHeightRequest="30"
+                                    CornerRadius="4" Padding="12,0"
+                                    ToolTipProperties.Text="Choose the Mucka and game text sizes and the chat colours, with examples. Takes effect on Apply or Save."/>
+                        </DataTemplate></pages:LazyView.Template>
+                    </pages:LazyView>
 
-                    <!-- The same two sliders as the Text Wizard, Tiny to Large. -->
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Mucka Text Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                    <!-- The same two sliders as the Text Wizard, Tiny to Large. Beside its label the slider
+                         is a fixed width; stacked it takes the width of the row. -->
+                    <pages:FieldRow Stacked="{Binding StackedFields}">
+                        <Label Text="Mucka Text Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Buttons, menus, the status bar and who is online. Takes effect on Apply or Save."/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
-                            <Label Text="Tiny" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                            <Slider Maximum="{Binding UiFontStepMaximum}" Minimum="{Binding UiFontStepMinimum}"
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8" VerticalOptions="Center"
+                              HorizontalOptions="{Binding SliderFieldAlignment}">
+                            <Label Grid.Column="0" Text="Tiny" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Slider Grid.Column="1" Maximum="{Binding UiFontStepMaximum}" Minimum="{Binding UiFontStepMinimum}"
                                     Value="{Binding UiFontStepValue, Mode=TwoWay}"
-                                    WidthRequest="240" VerticalOptions="Center"
+                                    WidthRequest="{Binding SliderFieldWidth}" VerticalOptions="Center"
                                     MinimumTrackColor="#58a6ff" MaximumTrackColor="#2d333b" ThumbColor="White"
                                     SemanticProperties.Description="Mucka text size"/>
-                            <Label Text="Large" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                            <Label Text="{Binding UiFontStepName, StringFormat='Size: {0}'}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                            <Label Grid.Column="2" Text="Large" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Label Grid.Column="3" Text="{Binding UiFontStepName, StringFormat='Size: {0}'}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    MinimumWidthRequest="110" VerticalOptions="Center"/>
-                        </HorizontalStackLayout>
-                    </Grid>
+                        </Grid>
+                    </pages:FieldRow>
 
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Game Text Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                    <pages:FieldRow Stacked="{Binding StackedFields}">
+                        <Label Text="Game Text Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Everything the game says to you: rooms, chat and the rest."/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="8" VerticalOptions="Center">
-                            <Label Text="Tiny" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                            <Slider Maximum="{Binding FontSizeMaximum}" Minimum="{Binding FontSizeMinimum}"
+                        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8" VerticalOptions="Center"
+                              HorizontalOptions="{Binding SliderFieldAlignment}">
+                            <Label Grid.Column="0" Text="Tiny" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Slider Grid.Column="1" Maximum="{Binding FontSizeMaximum}" Minimum="{Binding FontSizeMinimum}"
                                     Value="{Binding FontSizeValue, Mode=TwoWay}"
-                                    WidthRequest="240" VerticalOptions="Center"
+                                    WidthRequest="{Binding SliderFieldWidth}" VerticalOptions="Center"
                                     MinimumTrackColor="#58a6ff" MaximumTrackColor="#2d333b" ThumbColor="White"
                                     SemanticProperties.Description="Game text size"/>
-                            <Label Text="Large" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                            <Label Text="{Binding FontSizeName, StringFormat='Size: {0}'}" TextColor="White" FontSize="{core:ScaledFont 13}"
+                            <Label Grid.Column="2" Text="Large" TextColor="#cccccc" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                            <Label Grid.Column="3" Text="{Binding FontSizeName, StringFormat='Size: {0}'}" TextColor="White" FontSize="{core:ScaledFont 13}"
                                    MinimumWidthRequest="110" VerticalOptions="Center"/>
-                        </HorizontalStackLayout>
-                    </Grid>
+                        </Grid>
+                    </pages:FieldRow>
 
                     <!-- Mac only: where saved passwords live -->
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12" IsVisible="{Binding IsPasswordStoreAvailable}">
-                        <Label Grid.Column="0" Text="Store Passwords Securely" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
-                               ToolTipProperties.Text="On: saved passwords go in your macOS keychain. Off: they are kept as plain text in ~/.mucka/mucka.ini."/>
-                        <Switch Grid.Column="1" IsToggled="{Binding StorePasswordsSecurely, Mode=TwoWay}"
-                                HorizontalOptions="Start" VerticalOptions="Center"
-                                SemanticProperties.Description="Store passwords securely in the macOS keychain"/>
-                    </Grid>
+                    <pages:LazyView IsVisible="{Binding IsPasswordStoreAvailable}">
+                        <pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+                            <pages:FieldRow Stacked="{Binding StackedFields}">
+                                <Label Text="Store Passwords Securely" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                                       ToolTipProperties.Text="On: saved passwords go in your macOS keychain. Off: they are kept as plain text in ~/.mucka/mucka.ini."/>
+                                <Switch IsToggled="{Binding StorePasswordsSecurely, Mode=TwoWay}"
+                                        HorizontalOptions="Start" VerticalOptions="Center"
+                                        SemanticProperties.Description="Store passwords securely in the macOS keychain"/>
+                            </pages:FieldRow>
+                        </DataTemplate></pages:LazyView.Template>
+                    </pages:LazyView>
 
                     <!-- Dreamword pill size offset -->
-                    <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Dreamword Pill Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                    <pages:FieldRow Stacked="{Binding StackedFields}">
+                        <Label Text="Dreamword Pill Size" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                ToolTipProperties.Text="Adjusts the dreamword chip font size relative to the base. Range: -2 to +4"/>
-                        <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                        <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
                             <Button Text="&#x2212;" Command="{Binding DecrDisplayDreamwordOffsetCommand}"
                                     BackgroundColor="#2d333b" TextColor="#cccccc"
                                     FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
@@ -661,117 +692,105 @@
                                     FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                     CornerRadius="4" Padding="0"/>
                         </HorizontalStackLayout>
-                    </Grid>
+                    </pages:FieldRow>
 
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
                     <!-- - Chat colours - -->
                     <Label Text="Chat colours" TextColor="#58a6ff" FontSize="{core:ScaledFont 13}" FontAttributes="Bold"/>
-                    <Label Text="For everyone's lines. Emotes is who did it, and acts and emotes; the others are the quoted words. A shout or a tell is its own colour from end to end. Each row styles your own messages and other people's separately: italic, bold, dim."
+                    <Label Text="For everyone's lines. Emotes is who did it, and acts and emotes; the others are the quoted words. A shout or a tell is its own colour from end to end. The ... button opens a row's sliders, its italic, bold and dim for your own messages and other people's, and its examples."
                            TextColor="#555555" FontSize="{core:ScaledFont 11}" FontAttributes="Italic"/>
 
-                    <Grid ColumnDefinitions="160,Auto,Auto" ColumnSpacing="12">
-                        <Label Grid.Column="0" Text="Theme" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                        <Button Grid.Column="2"
-                                Text="{Binding ChatResetText}"
-                                Command="{Binding ResetChatColorsCommand}"
-                                ToolTipProperties.Text="Reset colors to the theme defaults"
-                                SemanticProperties.Description="Reset colors to the theme defaults"
-                                BackgroundColor="#2d333b" TextColor="#cccccc"
-                                FontSize="{core:ScaledFont 14}" MinimumWidthRequest="34" HeightRequest="30"
-                                CornerRadius="4" Padding="8,0" VerticalOptions="Center"/>
-                        <Picker Grid.Column="1"
-                                ItemsSource="{Binding ChatThemeNames}"
-                                SelectedIndex="{Binding SelectedChatThemeIndex, Mode=TwoWay}"
-                                SemanticProperties.Description="Chat colour theme"
-                                TextColor="White" TitleColor="#888888"
-                                BackgroundColor="#161b22"
-                                FontSize="{core:ScaledFont 13}" WidthRequest="160"/>
+                    <!-- The theme, then the four colours close together under it: label, hex, swatch, and the
+                         button that opens the colour's own page (ChatColorPage). One Grid so the labels
+                         share a column and the boxes line up. -->
+                    <Grid ColumnDefinitions="2,Auto,Auto,Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                          ColumnSpacing="8" RowSpacing="2">
+                        <Label Grid.Row="0" Grid.Column="1" Text="Theme:" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <HorizontalStackLayout Grid.Row="0" Grid.Column="2" Grid.ColumnSpan="3" Spacing="12" Margin="0,0,0,4">
+                            <Picker ItemsSource="{Binding ChatThemeNames}"
+                                    SelectedIndex="{Binding SelectedChatThemeIndex, Mode=TwoWay}"
+                                    SemanticProperties.Description="Chat colour theme"
+                                    TextColor="White" TitleColor="#888888"
+                                    BackgroundColor="#161b22"
+                                    FontSize="{core:ScaledFont 13}" WidthRequest="160"/>
+                            <Button Text="{Binding ChatResetText}"
+                                    Command="{Binding ResetChatColorsCommand}"
+                                    ToolTipProperties.Text="Reset colors to the theme defaults"
+                                    SemanticProperties.Description="Reset colors to the theme defaults"
+                                    BackgroundColor="#2d333b" TextColor="#cccccc"
+                                    FontSize="{core:ScaledFont 14}" MinimumWidthRequest="34" HeightRequest="30"
+                                    CornerRadius="4" Padding="8,0" VerticalOptions="Center"/>
+                        </HorizontalStackLayout>
+
+                        <BoxView Grid.Row="1" Grid.RowSpan="4" Grid.Column="0" Color="#2d333b"/>
+
+                        <Label Grid.Row="1" Grid.Column="1" Text="{Binding EmoteColor.Label, StringFormat='{0}:'}"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <Entry Grid.Row="1" Grid.Column="2" Text="{Binding EmoteColor.Hex, Mode=TwoWay}" MaxLength="7"
+                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
+                               WidthRequest="90" HeightRequest="38" MinimumHeightRequest="38"/>
+                        <BoxView Grid.Row="1" Grid.Column="3" Color="{Binding EmoteColor.Preview}"
+                                 WidthRequest="22" HeightRequest="22" VerticalOptions="Center"/>
+                        <Button Grid.Row="1" Grid.Column="4" Text="{x:Static core:Glyph.More}" Clicked="OnColorMoreClicked"
+                                CommandParameter="{Binding EmoteColor}"
+                                SemanticProperties.Description="More: the Emotes colour's sliders, faces and examples"
+                                BackgroundColor="#2d333b" TextColor="#cccccc" FontSize="{core:ScaledFont 16}"
+                                WidthRequest="44" HeightRequest="38" MinimumHeightRequest="38" CornerRadius="4" Padding="0"
+                                HorizontalOptions="Start"/>
+
+                        <Label Grid.Row="2" Grid.Column="1" Text="{Binding SayColor.Label, StringFormat='{0}:'}"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <Entry Grid.Row="2" Grid.Column="2" Text="{Binding SayColor.Hex, Mode=TwoWay}" MaxLength="7"
+                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
+                               WidthRequest="90" HeightRequest="38" MinimumHeightRequest="38"/>
+                        <BoxView Grid.Row="2" Grid.Column="3" Color="{Binding SayColor.Preview}"
+                                 WidthRequest="22" HeightRequest="22" VerticalOptions="Center"/>
+                        <Button Grid.Row="2" Grid.Column="4" Text="{x:Static core:Glyph.More}" Clicked="OnColorMoreClicked"
+                                CommandParameter="{Binding SayColor}"
+                                SemanticProperties.Description="More: the Say colour's sliders, faces and examples"
+                                BackgroundColor="#2d333b" TextColor="#cccccc" FontSize="{core:ScaledFont 16}"
+                                WidthRequest="44" HeightRequest="38" MinimumHeightRequest="38" CornerRadius="4" Padding="0"
+                                HorizontalOptions="Start"/>
+
+                        <Label Grid.Row="3" Grid.Column="1" Text="{Binding ShoutColor.Label, StringFormat='{0}:'}"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <Entry Grid.Row="3" Grid.Column="2" Text="{Binding ShoutColor.Hex, Mode=TwoWay}" MaxLength="7"
+                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
+                               WidthRequest="90" HeightRequest="38" MinimumHeightRequest="38"/>
+                        <BoxView Grid.Row="3" Grid.Column="3" Color="{Binding ShoutColor.Preview}"
+                                 WidthRequest="22" HeightRequest="22" VerticalOptions="Center"/>
+                        <Button Grid.Row="3" Grid.Column="4" Text="{x:Static core:Glyph.More}" Clicked="OnColorMoreClicked"
+                                CommandParameter="{Binding ShoutColor}"
+                                SemanticProperties.Description="More: the Shout colour's sliders, faces and examples"
+                                BackgroundColor="#2d333b" TextColor="#cccccc" FontSize="{core:ScaledFont 16}"
+                                WidthRequest="44" HeightRequest="38" MinimumHeightRequest="38" CornerRadius="4" Padding="0"
+                                HorizontalOptions="Start"/>
+
+                        <Label Grid.Row="4" Grid.Column="1" Text="{Binding TellColor.Label, StringFormat='{0}:'}"
+                               TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
+                        <Entry Grid.Row="4" Grid.Column="2" Text="{Binding TellColor.Hex, Mode=TwoWay}" MaxLength="7"
+                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
+                               WidthRequest="90" HeightRequest="38" MinimumHeightRequest="38"/>
+                        <BoxView Grid.Row="4" Grid.Column="3" Color="{Binding TellColor.Preview}"
+                                 WidthRequest="22" HeightRequest="22" VerticalOptions="Center"/>
+                        <Button Grid.Row="4" Grid.Column="4" Text="{x:Static core:Glyph.More}" Clicked="OnColorMoreClicked"
+                                CommandParameter="{Binding TellColor}"
+                                SemanticProperties.Description="More: the Tell colour's sliders, faces and examples"
+                                BackgroundColor="#2d333b" TextColor="#cccccc" FontSize="{core:ScaledFont 16}"
+                                WidthRequest="44" HeightRequest="38" MinimumHeightRequest="38" CornerRadius="4" Padding="0"
+                                HorizontalOptions="Start"/>
                     </Grid>
 
-                    <!-- Each row: label, controls (the Auto column the page measures for the wide/narrow
-                         switch), and on a wide window the examples that row covers, sized to their text
-                         and set hard against the controls; any width left over is blank on the right. -->
-                    <VerticalStackLayout x:Name="ChatRows" Spacing="10" BindableLayout.ItemsSource="{Binding ChatColors}">
-                        <BindableLayout.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ChatColorEditorItem">
-                                <Grid ColumnDefinitions="160,Auto,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="2">
-                                    <Label Grid.Column="0" Text="{Binding Label}" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"/>
-                                    <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
-                                        <Label Text="#" TextColor="#888888" FontSize="{core:ScaledFont 14}" VerticalOptions="Center"/>
-                                        <Entry Text="{Binding Hex, Mode=TwoWay}" MaxLength="7"
-                                               BackgroundColor="#161b22" TextColor="#cccccc" FontSize="{core:ScaledFont 13}"
-                                               WidthRequest="90" HeightRequest="34"/>
-                                        <BoxView Color="{Binding Preview}" WidthRequest="22" HeightRequest="22"
-                                                 VerticalOptions="Center" Margin="6,0,0,0"/>
-                                    </HorizontalStackLayout>
-                                    <HorizontalStackLayout Grid.Row="1" Grid.Column="1" Spacing="6">
-                                        <Label Text="R" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
-                                        <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding R, Mode=TwoWay}"/>
-                                        <Label Text="{Binding RText}" TextColor="White" FontSize="{core:ScaledFont 12}" WidthRequest="26" VerticalOptions="Center"/>
-                                        <Label Text="G" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
-                                        <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding G, Mode=TwoWay}"/>
-                                        <Label Text="{Binding GText}" TextColor="White" FontSize="{core:ScaledFont 12}" WidthRequest="26" VerticalOptions="Center"/>
-                                        <Label Text="B" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
-                                        <Slider Minimum="0" Maximum="255" WidthRequest="110" Value="{Binding B, Mode=TwoWay}"/>
-                                        <Label Text="{Binding BText}" TextColor="White" FontSize="{core:ScaledFont 12}" WidthRequest="26" VerticalOptions="Center"/>
-                                    </HorizontalStackLayout>
-                                    <HorizontalStackLayout Grid.Row="2" Grid.Column="1" Spacing="2">
-                                        <Label Text="own:" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center" Margin="0,0,4,0"/>
-                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
-                                            <CheckBox IsChecked="{Binding OwnItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
-                                            <Label Text="italic" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Italic" VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
-                                            <CheckBox IsChecked="{Binding OwnBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
-                                            <Label Text="bold" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Bold" VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                        <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
-                                            <CheckBox IsChecked="{Binding OwnDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
-                                            <Label Text="dim" TextColor="#777777" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                        <Label Text="other:" TextColor="#888888" FontSize="{core:ScaledFont 12}" VerticalOptions="Center" Margin="18,0,4,0"/>
-                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
-                                            <CheckBox IsChecked="{Binding OtherItalic, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
-                                            <Label Text="italic" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Italic" VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                        <HorizontalStackLayout Spacing="2" Margin="0,0,12,0">
-                                            <CheckBox IsChecked="{Binding OtherBold, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
-                                            <Label Text="bold" TextColor="#cccccc" FontSize="{core:ScaledFont 12}" FontAttributes="Bold" VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                        <HorizontalStackLayout Spacing="2" Margin="0,0,0,0">
-                                            <CheckBox IsChecked="{Binding OtherDim, Mode=TwoWay}" Color="#1f6feb" VerticalOptions="Center"
-                                                      MinimumWidthRequest="0" WidthRequest="{OnPlatform WinUI=32, Android=44, iOS=44, Default=32}"/>
-                                            <Label Text="dim" TextColor="#777777" FontSize="{core:ScaledFont 12}" VerticalOptions="Center"/>
-                                        </HorizontalStackLayout>
-                                    </HorizontalStackLayout>
-                                    <Border Grid.Column="2" Grid.RowSpan="3" IsVisible="{Binding ShowExamples}"
-                                            HorizontalOptions="Start"
-                                            BackgroundColor="{x:Static vm:FkeyEditorViewModel.PaneBackground}" StrokeThickness="0"
-                                            Padding="{x:Static pages:FkeyEditorPage.ChatExamplePadding}">
-                                        <VerticalStackLayout Spacing="2" VerticalOptions="Center"
-                                                             BindableLayout.ItemsSource="{Binding Examples}"
-                                                             BindableLayout.ItemTemplate="{StaticResource ChatExampleLineTemplate}"/>
-                                    </Border>
-                                </Grid>
-                            </DataTemplate>
-                        </BindableLayout.ItemTemplate>
-                    </VerticalStackLayout>
-
-                    <!-- Every example in one block, on a window too narrow to set them beside their rows. -->
-                    <Border IsVisible="{Binding ChatExamplesBelow}"
-                            HorizontalOptions="Start"
+                    <!-- Every example in one block, built a frame after the rows. -->
+                    <Border IsVisible="{Binding ChatExamplesShown}" HorizontalOptions="Start"
                             BackgroundColor="{x:Static vm:FkeyEditorViewModel.PaneBackground}" StrokeThickness="0"
                             Padding="{x:Static pages:FkeyEditorPage.ChatExamplePadding}">
                         <VerticalStackLayout Spacing="2"
-                                             BindableLayout.ItemsSource="{Binding ChatExamples}"
+                                             BindableLayout.ItemsSource="{Binding ShownExamples}"
                                              BindableLayout.ItemTemplate="{StaticResource ChatExampleLineTemplate}"/>
                     </Border>
+
 
                     <BoxView Color="#2d333b" HeightRequest="1"/>
 
@@ -789,10 +808,10 @@
                     <!-- Sub-settings for Show Online (indent 28dp to align with label) -->
                     <VerticalStackLayout Margin="28,0,0,0" Spacing="8" IsEnabled="{Binding ShowOnline}">
 
-                        <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                            <Label Grid.Column="0" Text="Max online" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                        <pages:FieldRow Stacked="{Binding StackedFields}">
+                            <Label Text="Max online" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="Maximum number of players shown in the list. 0 = unlimited."/>
-                            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
                                 <Button Text="&#x2212;" Command="{Binding DecrMaxOnlineCommand}"
                                         BackgroundColor="#2d333b" TextColor="#cccccc"
                                         FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
@@ -804,13 +823,13 @@
                                         FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                         CornerRadius="4" Padding="0"/>
                             </HorizontalStackLayout>
-                        </Grid>
+                        </pages:FieldRow>
 
                         <!-- Forget window: minutes a departed player lingers in the Recent list -->
-                        <Grid ColumnDefinitions="160,*" ColumnSpacing="12">
-                            <Label Grid.Column="0" Text="Offline window" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
+                        <pages:FieldRow Stacked="{Binding StackedFields}">
+                            <Label Text="Offline window" TextColor="#888888" FontSize="{core:ScaledFont 13}" VerticalOptions="Center"
                                    ToolTipProperties.Text="How long a player who drops off the Online list lingers in a quiet 'Recent' list below it before being forgotten. 0 = off (forget immediately). Max 10 min."/>
-                            <HorizontalStackLayout Grid.Column="1" Spacing="6" VerticalOptions="Center">
+                            <HorizontalStackLayout Spacing="6" VerticalOptions="Center">
                                 <Button Text="&#x2212;" Command="{Binding DecrForgetWindowCommand}"
                                         BackgroundColor="#2d333b" TextColor="#cccccc"
                                         FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
@@ -822,7 +841,7 @@
                                         FontSize="{core:ScaledFont 15}" WidthRequest="34" HeightRequest="30"
                                         CornerRadius="4" Padding="0"/>
                             </HorizontalStackLayout>
-                        </Grid>
+                        </pages:FieldRow>
 
                         <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
                             <CheckBox Grid.Column="0" IsChecked="{Binding FloatOnline, Mode=TwoWay}"
@@ -883,8 +902,11 @@
                 </VerticalStackLayout>
             </ScrollView>
 
+            </DataTemplate></pages:LazyView.Template></pages:LazyView>
+
             <!-- - DATA TAB - -->
-            <ScrollView IsVisible="{Binding IsDataTabActive}">
+            <pages:LazyView IsVisible="{Binding IsDataTabActive}"><pages:LazyView.Template><DataTemplate x:DataType="vm:FkeyEditorViewModel">
+            <ScrollView>
                 <VerticalStackLayout Spacing="14" Padding="0,0,0,12">
 
                     <Label Text="Applies to all profiles, straight away."
@@ -927,6 +949,7 @@
 
                 </VerticalStackLayout>
             </ScrollView>
+            </DataTemplate></pages:LazyView.Template></pages:LazyView>
 
         </Grid>
 

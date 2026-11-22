@@ -15,7 +15,22 @@ public partial class FkeyEditorPage : ContentPage
 
     // Mac Catalyst filters by uniform type identifier, not extension.
     private static readonly string[] IniUniformTypes = ["public.text", "public.data"];
+
+    /// <summary>The Function Keys tab's Import button is there.</summary>
+    public const bool CanImport = true;
+#else
+    public const bool CanImport = false;
 #endif
+
+    // Narrower than this, the tab bar cannot hold every tab: Function Keys, Nav Keys and Data go to
+    // the overflow button's menu. The same width the profile page goes narrow at.
+    private const double NarrowMaxWidthDp = 600.0;
+
+    private const string FunctionKeysChoice = "Function Keys";
+    private const string NavKeysChoice = "Nav Keys";
+    private const string DataChoice = "Data";
+
+    private bool? _narrow;
 
     /// <summary>The chat examples' font size, as the XAML draws them.</summary>
     public const double ChatExampleFontSize = 14;
@@ -23,19 +38,88 @@ public partial class FkeyEditorPage : ContentPage
     /// <summary>The padding of the pane-coloured box the chat examples sit in.</summary>
     public static readonly Thickness ChatExamplePadding = new(10, 8);
 
-    // Cascadia Mono, upright and italic alike: every glyph advances 1200 of the font's 2048 units per em.
-    private const double CascadiaMonoAdvanceEm = 1200.0 / 2048.0;
-
     public FkeyEditorPage(FkeyEditorViewModel vm)
     {
         InitializeComponent();
         _vm = vm;
         BindingContext = vm;
-        ChatRows.SizeChanged += (_, _) => PlaceChatExamples();
-#if DESKTOP
-        ImportButton.IsVisible = true;
-#endif
     }
+
+    protected override void OnSizeAllocated(double width, double height)
+    {
+        base.OnSizeAllocated(width, height);
+        if (width <= 0) return;
+        var narrow = width < NarrowMaxWidthDp;
+        if (_narrow == narrow) return;
+        _narrow = narrow;
+        FunctionKeysTab.IsVisible = NavKeysTab.IsVisible = DataTab.IsVisible = !narrow;
+        OverflowTab.IsVisible = narrow;
+        _vm.StackedFields = narrow;
+    }
+
+    /// <summary>The overflow button: the tabs the narrow bar has no room for.</summary>
+    private async void OnOverflowTabTapped(object? sender, TappedEventArgs e)
+    {
+        var pick = await Mucka.Core.ActionMenu.ShowAsync(this, OverflowTab, "Settings", "Cancel", null,
+            FunctionKeysChoice, NavKeysChoice, DataChoice);
+        switch (pick)
+        {
+            case FunctionKeysChoice:
+                _vm.ActiveTab = 2;
+                break;
+            case NavKeysChoice:
+                _vm.ActiveTab = 4;
+                break;
+            case DataChoice:
+                _vm.ActiveTab = 5;
+                break;
+        }
+    }
+
+    // The frame between the Display tab's content and its example block, which draws the content first.
+    private const int ExamplesRevealMs = 30;
+
+    private async void OnDisplayTabBuilt(object? sender, EventArgs e)
+    {
+        await Task.Delay(ExamplesRevealMs);
+        _vm.ChatExamplesShown = true;
+    }
+
+    private ChatColorPage? _colorPage;
+
+    /// <summary>A chat colour's "...": its own page over this one, with the colour box, sliders, faces and
+    /// examples. Its edits are the row's own, taking effect on Apply or Save like the rest.</summary>
+    private async void OnColorMoreClicked(object? sender, EventArgs e)
+    {
+        if (_colorPage is not null || _closed || (sender as Button)?.CommandParameter is not Mucka.ViewModels.ChatColorEditorItem row)
+            return;
+        var page = new ChatColorPage(row);
+        _colorPage = page;
+        try
+        {
+            await Navigation.PushModalAsync(page, Mucka.Core.NavAnimation.ModalAnimated);
+            await page.Closed;
+        }
+        catch (Exception ex)
+        {
+            Mucka.Core.CrashLog.Write("ChatColor", ex);
+        }
+        finally
+        {
+            _colorPage = null;
+        }
+    }
+
+#if WINDOWS || UIKIT
+    /// <summary>Escape: closes the colour page when one is open over this page, else cancels the editor.</summary>
+    private void OnEscape()
+    {
+        if (_colorPage is { } colour)
+            _ = colour.CloseAsync();
+        else
+            _vm.CancelCommand.Execute(null);
+    }
+#endif
 
     protected override void OnAppearing()
     {
@@ -47,19 +131,13 @@ public partial class FkeyEditorPage : ContentPage
         _vm.CloseRequested += OnCloseRequested;
         _vm.SaveFailed -= OnSaveFailed;
         _vm.SaveFailed += OnSaveFailed;
-        DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
-        DeviceDisplay.Current.MainDisplayInfoChanged += OnMainDisplayInfoChanged;
-#if DESKTOP
-        ImportButton.Clicked -= OnImportClickedAsync;
-        ImportButton.Clicked += OnImportClickedAsync;
-#endif
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
             root.PreviewKeyDown += OnWindowPreviewKeyDown;
 #elif UIKIT
         MacEscape.Detach(_macEscape);
-        _macEscape = MacEscape.Attach(this, () => _vm.CancelCommand.Execute(null));
+        _macEscape = MacEscape.Attach(this, OnEscape);
 #endif
     }
 
@@ -68,10 +146,6 @@ public partial class FkeyEditorPage : ContentPage
         base.OnDisappearing();
         _vm.CloseRequested -= OnCloseRequested;
         _vm.SaveFailed -= OnSaveFailed;
-        DeviceDisplay.Current.MainDisplayInfoChanged -= OnMainDisplayInfoChanged;
-#if DESKTOP
-        ImportButton.Clicked -= OnImportClickedAsync;
-#endif
 #if WINDOWS
         if (Window?.Handler?.PlatformView is Microsoft.UI.Xaml.Window win &&
             win.Content is Microsoft.UI.Xaml.UIElement root)
@@ -80,41 +154,6 @@ public partial class FkeyEditorPage : ContentPage
         MacEscape.Detach(_macEscape);
         _macEscape = null;
 #endif
-    }
-
-    // A rotation on Android reconfigures the activity in place (MainActivity's ConfigurationChanges),
-    // so re-place the examples off the post-rotation layout as well as off the rows' own resize.
-    private void OnMainDisplayInfoChanged(object? sender, DisplayInfoChangedEventArgs e)
-        => Dispatcher.Dispatch(PlaceChatExamples);
-
-    /// <summary>
-    /// Puts each chat colour row's examples beside its controls when the row can hold the label
-    /// column, the controls at their measured width and the longest example unclipped; otherwise
-    /// keeps them in the one block below. The controls come from the layout (the Auto column
-    /// measures them unconstrained, in either placement), the examples from their character count
-    /// in the monospaced terminal font, so neither side of the test changes with the placement.
-    /// </summary>
-    private void PlaceChatExamples()
-    {
-        double available = ChatRows.Width;
-        if (available <= 0) return;
-
-        Grid? first = null;
-        double controls = 0;
-        foreach (var row in ChatRows.Children.OfType<Grid>())
-        {
-            first ??= row;
-            foreach (var stack in row.Children.OfType<HorizontalStackLayout>())
-                controls = Math.Max(controls, stack.DesiredSize.Width);
-        }
-        if (first is null || controls <= 0 || _vm.ChatExamples.Count == 0) return;
-
-        // One spare advance beyond the longest line, so layout rounding or a bold face's ink overhang
-        // cannot clip the last glyph of a NoWrap line on a window exactly at the threshold.
-        double examples = (_vm.ChatExamples.Max(line => line.Length) + 1) * ChatExampleFontSize * CascadiaMonoAdvanceEm
-                        + ChatExamplePadding.HorizontalThickness;
-        double needed = first.ColumnDefinitions[0].Width.Value + 2 * first.ColumnSpacing + controls + examples;
-        _vm.ChatExamplesBeside = available >= needed;
     }
 
     private bool _closed;
@@ -158,14 +197,16 @@ public partial class FkeyEditorPage : ContentPage
     /// Closes this page, at most once, and only while it is genuinely the top modal. Both guards
     /// matter because GamePage can close this page out from under the player (being dropped from
     /// the game outranks editing settings) - a bare <c>PopModalAsync()</c> racing that would pop
-    /// whatever is on top instead, which is by then the persona-login overlay. The Text size page,
-    /// when it is open over this one, is closed first, as a Cancel.
+    /// whatever is on top instead, which is by then the persona-login overlay. A colour page or the
+    /// Text size page, when open over this one, is closed first (the Text size page as a Cancel).
     /// </summary>
     public async Task CloseAsync()
     {
         if (_closed)
             return;
         _closed = true;
+        if (_colorPage is { } colour)
+            await colour.CloseAsync();
         if (_fontSetup is { } fontSetup)
             await fontSetup.CloseAsync(null);
 
@@ -187,13 +228,20 @@ public partial class FkeyEditorPage : ContentPage
         if (e.Key == Windows.System.VirtualKey.Escape)
         {
             e.Handled = true;
-            _vm.CancelCommand.Execute(null);
+            OnEscape();
         }
     }
 #endif
 
+    private void OnImportClicked(object? sender, EventArgs e)
+    {
 #if DESKTOP
-    private async void OnImportClickedAsync(object? sender, EventArgs e)
+        _ = ImportAsync();
+#endif
+    }
+
+#if DESKTOP
+    private async Task ImportAsync()
     {
         try
         {

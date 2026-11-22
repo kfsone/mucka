@@ -34,16 +34,8 @@ public sealed class ChatColorEditorItem : BaseViewModel
     /// <summary>The message part this row colours and styles.</summary>
     public SpeechPart Part { get; }
 
-    /// <summary>The example lines this row's setting covers, drawn beside its controls.</summary>
+    /// <summary>The example lines this row's setting covers, drawn on its page.</summary>
     public IReadOnlyList<ChatExampleLine> Examples { get; internal set; } = [];
-
-    /// <summary>Whether <see cref="Examples"/> show beside this row; set with the editor's layout.</summary>
-    public bool ShowExamples
-    {
-        get => _showExamples;
-        internal set => Set(ref _showExamples, value);
-    }
-    private bool _showExamples;
 
     /// <summary>The colour as saved: 6 lowercase hex digits, no '#'.</summary>
     public string Hex6 => ChatColorizer.ToHex(_rgb);

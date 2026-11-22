@@ -9,8 +9,7 @@ namespace Mucka.ViewModels;
 /// the quoted words (<see cref="Quoted"/>, drawn in the owning row's face). An act or emote is all
 /// lead. <see cref="Own"/> picks the row's own face or the other-Creature face, and the line follows
 /// both rows live as their controls change. The text, and the lead's underlined runs
-/// (<see cref="Lead0"/> .. <see cref="Lead4"/>, the odd ones underlined), are
-/// <see cref="ChatExampleText"/>'s.
+/// (<see cref="LeadRuns"/>, the odd ones underlined), are <see cref="ChatExampleText"/>'s.
 /// </summary>
 public sealed class ChatExampleLine : BaseViewModel
 {
@@ -25,8 +24,7 @@ public sealed class ChatExampleLine : BaseViewModel
         Lead     = text.Lead;
         Quoted   = text.Quoted;
         Tail     = text.Tail;
-        (Lead0, Lead1, Lead2, Lead3, Lead4) =
-            (text.LeadRuns[0], text.LeadRuns[1], text.LeadRuns[2], text.LeadRuns[3], text.LeadRuns[4]);
+        LeadRuns = text.LeadRuns;
         _emote.PropertyChanged += OnEmoteChanged;
         if (!ReferenceEquals(_words, _emote))
             _words.PropertyChanged += OnWordsChanged;
@@ -39,11 +37,8 @@ public sealed class ChatExampleLine : BaseViewModel
     public string Quoted { get; }
     public string Tail   { get; }
 
-    public string Lead0 { get; }
-    public string Lead1 { get; }
-    public string Lead2 { get; }
-    public string Lead3 { get; }
-    public string Lead4 { get; }
+    /// <summary>The lead cut into <see cref="ChatExampleText.LeadRunCount"/> runs, the odd ones underlined.</summary>
+    public IReadOnlyList<string> LeadRuns { get; }
 
     /// <summary>The line's width in characters, as the terminal font is monospaced.</summary>
     public int Length => Lead.Length + Quoted.Length + Tail.Length;
